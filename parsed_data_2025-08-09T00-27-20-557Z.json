@@ -1,0 +1,213 @@
+{
+  "0": {
+    "[Pb304]": {
+      "meerschwein2": {
+        "Conqueror Mk 2": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.091Z",
+          "destroyedAt": "2025-08-09T00:26:40.107Z"
+        },
+        "Centurion Mk.5/1": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.115Z"
+        },
+        "Centurion Mk 3": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.118Z",
+          "destroyedAt": "2025-08-09T00:26:40.128Z"
+        }
+      }
+    },
+    "=617th=": {
+      "⋇FierceFighter00": {
+        "Tiger II (H)": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.092Z"
+        },
+        "Ostwind II": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.105Z"
+        }
+      },
+      "⋇Potato Man6021": {
+        "Zerstörer 45": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.113Z",
+          "destroyedAt": "2025-08-09T00:26:40.114Z"
+        },
+        "Panther F": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.122Z",
+          "destroyedAt": "2025-08-09T00:26:40.123Z"
+        }
+      }
+    },
+    "[CZADX]": {
+      "⋇Evaterk60b": {
+        "T26E5": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.093Z",
+          "destroyedAt": "2025-08-09T00:26:40.099Z"
+        },
+        "T26E1-1": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.106Z"
+        }
+      }
+    },
+    "[US755]": {
+      "⋇SanyTheHHfan": {
+        "T-44": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.096Z",
+          "destroyedAt": "2025-08-09T00:26:40.108Z"
+        },
+        "2S19M2": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.110Z",
+          "destroyedAt": "2025-08-09T00:26:40.112Z"
+        },
+        "PT-76B": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.116Z",
+          "destroyedAt": "2025-08-09T00:26:40.117Z"
+        },
+        "ZiS-12 (94-KM)": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.119Z",
+          "destroyedAt": "2025-08-09T00:26:40.127Z"
+        }
+      }
+    },
+    "[SBTB]": {
+      "Vanek_shirokov": {
+        "F6F-5": {
+          "status": "active",
+          "firstSeen": "2025-08-09T00:26:40.098Z"
+        },
+        "T29": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.109Z"
+        }
+      }
+    },
+    "=R1999=": {
+      "qqew1980203": {
+        "M48A2 C": {
+          "status": "active",
+          "firstSeen": "2025-08-09T00:26:40.129Z"
+        }
+      }
+    }
+  },
+  "1": {
+    "[Pb304]": {
+      "meerschwein2": {
+        "Centurion Mk 3": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.130Z",
+          "destroyedAt": "2025-08-09T00:26:40.364Z"
+        },
+        "Conqueror Mk 2": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.133Z",
+          "destroyedAt": "2025-08-09T00:26:40.333Z"
+        },
+        "Centurion Mk.5/1": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.158Z",
+          "destroyedAt": "2025-08-09T00:26:40.341Z"
+        }
+      }
+    },
+    "[US755]": {
+      "⋇SanyTheHHfan": {
+        "Yak-9K": {
+          "status": "active",
+          "firstSeen": "2025-08-09T00:26:40.132Z"
+        },
+        "T-44": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.138Z",
+          "destroyedAt": "2025-08-09T00:26:40.334Z"
+        },
+        "2S19M2": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.153Z",
+          "destroyedAt": "2025-08-09T00:26:40.338Z"
+        },
+        "PT-76B": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.159Z",
+          "destroyedAt": "2025-08-09T00:26:40.350Z"
+        },
+        "ZiS-12 (94-KM)": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.163Z",
+          "destroyedAt": "2025-08-09T00:26:40.363Z"
+        }
+      }
+    },
+    "=617th=": {
+      "⋇FierceFighter00": {
+        "Tiger II (H)": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.135Z",
+          "destroyedAt": "2025-08-09T00:26:40.319Z"
+        },
+        "Ostwind II": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.147Z",
+          "destroyedAt": "2025-08-09T00:26:40.331Z"
+        }
+      },
+      "⋇Potato Man6021": {
+        "Zerstörer 45": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.156Z",
+          "destroyedAt": "2025-08-09T00:26:40.340Z"
+        },
+        "Panther F": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.165Z",
+          "destroyedAt": "2025-08-09T00:26:40.359Z"
+        }
+      }
+    },
+    "[CZADX]": {
+      "⋇Evaterk60b": {
+        "T26E5": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.136Z",
+          "destroyedAt": "2025-08-09T00:26:40.325Z"
+        },
+        "T26E1-1": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.148Z",
+          "destroyedAt": "2025-08-09T00:26:40.332Z"
+        }
+      }
+    },
+    "[SBTB]": {
+      "Vanek_shirokov": {
+        "F6F-5": {
+          "status": "active",
+          "firstSeen": "2025-08-09T00:26:40.140Z"
+        },
+        "T29": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T00:26:40.152Z",
+          "destroyedAt": "2025-08-09T00:26:40.335Z"
+        }
+      }
+    },
+    "=R1999=": {
+      "qqew1980203": {
+        "M48A2 C": {
+          "status": "active",
+          "firstSeen": "2025-08-09T00:26:40.173Z"
+        }
+      }
+    }
+  }
+}

@@ -365,6 +365,7 @@ async function monitorTextbox() {
           '<td>' + r.vehicle + '</td>' +
           '<td>' + (r.classification || 'other') + '</td>' +
           '<td class="' + statusClass + '">' + r.status + '</td>' +
+          '<td>' + (r.kills || 0) + '</td>' +
         '</tr>';
       }).join('');
     }
@@ -459,6 +460,7 @@ async function monitorTextbox() {
           <th>Vehicle</th>
           <th>Type</th>
           <th>Status</th>
+          <th>Kills</th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -533,25 +535,33 @@ async function monitorTextbox() {
                 existingData[data.Game][data.Squadron][data.Player] = {};
             }
             
-            // Check if vehicle already exists, or update status if it does
-            if (existingData[data.Game][data.Squadron][data.Player][data.Vehicle]) {
-                // Vehicle exists, update status if it's being destroyed
-                if (data.status === 'destroyed') {
-                    existingData[data.Game][data.Squadron][data.Player][data.Vehicle].status = 'destroyed';
-                    existingData[data.Game][data.Squadron][data.Player][data.Vehicle].destroyedAt = new Date().toISOString();
-                    fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
-                    const message = `💥 Vehicle destroyed - Game: ${data.Game}, Squadron: ${data.Squadron}, Player: ${data.Player}, Vehicle: ${data.Vehicle}`;
-                    console.log(message);
-                    broadcastToWeb(message, 'destroyed');
-                }
-                return;
+            // Ensure vehicle slot exists
+            if (!existingData[data.Game][data.Squadron][data.Player][data.Vehicle]) {
+                existingData[data.Game][data.Squadron][data.Player][data.Vehicle] = {
+                    status: data.status || 'active', // 'active' or 'destroyed'
+                    firstSeen: new Date().toISOString(),
+                    kills: 0
+                };
             }
-            
-            // Add vehicle with status tracking
-            existingData[data.Game][data.Squadron][data.Player][data.Vehicle] = {
-                status: data.status || 'active', // 'active' or 'destroyed'
-                firstSeen: new Date().toISOString()
-            };
+
+            const vehicleRef = existingData[data.Game][data.Squadron][data.Player][data.Vehicle];
+
+            // Update status to destroyed if requested
+            if (data.status === 'destroyed' && vehicleRef.status !== 'destroyed') {
+                vehicleRef.status = 'destroyed';
+                vehicleRef.destroyedAt = new Date().toISOString();
+                const message = `💥 Vehicle destroyed - Game: ${data.Game}, Squadron: ${data.Squadron}, Player: ${data.Player}, Vehicle: ${data.Vehicle}`;
+                console.log(message);
+                broadcastToWeb(message, 'destroyed');
+            }
+
+            // Increment kills if provided
+            if (typeof data.killsDelta === 'number' && data.killsDelta !== 0) {
+                vehicleRef.kills = (vehicleRef.kills || 0) + data.killsDelta;
+                const message = `⚔️ Kill recorded (+${data.killsDelta}) - Game: ${data.Game}, Squadron: ${data.Squadron}, Player: ${data.Player}, Vehicle: ${data.Vehicle}, Total kills: ${vehicleRef.kills}`;
+                console.log(message);
+                broadcastToWeb(message, 'update');
+            }
             
             // Update game state in JSON
             existingData._gameState = {
@@ -561,9 +571,11 @@ async function monitorTextbox() {
             
             // Write back to file
             fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
-            const message = `💾 New unique entry saved - Game: ${data.Game}, Squadron: ${data.Squadron}, Player: ${data.Player}, Vehicle: ${data.Vehicle}`;
-            console.log(message);
-            broadcastToWeb(message, 'info');
+            if (data.status && data.status !== 'destroyed' && typeof data.killsDelta !== 'number') {
+                const message = `💾 New unique entry saved - Game: ${data.Game}, Squadron: ${data.Squadron}, Player: ${data.Player}, Vehicle: ${data.Vehicle}`;
+                console.log(message);
+                broadcastToWeb(message, 'info');
+            }
         } catch (error) {
             console.error('❌ Error saving to JSON:', error);
         }
@@ -674,7 +686,8 @@ async function monitorTextbox() {
                                 status: vehicleData.status,
                                 classification: classifyVehicle(vehicle),
                                 firstSeen: vehicleData.firstSeen,
-                                destroyedAt: vehicleData.destroyedAt || null
+                                destroyedAt: vehicleData.destroyedAt || null,
+                                kills: vehicleData.kills || 0
                             });
                         });
                     });
@@ -741,10 +754,11 @@ async function monitorTextbox() {
                 if (!line.trim()) return; // Skip empty lines
                 
                 // Check for "The Best Squad" achievement to increment game
-                if (line.includes('has achieved "The Best Squad"')) {
-                    window.handleGameIncrement();
+                if (line.includes('has delivered the final blow!')) {
+                    setTimeout(() => {
+                        window.handleGameIncrement();
+                    }, 5000);
                 }
-                
                 // Parse the line for the specific pattern
                 const parseResult = parseNewLine(line);
                 if (parseResult) {
@@ -759,14 +773,16 @@ async function monitorTextbox() {
                             status: 'active'
                         });
 
-                        // Determine if the word "destroyed" precedes this specific vehicle occurrence
+                        // Determine if this specific vehicle is destroyed or has crashed
                         const vehicleText = `(${parseResult.vehicle})`;
                         const lineText = parseResult.originalLine || line;
                         const vehicleIdx = lineText.indexOf(vehicleText);
                         const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
+
                         // Also consider crash events where the vehicle is followed by "has crashed"
                         const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
                         const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1);
+
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
                         const key = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|${status}`;
@@ -802,6 +818,25 @@ async function monitorTextbox() {
                                 status: 'destroyed'
                             });
                         }
+
+                        // Increment kills for attacker if applicable (deduped per exact lineText)
+                        if (killIdx !== -1) {
+                            const killKey = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|kill|${lineText}`;
+                            const prevKill = recentEvents.get(killKey);
+                            const suppressKill = !!(prevKill && (now - prevKill) < 2000); // safer window for re-renders
+                            if (!suppressKill) {
+                                recentEvents.set(killKey, now);
+                                window.saveDataToJSON({
+                                    Game: currentGameNumber,
+                                    Squadron: parseResult.squadron,
+                                    Player: parseResult.player,
+                                    Vehicle: parseResult.vehicle,
+                                    killsDelta: 1
+                                });
+                                // Signal UI to refresh without spamming CLI
+                                window.signalUpdate('kill');
+                            }
+                        }
                     });
                 }
             });
@@ -813,7 +848,9 @@ async function monitorTextbox() {
         // Squadron: starts and ends with various delimiters (^, =, -, [, ], and box drawing characters U+2500-U+257F)
         // Player name: any characters after squadron until opening parenthesis
         // Vehicle: captures content of first complete parentheses group, including nested ones
+
         const regex = /([\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^()]+?)\s+\(([^()]*?(?:\([^()]*\)[^()]*)*)\)/;
+
         const match = line.trim().match(regex);
         
         if (match) {
