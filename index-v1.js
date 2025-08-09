@@ -143,7 +143,7 @@ const loadGameState = () => {
     return false; // Indicate that no state was restored
 };
 
-async function monitorTextbox() {
+async function monitorTextbox(targetUrl) {
     // Game tracking variables are now global
 
     const browser = await puppeteer.launch({
@@ -153,7 +153,7 @@ async function monitorTextbox() {
 
     const page = await browser.newPage();
 
-    await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
     console.log('✅ Page loaded. Watching for updates...');
 
     // JSON file path
@@ -335,7 +335,7 @@ async function monitorTextbox() {
         </div>
     </div>
     <script>
-        const ws = new WebSocket('ws://localhost:3001');
+        const ws = new WebSocket(`ws://${window.location.hostname}:3001`);
         const currentGameEl = document.getElementById('currentGame');
         const totalMatchesEl = document.getElementById('totalMatches');
         const uniquePlayersEl = document.getElementById('uniquePlayers');
@@ -1102,6 +1102,9 @@ async function monitorTextbox() {
 });
 }
 
+// Get target URL from command line arguments
+const targetUrl = process.argv[2] || 'http://localhost:8111';
+
 // Initialize and start monitoring
 console.log('🚀 Starting War Thunder Log Monitor...');
 
@@ -1111,4 +1114,4 @@ loadVehicleClassifications();
 // Load existing game state if file is recent (less than 1 hour old)
 loadGameState();
 
-monitorTextbox().catch(console.error);
+monitorTextbox(targetUrl).catch(console.error);
