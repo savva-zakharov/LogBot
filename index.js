@@ -12,6 +12,23 @@ let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
 const pendingEnrichment = new Set();
 let wikiBrowser = null; // Lazy-initialized Puppeteer browser for wiki scraping
 
+// ---------------- Squadron Summary Mapping ----------------
+// Summary output columns order
+const OUTPUT_ORDER = ['Tanks', 'light', 'Air', 'Heli', 'SPAA', 'Bomber'];
+
+// Map Title Case categories from classifier to summary labels
+const CATEGORY_TO_OUTPUT = {
+  'Medium Tank': 'Tanks',
+  'Heavy Tank': 'Tanks',
+  'Tank destroyer': 'Tanks', // SPG
+  'Light Tank': 'light',
+  'Bomber': 'Bomber',
+  'Attacker': 'Air',
+  'Fighter': 'Air',
+  'Helicopter': 'Heli',
+  'SPAA': 'SPAA',
+};
+
 // Map wiki "type" text to our categories
 const mapWikiTypeToCategory = (typeText) => {
     if (!typeText) return 'other';
@@ -694,8 +711,8 @@ async function monitorTextbox() {
                 broadcastToWeb('🕒 Game increment already scheduled (in 5s)', 'info');
                 return true; // accepted/scheduled
             }
-            console.log('⏳ Game increment will be applied in 5s');
-            broadcastToWeb('⏳ Game increment will be applied in 5s', 'info');
+            console.log('⏳ Game increment will be applied in 1s');
+            broadcastToWeb('⏳ Game increment will be applied in 1s', 'info');
             pendingGameIncrementTimeout = setTimeout(() => {
                 try {
                     currentGame++;
@@ -723,7 +740,7 @@ async function monitorTextbox() {
                 } finally {
                     pendingGameIncrementTimeout = null;
                 }
-            }, 5000);
+            }, 1000);
             return true;
         } else {
             const remainingCooldown = Math.ceil((10000 - timeSinceLastIncrement) / 1000);
@@ -949,21 +966,22 @@ async function monitorTextbox() {
                         const vehicleText = `(${parseResult.vehicle})`;
                         const lineText = parseResult.originalLine || line;
                         const vehicleIdx = lineText.indexOf(vehicleText);
+                        // destroyed must appear BEFORE the vehicle text to count
                         const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
+                        // 'has crashed' appears AFTER the vehicle text on self-crash events
                         const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
-                        const hasDestroyedWord = (lineText.toLowerCase().indexOf('destroyed') !== -1);
 
-                        // Initial write: mark destroyed immediately if the HUD line contains 'destroyed' (covers 'destroyed by ...')
+                        // Initial write: always create/update as active first; status may flip to destroyed below
                         window.saveDataToJSON({
                             Game: currentGameNumber,
                             Squadron: parseResult.squadron,
                             Player: parseResult.player,
                             Vehicle: parseResult.vehicle,
-                            status: hasDestroyedWord ? 'destroyed' : 'active'
+                            status: 'active'
                         });
 
-                        // Compute destroyed state
-                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || hasDestroyedWord;
+                        // Compute destroyed state strictly by position
+                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1);
 
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
@@ -990,7 +1008,7 @@ async function monitorTextbox() {
                             window.broadcastEvent(logMessage, isDestroyed ? 'destroyed' : 'match');
                         }
                         
-                        // Update JSON if this specific vehicle is destroyed
+                        // Update JSON if this specific vehicle is destroyed (per strict rules above)
                         if (isDestroyed) {
                             window.saveDataToJSON({
                                 Game: currentGameNumber,
@@ -1002,7 +1020,8 @@ async function monitorTextbox() {
                         }
 
                         // Increment kills for attacker if applicable (deduped per exact lineText)
-                        if (killIdx !== -1) {
+                        // Optional: only process kill increments if killIdx was defined upstream
+                        if (typeof killIdx !== 'undefined' && killIdx !== -1) {
                             const killKey = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|kill|${lineText}`;
                             const prevKill = recentEvents.get(killKey);
                             const suppressKill = !!(prevKill && (now - prevKill) < 2000); // safer window for re-renders
@@ -1045,14 +1064,15 @@ async function monitorTextbox() {
         const original = String(line).trim();
         const segments = [];
         if (earliest.idx !== -1) {
-            // Before the earliest keyword
-            const before = original.slice(0, earliest.idx).trim();
-            if (before) segments.push(before);
-            // After 'destroyed' specifically
+            // For 'destroyed', ONLY parse the segment to the right of the keyword
             if (earliest.kw === 'destroyed') {
                 let after = original.slice(earliest.idx + 'destroyed'.length).trim();
                 after = after.replace(/^(:|-|–|—|by)\s+/i, '');
                 if (after) segments.push(after);
+            } else {
+                // For other keywords, parse the segment before the keyword (vehicle appears before the phrase)
+                const before = original.slice(0, earliest.idx).trim();
+                if (before) segments.push(before);
             }
         } else {
             // No keywords — fallback to whole line

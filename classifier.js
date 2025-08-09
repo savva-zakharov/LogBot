@@ -11,46 +11,6 @@ const normalizeWhitespaceAndDiacritics = (s) => {
     .trim();
 };
 
-// New taxonomy classifier: light_tank, medium_tank, heavy_tank, spg, spaa, fighter, attacker, bomber, helicopter
-const classifyVehicleNewScheme = (vehicleName, classifications) => {
-  const n = normalizeVehicleName(vehicleName);
-
-  // 0) No overrides: classification relies on comprehensive database + heuristics
-
-  const base = classifyVehicle(vehicleName, classifications);
-
-  // Direct mappings
-  if (base === 'light_scout') return 'light_tank';
-  if (base === 'anti_air') return 'spaa';
-  if (base === 'bombers') return 'bomber';
-  if (base === 'helicopters') return 'helicopter';
-
-  // Aircraft: keep as fixed_wing in the new taxonomy request (no fighter/attacker split)
-  if (base === 'fixed_wing') return 'fixed_wing';
-
-  // Ground split: spg vs heavy vs medium
-  if (base === 'tanks') {
-    // SPG / Tank destroyer indicators
-    const spgPatterns = [
-      /\bjagd/i, /\bstug\b/i, /sturmpanzer/i, /\bisu-?\d*/i, /\bsu-?\d+/i, /\basu-?\d+/i,
-      /\bobj(ect)?\s?(268|704)\b/i, /\bt95\b/i, /\bt28\b/i, /\barcher\b/i, /\bachilles\b/i,
-      /ho-?ri/i, /\b2s1\b/i, /\b2s19\b/i, /\bsub-?i-?ii\b/i, /\bu-?sh\s?204\b/i
-    ];
-    if (spgPatterns.some(r => r.test(vehicleName))) return 'spg';
-
-    // Heavy tank indicators
-    const heavyPatterns = [
-      /\bkv\b/i, /\bis-?\d+/i, /\btiger\b/i, /\bm103\b/i, /\b(t29|t30|t32|t34)\b/i,
-      /\bconqueror\b/i, /\bchieftain\b/i, /\bmaus\b/i, /\be-?100\b/i, /\bst-?i{1,2}\b/i,
-      /\btiger\s?ii\b/i, /\btiger\s?i\b/i, /\bconway\b/i, /\bt26e1-?1\b/i, /\bt26e5\b/i, /super\s?pershing/i
-    ];
-    if (heavyPatterns.some(r => r.test(vehicleName))) return 'heavy_tank';
-
-    return 'medium_tank';
-  }
-
-  return 'other';
-};
 
 // Remove leading non-alphanumeric symbols (e.g., squad icons like ␗, ▅)
 const stripLeadingSymbols = (s) => s.replace(/^[^\p{L}\p{N}]+/u, '');
@@ -71,6 +31,8 @@ const normalizeVehicleName = (name) => {
   out = normalizePunct(out);
   return out.toLowerCase();
 };
+
+module.exports.normalizeVehicleName = normalizeVehicleName;
 
 const loadClassifications = () => {
   try {
@@ -167,13 +129,7 @@ const classifyVehicle = (vehicleName, classifications) => {
   return 'other';
 };
 
-module.exports = {
-  loadClassifications,
-  normalizeVehicleName,
-  classifyVehicle,
-  classifyVehicleNewScheme,
-  extractVehicles,
-};
+// (legacy exports removed)
 
 // ---------------- New-format helpers (vehicle -> category) ----------------
 // Load comprehensive classifications supporting both formats.
@@ -185,11 +141,14 @@ function loadVehicleClassifications() {
     const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'comprehensive_vehicle_classifications.json'), 'utf8'));
     const isNewFormat = raw && Object.values(raw)[0] && typeof Object.values(raw)[0] === 'string';
     if (isNewFormat) {
-      vehicleToCategory = raw;
+      // Normalize categories to Title Case for UI/OUTPUT_ORDER compatibility
+      vehicleToCategory = {};
       vehicleClassifications = {};
-      Object.entries(vehicleToCategory).forEach(([veh, cat]) => {
-        if (!vehicleClassifications[cat]) vehicleClassifications[cat] = [];
-        vehicleClassifications[cat].push(veh);
+      Object.entries(raw).forEach(([veh, catRaw]) => {
+        const mapped = _mapNewTaxonomyToTitleCase(catRaw) || String(catRaw);
+        vehicleToCategory[veh] = mapped;
+        if (!vehicleClassifications[mapped]) vehicleClassifications[mapped] = [];
+        vehicleClassifications[mapped].push(veh);
       });
     } else {
       vehicleClassifications = raw || {};
@@ -198,81 +157,16 @@ function loadVehicleClassifications() {
         (list || []).forEach(v => { vehicleToCategory[v] = cat; });
       });
     }
-  } catch (_) {
+    return { vehicleToCategory, vehicleClassifications };
+  } catch (e) {
     // empty maps
   }
-  return { vehicleToCategory, vehicleClassifications };
 }
 
-// Fast classifier using vehicle->category map with simple heuristics.
-// Optionally invokes enrichCb(name) if unknown.
-function classifyVehicleFast(name, vehicleToCategory, enrichCb) {
-  if (!name || typeof name !== 'string') return 'other';
-  const clean = name.trim();
-  if (vehicleToCategory[clean]) return vehicleToCategory[clean];
-
-  const lower = clean.toLowerCase();
-  for (const [veh, cat] of Object.entries(vehicleToCategory)) {
-    const v = veh.toLowerCase();
-    if (lower === v) return cat;
-    if (lower.includes(v) || v.includes(lower)) return cat;
-    const vars = [
-      [v.replace(/\s+/g, ''), lower.replace(/\s+/g, '')],
-      [v.replace(/[()]/g, ''), lower.replace(/[()]/g, '')],
-      [v.replace(/mk\.?/gi, 'mark'), lower.replace(/mk\.?/gi, 'mark')],
-      [v.replace(/\-/g, ''), lower.replace(/\-/g, '')]
-    ];
-    for (const [a, b] of vars) {
-      if (a === b || a.includes(b) || b.includes(a)) return cat;
-    }
-  }
-  if (typeof enrichCb === 'function') {
-    try { enrichCb(name); } catch (_) {}
-  }
-  return 'other';
-}
-
-// Expose new helpers alongside existing API
+// Expose helpers
 module.exports.loadVehicleClassifications = loadVehicleClassifications;
-module.exports.classifyVehicleFast = classifyVehicleFast;
 
-// Classify directly into the new taxonomy using vehicle->category map.
-// Categories: light_tank, medium_tank, heavy_tank, spg, spaa, bomber, fixed_wing, helicopter
-function classifyVehicleNewTaxonomy(name, vehicleToCategory, enrichCb) {
-  const base = classifyVehicleFast(name, vehicleToCategory, enrichCb);
-  const n = normalizeVehicleName(name);
-  // Direct one-to-one mappings
-  if (base === 'anti_air' || base === 'spaa') return 'spaa';
-  if (base === 'bombers' || base === 'bomber') return 'bomber';
-  if (base === 'helicopters' || base === 'helicopter') return 'helicopter';
-  if (base === 'light_scout' || base === 'light_tank') return 'light_tank';
-  if (base === 'fixed_wing') return 'fixed_wing';
-
-  // Tanks split: spg vs heavy vs medium
-  if (base === 'tanks' || base === 'medium_tank' || base === 'heavy_tank' || base === 'spg') {
-    // SPG patterns
-    const spgPatterns = [
-      /\bjagd/i, /\bstug\b/i, /sturmpanzer/i, /\bisu-?\d*/i, /\bsu-?\d+/i, /\basu-?\d+/i,
-      /\bobj(ect)?\s?(268|704)\b/i, /\bt95\b/i, /\bt28\b/i, /\barcher\b/i, /\bachilles\b/i,
-      /ho-?ri/i, /\b2s1\b/i, /\b2s19\b/i, /\bsub-?i-?ii\b/i, /\bu-?sh\s?204\b/i
-    ];
-    if (spgPatterns.some(r => r.test(name) || r.test(n))) return 'spg';
-
-    // Heavy patterns
-    const heavyPatterns = [
-      /\bkv\b/i, /\bis-?\d+/i, /\btiger\b/i, /\bm103\b/i, /\b(t29|t30|t32|t34)\b/i,
-      /\bconqueror\b/i, /\bchieftain\b/i, /\bmaus\b/i, /\be-?100\b/i, /\bst-?i{1,2}\b/i,
-      /\btiger\s?ii\b/i, /\btiger\s?i\b/i, /\bconway\b/i, /\bt26e1-?1\b/i, /\bt26e5\b/i, /super\s?pershing/i
-    ];
-    if (heavyPatterns.some(r => r.test(name) || r.test(n))) return 'heavy_tank';
-
-    return 'medium_tank';
-  }
-
-  return base || 'other';
-}
-
-module.exports.classifyVehicleNewTaxonomy = classifyVehicleNewTaxonomy;
+// (Removed legacy classifyVehicleNewTaxonomy)
 
 // Strict classifier: return exactly what's in the table or 'other'.
 // No heuristics, no enrichment, no normalization beyond trim.
@@ -285,3 +179,79 @@ function classifyVehicleStrict(name, vehicleToCategory) {
 }
 
 module.exports.classifyVehicleStrict = classifyVehicleStrict;
+
+// Strict + background enrichment using enrich_from_wiki.js
+const _pendingWiki = new Set();
+
+function _mapNewTaxonomyToTitleCase(cat) {
+  switch (cat) {
+    case 'heavy_tank': return 'Heavy Tank';
+    case 'medium_tank': return 'Medium Tank';
+    case 'light_tank': return 'Light Tank';
+    case 'spg': return 'Tank destroyer';
+    case 'spaa': return 'SPAA';
+    case 'bomber': return 'Bomber';
+    case 'fighter':
+    case 'attacker':
+    case 'fixed_wing': return 'Fighter';
+    case 'helicopter': return 'Helicopter';
+    default: return null;
+  }
+}
+
+function _persistVehicleMapping(vehicleName, categoryTitle) {
+  try {
+    const file = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
+    let raw = {};
+    if (fs.existsSync(file)) raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const isMap = raw && typeof Object.values(raw)[0] === 'string';
+    let map = {};
+    if (isMap) {
+      map = raw;
+    } else {
+      Object.entries(raw || {}).forEach(([cat, list]) => {
+        if (Array.isArray(list)) list.forEach(v => { map[v] = cat; });
+      });
+    }
+    if (!map[vehicleName]) {
+      map[vehicleName] = categoryTitle;
+      fs.writeFileSync(file, JSON.stringify(map, null, 2), 'utf8');
+    }
+  } catch (e) {
+    console.error('❌ Failed saving classification:', e);
+  }
+}
+
+function classifyVehicleStrictWithEnrichment(name, vehicleToCategory) {
+  const res = classifyVehicleStrict(name, vehicleToCategory);
+  if (res !== 'other') return res;
+
+  const vehicleName = String(name || '').trim();
+  if (!vehicleName || _pendingWiki.has(vehicleName)) return 'other';
+  _pendingWiki.add(vehicleName);
+
+  (async () => {
+    try {
+      const { classifyViaWiki } = require('./enrich_from_wiki');
+      const result = await classifyViaWiki(vehicleName);
+      if (result && result.category) {
+        const title = _mapNewTaxonomyToTitleCase(result.category);
+        if (title) {
+          console.log(`🔎 Learned from Wiki: ${vehicleName} -> ${title} (${result.source || 'wiki'})`);
+          _persistVehicleMapping(vehicleName, title);
+          if (vehicleToCategory) vehicleToCategory[vehicleName] = title;
+        }
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      _pendingWiki.delete(vehicleName);
+    }
+  })();
+
+  return 'other';
+}
+
+module.exports.classifyVehicleStrictWithEnrichment = classifyVehicleStrictWithEnrichment;
+
+// Duplicate legacy block removed
