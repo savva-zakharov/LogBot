@@ -1868,6 +1868,11 @@
         "M53/59": {
           "status": "active",
           "firstSeen": "2025-08-09T14:51:05.984Z"
+        },
+        "BTR-ZD": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T14:52:25.274Z",
+          "destroyedAt": "2025-08-09T14:52:25.276Z"
         }
       },
       "Mindbird": {
@@ -1879,6 +1884,16 @@
         "T-54": {
           "status": "active",
           "firstSeen": "2025-08-09T14:51:05.981Z"
+        }
+      },
+      "GermanySufers": {
+        "F4U-7": {
+          "status": "active",
+          "firstSeen": "2025-08-09T14:51:57.872Z"
+        },
+        "AMX-50 Surbaissé": {
+          "status": "active",
+          "firstSeen": "2025-08-09T14:53:40.330Z"
         }
       }
     },
@@ -1894,8 +1909,13 @@
     "[VOINY]": {
       "makcimby": {
         "T32E1": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T14:49:45.847Z",
+          "destroyedAt": "2025-08-09T14:52:50.279Z"
+        },
+        "M163": {
           "status": "active",
-          "firstSeen": "2025-08-09T14:49:45.847Z"
+          "firstSeen": "2025-08-09T14:53:42.412Z"
         }
       }
     },
@@ -1926,6 +1946,11 @@
         "AMX-50 Surbaissé": {
           "status": "active",
           "firstSeen": "2025-08-09T14:50:11.917Z"
+        },
+        "AML-90": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T14:51:40.990Z",
+          "destroyedAt": "2025-08-09T14:51:41.026Z"
         }
       }
     },
@@ -1954,10 +1979,35 @@
           "firstSeen": "2025-08-09T14:51:00.980Z"
         }
       }
+    },
+    "-Crawl-": {
+      "halvfinsken": {
+        "Ikv 91": {
+          "status": "active",
+          "firstSeen": "2025-08-09T14:51:33.793Z"
+        }
+      },
+      "TjockJugge": {
+        "Leopard I": {
+          "status": "active",
+          "firstSeen": "2025-08-09T14:53:42.418Z"
+        }
+      }
+    }
+  },
+  "10": {
+    "-JGRLK-": {
+      "高桥不凉介": {
+        "C. 205N2": {
+          "status": "destroyed",
+          "firstSeen": "2025-08-09T14:54:18.827Z",
+          "destroyedAt": "2025-08-09T14:54:18.977Z"
+        }
+      }
     }
   },
   "_gameState": {
-    "currentGame": 9,
-    "lastGameIncrementTime": 1754750964584
+    "currentGame": 10,
+    "lastGameIncrementTime": 1754751225335
   }
 }
