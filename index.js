@@ -145,6 +145,11 @@ async function monitorTextbox() {
     // JSON file path
     const jsonFilePath = path.join(__dirname, 'parsed_data.json');
     
+    // Cooldown notification timer (avoid spamming logs)
+    let gameCooldownNotifyTimeout = null;
+    // Pending delayed game increment (avoid stacking multiple schedules)
+    let pendingGameIncrementTimeout = null;
+    
     // Handle existing JSON file
     let shouldResetFile = true;
     
@@ -571,40 +576,57 @@ async function monitorTextbox() {
         
         // Check if 10 seconds (10000ms) have passed since last increment
         if (timeSinceLastIncrement >= 10000) {
-            currentGame++;
-            lastGameIncrementTime = now;
-            
-            // Persist game state to JSON immediately
-            try {
-                let existingData = {};
-                try {
-                    const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
-                    if (fileContent.trim()) {
-                        existingData = JSON.parse(fileContent);
-                    }
-                } catch (parseError) {
-                    existingData = {};
-                }
-                
-                existingData._gameState = {
-                    currentGame: currentGame,
-                    lastGameIncrementTime: lastGameIncrementTime
-                };
-                
-                fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
-            } catch (error) {
-                console.error('❌ Error persisting game state:', error);
+            // Schedule a single delayed increment (5s)
+            if (pendingGameIncrementTimeout) {
+                console.log('🕒 Game increment already scheduled (in 5s)');
+                broadcastToWeb('🕒 Game increment already scheduled (in 5s)', 'info');
+                return true; // accepted/scheduled
             }
-            
-            const message = `🎮 Game incremented to ${currentGame} - "The Best Squad" achieved!`;
-            console.log(message);
-            broadcastToWeb(message, 'game');
+            console.log('⏳ Game increment will be applied in 5s');
+            broadcastToWeb('⏳ Game increment will be applied in 5s', 'info');
+            pendingGameIncrementTimeout = setTimeout(() => {
+                try {
+                    currentGame++;
+                    lastGameIncrementTime = Date.now();
+                    // Persist game state to JSON
+                    let existingData = {};
+                    try {
+                        const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
+                        if (fileContent.trim()) {
+                            existingData = JSON.parse(fileContent);
+                        }
+                    } catch (_) {
+                        existingData = {};
+                    }
+                    existingData._gameState = {
+                        currentGame: currentGame,
+                        lastGameIncrementTime: lastGameIncrementTime
+                    };
+                    fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
+                    const message = `🎮 Game incremented to ${currentGame} - "The Best Squad" achieved!`;
+                    console.log(message);
+                    broadcastToWeb(message, 'game');
+                } catch (err) {
+                    console.error('❌ Error during delayed game increment:', err);
+                } finally {
+                    pendingGameIncrementTimeout = null;
+                }
+            }, 5000);
             return true;
         } else {
             const remainingCooldown = Math.ceil((10000 - timeSinceLastIncrement) / 1000);
             const message = `⏰ Game increment on cooldown - ${remainingCooldown}s remaining`;
             console.log(message);
             broadcastToWeb(message, 'info');
+            // Schedule a single notification when cooldown lapses
+            if (!gameCooldownNotifyTimeout) {
+                const msLeft = Math.max(0, 10000 - timeSinceLastIncrement);
+                gameCooldownNotifyTimeout = setTimeout(() => {
+                    console.log('⏱️ Game increment cooldown finished');
+                    broadcastToWeb('⏱️ Game increment cooldown finished', 'info');
+                    gameCooldownNotifyTimeout = null;
+                }, msLeft);
+            }
             return false;
         }
     };
@@ -742,7 +764,9 @@ async function monitorTextbox() {
                         const lineText = parseResult.originalLine || line;
                         const vehicleIdx = lineText.indexOf(vehicleText);
                         const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
-                        const isDestroyed = destroyedIdx !== -1;
+                        // Also consider crash events where the vehicle is followed by "has crashed"
+                        const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
+                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1);
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
                         const key = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|${status}`;
@@ -786,10 +810,10 @@ async function monitorTextbox() {
 
     function parseNewLine(line) {
         // Regex to match squadron, player name, and vehicle in parentheses
-        // Squadron: starts and ends with various delimiters (^, =, [, ], and box drawing characters U+2500-U+257F)
+        // Squadron: starts and ends with various delimiters (^, =, -, [, ], and box drawing characters U+2500-U+257F)
         // Player name: any characters after squadron until opening parenthesis
         // Vehicle: captures content of first complete parentheses group, including nested ones
-        const regex = /([\^=\[\]┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^(]+?)\s+\(([^()]*(?:\([^()]*\)[^()]*)*)\)/;
+        const regex = /([\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^()]+?)\s+\(([^()]*?(?:\([^()]*\)[^()]*)*)\)/;
         const match = line.trim().match(regex);
         
         if (match) {
@@ -804,7 +828,6 @@ async function monitorTextbox() {
         
         return null;
     }
-      
 
     observer.observe(target, { childList: true, subtree: true });
 });
