@@ -3,9 +3,11 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const WebSocket = require('ws');
 const http = require('http');
+const { loadVehicleClassifications: loadVC, classifyVehicleStrictWithEnrichment } = require('./classifier');
 
 // Load vehicle classifications
-let vehicleClassifications = {};
+let vehicleClassifications = {}; // category -> [vehicles]
+let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
 // Cache to avoid repeated enrich calls per session
 const pendingEnrichment = new Set();
 let wikiBrowser = null; // Lazy-initialized Puppeteer browser for wiki scraping
@@ -29,20 +31,32 @@ const mapWikiTypeToCategory = (typeText) => {
 const appendVehicleToClassification = (vehicleName, category) => {
     try {
         const comprehensivePath = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
-        let db = {};
+        let raw = {};
         if (fs.existsSync(comprehensivePath)) {
-            db = JSON.parse(fs.readFileSync(comprehensivePath, 'utf8'));
+            raw = JSON.parse(fs.readFileSync(comprehensivePath, 'utf8'));
         }
-        if (!db[category]) db[category] = [];
-        if (!db[category].includes(vehicleName)) {
-            db[category].push(vehicleName);
-            fs.writeFileSync(comprehensivePath, JSON.stringify(db, null, 2), 'utf8');
+        // Detect format: new format if values are strings
+        const isNewFormat = raw && Object.values(raw)[0] && typeof Object.values(raw)[0] === 'string';
+        let mapOut = {};
+        if (isNewFormat) {
+            mapOut = raw;
+        } else {
+            // Convert old format (category -> array) to new (vehicle -> category)
+            Object.entries(raw || {}).forEach(([cat, list]) => {
+                if (Array.isArray(list)) {
+                    list.forEach(v => { mapOut[v] = cat; });
+                }
+            });
         }
-        // Update in-memory set too
+        // Add new mapping if absent
+        if (!mapOut[vehicleName]) {
+            mapOut[vehicleName] = category;
+            fs.writeFileSync(comprehensivePath, JSON.stringify(mapOut, null, 2), 'utf8');
+        }
+        // Update in-memory maps
+        vehicleToCategory[vehicleName] = category;
         if (!vehicleClassifications[category]) vehicleClassifications[category] = [];
-        if (!vehicleClassifications[category].includes(vehicleName)) {
-            vehicleClassifications[category].push(vehicleName);
-        }
+        if (!vehicleClassifications[category].includes(vehicleName)) vehicleClassifications[category].push(vehicleName);
         console.log(`🔎 Learned classification from Wiki: ${vehicleName} -> ${category}`);
     } catch (e) {
         console.error('❌ Failed to append learned classification:', e);
@@ -79,85 +93,23 @@ const enrichClassificationFromWiki = async (vehicleName) => {
 };
 const loadVehicleClassifications = () => {
     try {
-        // Try to load comprehensive database first
-        const comprehensivePath = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
-        if (fs.existsSync(comprehensivePath)) {
-            const content = fs.readFileSync(comprehensivePath, 'utf8');
-            vehicleClassifications = JSON.parse(content);
-            console.log(`✅ Comprehensive vehicle classifications loaded (${Object.keys(vehicleClassifications).length} categories)`);
-            
-            // Log vehicle counts per category
-            Object.entries(vehicleClassifications).forEach(([category, vehicles]) => {
-                console.log(`   - ${category}: ${vehicles.length} vehicles`);
-            });
-        } else {
-            vehicleClassifications = {};
-            console.log('⚠️  comprehensive_vehicle_classifications.json not found. Proceeding with empty classifications');
-        }
+        const { vehicleToCategory: v2c, vehicleClassifications: cats } = loadVC();
+        vehicleToCategory = v2c || {};
+        vehicleClassifications = cats || {};
+        console.log(`✅ Comprehensive vehicle classifications loaded (${Object.keys(vehicleToCategory).length} vehicles, ${Object.keys(vehicleClassifications).length} categories)`);
+        Object.entries(vehicleClassifications).forEach(([category, vehicles]) => {
+            console.log(`   - ${category}: ${vehicles.length} vehicles`);
+        });
     } catch (error) {
         console.error('❌ Error loading vehicle classifications:', error);
         vehicleClassifications = {};
+        vehicleToCategory = {};
     }
 };
 
-// Function to classify a vehicle with intelligent matching
+// Function to classify a vehicle using strict lookup; if unknown, trigger background wiki enrichment
 const classifyVehicle = (vehicleName) => {
-    if (!vehicleName || typeof vehicleName !== 'string') {
-        return 'other';
-    }
-    
-    const cleanVehicleName = vehicleName.trim();
-    
-    for (const [category, vehicles] of Object.entries(vehicleClassifications)) {
-        // Check for exact match first (highest priority)
-        if (vehicles.includes(cleanVehicleName)) {
-            return category;
-        }
-        
-        // Check for exact match ignoring case
-        const exactMatch = vehicles.find(v => v.toLowerCase() === cleanVehicleName.toLowerCase());
-        if (exactMatch) {
-            return category;
-        }
-        
-        // Check for partial matches with intelligent scoring
-        for (const classifiedVehicle of vehicles) {
-            const classifiedLower = classifiedVehicle.toLowerCase();
-            const vehicleLower = cleanVehicleName.toLowerCase();
-            
-            // High confidence matches
-            if (vehicleLower === classifiedLower) {
-                return category;
-            }
-            
-            // Check if the classified vehicle name is contained in the detected name
-            if (vehicleLower.includes(classifiedLower)) {
-                return category;
-            }
-            
-            // Check if the detected name is contained in the classified name
-            if (classifiedLower.includes(vehicleLower)) {
-                return category;
-            }
-            
-            // Check for common abbreviations and variations
-            const commonVariations = [
-                [classifiedLower.replace(/\s+/g, ''), vehicleLower.replace(/\s+/g, '')], // Remove spaces
-                [classifiedLower.replace(/[()]/g, ''), vehicleLower.replace(/[()]/g, '')], // Remove parentheses
-                [classifiedLower.replace(/mk\.?/gi, 'mark'), vehicleLower.replace(/mk\.?/gi, 'mark')], // Mk variations
-                [classifiedLower.replace(/\-/g, ''), vehicleLower.replace(/\-/g, '')] // Remove hyphens
-            ];
-            
-            for (const [var1, var2] of commonVariations) {
-                if (var1 === var2 || var1.includes(var2) || var2.includes(var1)) {
-                    return category;
-                }
-            }
-        }
-    }
-    // Not found — trigger background enrichment (fire-and-forget)
-    enrichClassificationFromWiki(vehicleName);
-    return 'other'; // Default category for unclassified vehicles for now
+    return classifyVehicleStrictWithEnrichment(vehicleName, vehicleToCategory);
 };
 
 // Global game state variables
