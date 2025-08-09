@@ -194,86 +194,36 @@ async function monitorTextbox() {
 
     // JSON file path
     const jsonFilePath = path.join(__dirname, 'parsed_data.json');
-    
+
     // Cooldown notification timer (avoid spamming logs)
     let gameCooldownNotifyTimeout = null;
-    // Pending delayed game increment (avoid stacking multiple schedules)
+    // Pending delayed game increment (no longer used for delay, but keep reference null)
     let pendingGameIncrementTimeout = null;
-    
-    // Handle existing JSON file
-    let shouldResetFile = true;
-    
-    if (fs.existsSync(jsonFilePath)) {
-        try {
-            const stats = fs.statSync(jsonFilePath);
-            const fileAge = Date.now() - stats.mtime.getTime();
-            const oneHourInMs = 60 * 60 * 1000; // 1 hour in milliseconds
-            
-            if (fileAge < oneHourInMs) {
-                console.log(`⏰ JSON file is less than 1 hour old (${Math.round(fileAge / (60 * 1000))} minutes) - keeping existing data`);
-                
-                // Load existing game state from JSON
-                try {
-                    const content = fs.readFileSync(jsonFilePath, 'utf8');
-                    const data = JSON.parse(content);
-                    if (data._gameState && typeof data._gameState.currentGame === 'number') {
-                        currentGame = data._gameState.currentGame;
-                        lastGameIncrementTime = data._gameState.lastGameIncrementTime || 0;
-                        console.log(`🎮 Restored game state - Current game: ${currentGame}`);
-                        
-                        // Broadcast restored game state to web interface (delayed to ensure WebSocket server is ready)
-                        setTimeout(() => {
-                            broadcastToWeb(`🎮 Game state restored - Current game: ${currentGame}`, 'game');
-                        }, 1000);
-                    }
-                } catch (error) {
-                    console.log('⚠️ Could not load game state from JSON, starting from 0');
-                }
-                
-                shouldResetFile = false; // Don't reset if file is newer than 1 hour
-            } else {
-                // File is older than 1 hour, backup before resetting
-                const content = fs.readFileSync(jsonFilePath, 'utf8');
-                const data = JSON.parse(content);
-                
-                // Check if the JSON contains any actual data
-                const hasData = Object.keys(data).length > 0 && 
-                               Object.values(data).some(game => 
-                                   Object.keys(game).length > 0
-                               );
-                
-                if (hasData) {
-                    // File contains data and is older than 1 hour, create backup
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                    const backupPath = jsonFilePath.replace('.json', `_${timestamp}.json`);
-                    fs.copyFileSync(jsonFilePath, backupPath);
-                    console.log(`💾 Previous JSON (${Math.round(fileAge / (60 * 1000))} minutes old) backed up as: ${path.basename(backupPath)}`);
-                } else {
-                    // File is empty and older than 1 hour, just delete it
-                    fs.unlinkSync(jsonFilePath);
-                    console.log('🗑️ Previous JSON was empty and old - deleted instead of backing up');
-                }
-            }
-        } catch (error) {
-            // If file is corrupted or can't be parsed, create backup anyway
+
+    // Always rename existing file and start fresh
+    try {
+        if (fs.existsSync(jsonFilePath)) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const backupPath = jsonFilePath.replace('.json', `_backup_corrupted_${timestamp}.json`);
-            fs.copyFileSync(jsonFilePath, backupPath);
-            console.log(`⚠️ Previous JSON was corrupted - backed up as: ${path.basename(backupPath)}`);
+            const backupPath = jsonFilePath.replace('.json', `_${timestamp}.json`);
+            fs.renameSync(jsonFilePath, backupPath);
+            console.log(`💾 Previous JSON renamed to: ${path.basename(backupPath)}`);
         }
+    } catch (error) {
+        console.log('⚠️ Could not rename existing JSON, proceeding to reset:', error && error.message ? error.message : error);
+        try { fs.unlinkSync(jsonFilePath); } catch (_) {}
     }
-    
-    // Reset JSON file only if needed
-    if (shouldResetFile) {
-        const initialData = {
-            _gameState: {
-                currentGame: 0,
-                lastGameIncrementTime: 0
-            }
-        };
-        fs.writeFileSync(jsonFilePath, JSON.stringify(initialData, null, 2), 'utf8');
-        console.log('🔄 JSON file reset - starting fresh session');
-    }
+
+    // Create fresh file with reset state
+    const initialData = {
+        _gameState: {
+            currentGame: 0,
+            lastGameIncrementTime: 0
+        }
+    };
+    fs.writeFileSync(jsonFilePath, JSON.stringify(initialData, null, 2), 'utf8');
+    currentGame = 0;
+    lastGameIncrementTime = 0;
+    console.log('🔄 JSON file reset - starting fresh session');
     // Web server setup
     const server = http.createServer((req, res) => {
         try {
@@ -363,7 +313,13 @@ async function monitorTextbox() {
 
     async function fetchRowsForSelectedGame() {
       const gameSel = document.getElementById('filterGame');
-      const game = gameSel.value;
+      let game = gameSel.value;
+      if (game === 'current') {
+        try {
+          const current = (await (await fetch('/api/current-game')).json()).currentGame;
+          game = String(current);
+        } catch (_) { /* ignore */ }
+      }
       if (game === 'all') {
         // Fetch all games and aggregate
         const gamesResp = await fetch('/api/games-list');
@@ -390,7 +346,13 @@ async function monitorTextbox() {
 
     async function fetchSummariesForSelectedGame() {
       const gameSel = document.getElementById('filterGame');
-      const game = gameSel.value;
+      let game = gameSel.value;
+      if (game === 'current') {
+        try {
+          const current = (await (await fetch('/api/current-game')).json()).currentGame;
+          game = String(current);
+        } catch (_) { /* ignore */ }
+      }
       if (game === 'all') {
         const resp = await fetch('/api/summaries?game=all');
         summaries = await resp.json();
@@ -477,8 +439,8 @@ async function monitorTextbox() {
       const { games, current } = await fetchGames();
       const gameSel = document.getElementById('filterGame');
       const saved = localStorage.getItem('selectedGame');
-      const initial = (saved === 'all') ? 'all' : (saved && games.includes(parseInt(saved, 10)) ? saved : String(current));
-      gameSel.innerHTML = '<option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
+      const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved, 10)) ? saved : 'current');
+      gameSel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
       gameSel.value = initial;
       localStorage.setItem('selectedGame', gameSel.value);
 
@@ -512,9 +474,10 @@ async function monitorTextbox() {
           const { games } = await fetchGames();
           const gameSel = document.getElementById('filterGame');
           const prev = gameSel.value;
-          gameSel.innerHTML = '<option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
-          if (prev === 'all') { gameSel.value = 'all'; }
-          else if (games.map(String).includes(prev)) gameSel.value = prev; else gameSel.value = String(games[games.length-1]);
+          gameSel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
+          if (prev === 'current') { gameSel.value = 'current'; }
+          else if (prev === 'all') { gameSel.value = 'all'; }
+          else if (games.map(String).includes(prev)) gameSel.value = prev; else gameSel.value = String(games[games.length-1] || 'current');
           localStorage.setItem('selectedGame', gameSel.value);
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
@@ -698,56 +661,43 @@ async function monitorTextbox() {
         }
     };
 
-    // Function to handle game increment
+    // Function to handle game increment (no delay; retains 10s cooldown)
     const handleGameIncrement = () => {
         const now = Date.now();
         const timeSinceLastIncrement = now - lastGameIncrementTime;
-        
-        // Check if 10 seconds (10000ms) have passed since last increment
         if (timeSinceLastIncrement >= 10000) {
-            // Schedule a single delayed increment (5s)
-            if (pendingGameIncrementTimeout) {
-                console.log('🕒 Game increment already scheduled (in 5s)');
-                broadcastToWeb('🕒 Game increment already scheduled (in 5s)', 'info');
-                return true; // accepted/scheduled
-            }
-            console.log('⏳ Game increment will be applied in 1s');
-            broadcastToWeb('⏳ Game increment will be applied in 1s', 'info');
-            pendingGameIncrementTimeout = setTimeout(() => {
+            try {
+                currentGame++;
+                lastGameIncrementTime = Date.now();
+                // Persist game state to JSON immediately
+                let existingData = {};
                 try {
-                    currentGame++;
-                    lastGameIncrementTime = Date.now();
-                    // Persist game state to JSON
-                    let existingData = {};
-                    try {
-                        const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
-                        if (fileContent.trim()) {
-                            existingData = JSON.parse(fileContent);
-                        }
-                    } catch (_) {
-                        existingData = {};
+                    const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
+                    if (fileContent.trim()) {
+                        existingData = JSON.parse(fileContent);
                     }
-                    existingData._gameState = {
-                        currentGame: currentGame,
-                        lastGameIncrementTime: lastGameIncrementTime
-                    };
-                    fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
-                    const message = `🎮 Game incremented to ${currentGame} - "The Best Squad" achieved!`;
-                    console.log(message);
-                    broadcastToWeb(message, 'game');
-                } catch (err) {
-                    console.error('❌ Error during delayed game increment:', err);
-                } finally {
-                    pendingGameIncrementTimeout = null;
+                } catch (_) {
+                    existingData = {};
                 }
-            }, 1000);
-            return true;
+                existingData._gameState = {
+                    currentGame: currentGame,
+                    lastGameIncrementTime: lastGameIncrementTime
+                };
+                fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
+                const message = `🎮 Game incremented to ${currentGame} - "The Best Squad" achieved!`;
+                console.log(message);
+                broadcastToWeb(message, 'game');
+                return true;
+            } catch (err) {
+                console.error('❌ Error during game increment:', err);
+                return false;
+            }
         } else {
             const remainingCooldown = Math.ceil((10000 - timeSinceLastIncrement) / 1000);
             const message = `⏰ Game increment on cooldown - ${remainingCooldown}s remaining`;
             console.log(message);
             broadcastToWeb(message, 'info');
-            // Schedule a single notification when cooldown lapses
+            // Notify when cooldown lapses (single notification)
             if (!gameCooldownNotifyTimeout) {
                 const msLeft = Math.max(0, 10000 - timeSinceLastIncrement);
                 gameCooldownNotifyTimeout = setTimeout(() => {
@@ -934,6 +884,9 @@ async function monitorTextbox() {
     // Deduplicate rapid duplicate HUD events (e.g., re-renders). Keep short-term memory of recent events
     const recentEvents = new Map();
     const DEDUPE_MS = 100; // suppress identical events seen within 0.1 seconds
+    // Delimit "best squad" by HUD timestamp: only once per unique leading timestamp
+    const bestSquadSeenTimestamps = [];
+    const BEST_SQUAD_TS_CAP = 200; // cap memory to avoid growth
 
     const observer = new MutationObserver(() => {
         const newText = target.innerText.trim(); // PRESERVE visual line breaks
@@ -953,9 +906,28 @@ async function monitorTextbox() {
                 
                 // Check for "The Best Squad" achievement to increment game
                 if (line.includes('has delivered the final blow!')) {
-                    setTimeout(() => {
-                        window.handleGameIncrement();
-                    }, 5000);
+                    // Extract leading timestamp like 0:12, 12:34 or 01:02:03
+                    const mTs = line.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+                    const ts = mTs ? mTs[1] : null;
+                    if (ts) {
+                        if (!bestSquadSeenTimestamps.includes(ts)) {
+                            bestSquadSeenTimestamps.push(ts);
+                            if (bestSquadSeenTimestamps.length > BEST_SQUAD_TS_CAP) {
+                                bestSquadSeenTimestamps.splice(0, bestSquadSeenTimestamps.length - BEST_SQUAD_TS_CAP);
+                            }
+                            window.handleGameIncrement();
+                        }
+                    } else {
+                        // No timestamp present; fallback to a single immediate increment and ignore further duplicates without timestamps
+                        const FALLBACK_KEY = '__NO_TS_BEST_SQUAD__';
+                        if (!bestSquadSeenTimestamps.includes(FALLBACK_KEY)) {
+                            bestSquadSeenTimestamps.push(FALLBACK_KEY);
+                            if (bestSquadSeenTimestamps.length > BEST_SQUAD_TS_CAP) {
+                                bestSquadSeenTimestamps.splice(0, bestSquadSeenTimestamps.length - BEST_SQUAD_TS_CAP);
+                            }
+                            window.handleGameIncrement();
+                        }
+                    }
                 }
                 // Parse the line for the specific pattern
                 const parseResult = parseNewLine(line);
