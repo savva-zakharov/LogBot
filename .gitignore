@@ -7,6 +7,7 @@ build/
 
 # Logs
 logs/
+parsed_data*
 *.log
 npm-debug.log*
 yarn-debug.log*
