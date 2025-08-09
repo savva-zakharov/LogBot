@@ -84,7 +84,6 @@ const classifyVehicle = (vehicleName) => {
             }
         }
     }
-    
     return 'other'; // Default category for unclassified vehicles
 };
 
@@ -262,6 +261,25 @@ async function monitorTextbox() {
                     'Access-Control-Allow-Origin': '*'
                 });
                 res.end(JSON.stringify(getGamesList()));
+            } else if (pathname === '/api/summaries') {
+                // API endpoint: per-game squadron summaries
+                const urlObj = new URL(req.url, `http://${req.headers.host}`);
+                const gameParam = urlObj.searchParams.get('game');
+                let payload = [];
+                try {
+                    if (gameParam && gameParam !== 'all') {
+                        payload = getSquadronSummaries(parseInt(gameParam, 10));
+                    } else {
+                        payload = getSquadronSummaries();
+                    }
+                } catch (_) {
+                    payload = [];
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                });
+                res.end(JSON.stringify(payload));
             } else if (pathname === '/') {
                 // Serve NEW UI (fresh minimal table with hierarchical filters)
                 const html = `
@@ -276,14 +294,19 @@ async function monitorTextbox() {
     h1 { color: #4CAF50; margin: 0 0 12px 0; }
     .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
     thead th { background: #1e1e1e; color: #aaa; padding: 8px; border-bottom: 1px solid #333; text-align: left; }
     tbody td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; }
     .status-active { color: #66BB6A; }
     .status-destroyed { color: #EF5350; }
+    .section-title { margin: 16px 0 8px 0; color: #90CAF9; }
+    /* Monospace summary table to preserve alignment */
+    .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .mono-table td { white-space: pre; }
   </style>
   <script>
     let rows = [];
+    let summaries = [];
     const ws = new WebSocket('ws://localhost:3001');
 
     async function fetchGames() {
@@ -320,6 +343,18 @@ async function monitorTextbox() {
       } else {
         const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
         rows = await resp.json();
+      }
+    }
+
+    async function fetchSummariesForSelectedGame() {
+      const gameSel = document.getElementById('filterGame');
+      const game = gameSel.value;
+      if (game === 'all') {
+        const resp = await fetch('/api/summaries?game=all');
+        summaries = await resp.json();
+      } else {
+        const resp = await fetch('/api/summaries?game=' + encodeURIComponent(game));
+        summaries = await resp.json();
       }
     }
 
@@ -377,6 +412,23 @@ async function monitorTextbox() {
           '<td>' + (r.kills || 0) + '</td>' +
         '</tr>';
       }).join('');
+
+      // Render summaries below
+      const selGame = document.getElementById('filterGame').value;
+      const summaryTbody = document.getElementById('summaryBody');
+      const view = (selGame === 'all') ? summaries : summaries.filter(function(s){ return String(s.game) === String(selGame); });
+      // group by game then sort by squadron already pre-sorted
+      let html = '';
+      let lastGame = null;
+      view.forEach(function(s){
+        if (lastGame !== s.game) {
+          html += '<tr><td><strong>Game ' + s.game + '</strong></td></tr>';
+          lastGame = s.game;
+        }
+        // Render a single preformatted line (already padded so first | is column 7)
+        html += '<tr><td>' + s.line + '</td></tr>';
+      });
+      summaryTbody.innerHTML = html || '<tr><td>No data</td></tr>';
     }
 
     async function init() {
@@ -389,6 +441,7 @@ async function monitorTextbox() {
       localStorage.setItem('selectedGame', gameSel.value);
 
       await fetchRowsForSelectedGame();
+      await fetchSummariesForSelectedGame();
 
       // Initialize status and type filters
       document.getElementById('filterStatus').value = 'all';
@@ -402,6 +455,7 @@ async function monitorTextbox() {
           if (id === 'filterGame') {
             localStorage.setItem('selectedGame', e.target.value);
             await fetchRowsForSelectedGame();
+            await fetchSummariesForSelectedGame();
           }
           applyFiltersAndRender();
         });
@@ -421,10 +475,12 @@ async function monitorTextbox() {
           else if (games.map(String).includes(prev)) gameSel.value = prev; else gameSel.value = String(games[games.length-1]);
           localStorage.setItem('selectedGame', gameSel.value);
           await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
           applyFiltersAndRender();
         } else if (data.type === 'match' || data.type === 'destroyed' || data.type === 'update') {
           // If current selected game is active, refresh rows
           await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
           applyFiltersAndRender();
         }
       } catch (_) { }
@@ -473,6 +529,16 @@ async function monitorTextbox() {
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
+    </table>
+
+    <h2 class="section-title">Squadron Summary (per game)</h2>
+    <table class="mono-table">
+      <thead>
+        <tr>
+          <th>Summary</th>
+        </tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
     </table>
   </div>
 </body>
@@ -709,6 +775,85 @@ async function monitorTextbox() {
         }
     };
 
+    // Mapping from internal categories to output labels
+    const CATEGORY_TO_OUTPUT = {
+        tanks: 'Tanks',
+        light_scout: 'light',
+        bombers: 'Bomber',
+        fixed_wing: 'Air',
+        helicopters: 'Heli',
+        anti_air: 'SPAA'
+    };
+
+    const OUTPUT_ORDER = ['Tanks', 'light', 'Bomber', 'Air', 'Heli', 'SPAA'];
+
+    // Function to summarize each squadron per game
+    // If targetGameId is provided, only that game is summarized
+    const getSquadronSummaries = (targetGameId = null) => {
+        try {
+            const content = fs.readFileSync(jsonFilePath, 'utf8');
+            const data = JSON.parse(content);
+
+            const gameIds = (targetGameId === null || targetGameId === undefined)
+                ? Object.keys(data).filter(k => k !== '_gameState' && /^\d+$/.test(k)).sort((a,b) => parseInt(a,10) - parseInt(b,10))
+                : [String(parseInt(targetGameId, 10))];
+
+            const results = [];
+
+            gameIds.forEach(gameId => {
+                const gameBlock = data[gameId];
+                if (!gameBlock) return;
+
+                // Per-game accumulator: squadron -> counts
+                const squadronTotals = new Map();
+
+                Object.keys(gameBlock).forEach(squadron => {
+                    if (!squadronTotals.has(squadron)) {
+                        const init = {};
+                        OUTPUT_ORDER.forEach(label => { init[label] = 0; });
+                        squadronTotals.set(squadron, init);
+                    }
+                    const acc = squadronTotals.get(squadron);
+                    Object.keys(gameBlock[squadron]).forEach(player => {
+                        Object.keys(gameBlock[squadron][player]).forEach(vehicle => {
+                            const cat = classifyVehicle(vehicle);
+                            const label = CATEGORY_TO_OUTPUT[cat];
+                            if (label && acc.hasOwnProperty(label)) {
+                                acc[label] += 1;
+                            }
+                        });
+                    });
+                });
+
+                // Format output strings for this game
+                squadronTotals.forEach((counts, squadron) => {
+                    // Strip square/round brackets from squadron name for display
+                    const cleaned = String(squadron).replace(/[\[\]()]/g, '');
+                    // Ensure first '|' at column 7 by fixing name to 6 characters (pad or truncate)
+                    const fixedName = cleaned.padEnd(6, ' ').slice(0, 6);
+                    const parts = OUTPUT_ORDER.map(label => `${counts[label]} ${label}`);
+                    const line = `${fixedName} | ${parts.join(' | ')} |`;
+                    results.push({ game: parseInt(gameId, 10), squadron: cleaned, line, counts });
+                });
+            });
+
+            // Sort by game then squadron
+            results.sort((a, b) => (a.game - b.game) || a.squadron.localeCompare(b.squadron));
+            return results;
+        } catch (error) {
+            console.error('❌ Error creating squadron summaries:', error);
+            return [];
+        }
+    };
+
+    // Function to get summary string for a specific squadron in a given game
+    const getSquadronSummaryFor = (squadronName, targetGameId) => {
+        if (targetGameId === undefined || targetGameId === null) return '';
+        const all = getSquadronSummaries(targetGameId);
+        const item = all.find(x => x.squadron === squadronName && x.game === parseInt(targetGameId, 10));
+        return item ? item.line : '';
+    };
+
     // Expose Node functions to receive updates from the browser context
     await page.exposeFunction('printToCLI', (text) => {
         console.log(text);
@@ -725,6 +870,8 @@ async function monitorTextbox() {
     await page.exposeFunction('handleGameIncrement', handleGameIncrement);
     await page.exposeFunction('getCurrentGame', getCurrentGame);
     await page.exposeFunction('getActiveVehicles', getActiveVehicles);
+    await page.exposeFunction('getSquadronSummaries', getSquadronSummaries);
+    await page.exposeFunction('getSquadronSummaryFor', getSquadronSummaryFor);
     // Allow page to signal UI updates without logging to console
     await page.exposeFunction('signalUpdate', (text = 'update') => {
         broadcastToWeb(text, 'update');
@@ -853,25 +1000,35 @@ async function monitorTextbox() {
     });
 
     function parseNewLine(line) {
-        // Regex to match squadron, player name, and vehicle in parentheses
-        // Squadron: starts and ends with various delimiters (^, =, -, [, ], and box drawing characters U+2500-U+257F)
-        // Player name: any characters after squadron until opening parenthesis
-        // Vehicle: captures content of first complete parentheses group, including nested ones
+        // Anchor parsing after specific HUD keywords, then extract squadron, player, vehicle
+        const keywords = ['destroyed', 'has achieved', 'has crashed'];
+        const lower = String(line).toLowerCase();
+        let pos = -1;
+        let used = '';
+        for (const kw of keywords) {
+            const idx = lower.indexOf(kw);
+            if (idx !== -1 && (pos === -1 || idx < pos)) { pos = idx; used = kw; }
+        }
+        let segment = String(line).trim();
+        if (pos !== -1) {
+            segment = line.slice(pos + used.length).trim();
+            // Remove leading separators or filler words like 'by', '-', ':' if present
+            segment = segment.replace(/^(:|-|–|—|by)\s+/i, '');
+        }
 
-        const regex = /([\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^()]+?)\s+\(([^()]*?(?:\([^()]*\)[^()]*)*)\)/;
+        // Regex to match squadron, player name, and vehicle in parentheses (same as before)
+        const regex = /([\^=\[\]\-⋇┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^()]+?)\s+\(([^()]*?(?:\([^()]*\)[^()]*)*)\)/;
 
-        const match = line.trim().match(regex);
-        
+        const match = segment.match(regex);
         if (match) {
             const [, squadron, player, vehicle] = match;
-            return { 
-                squadron: squadron.trim(), 
-                player: player.trim(), 
+            return {
+                squadron: squadron.trim(),
+                player: player.trim(),
                 vehicle: vehicle.trim(),
                 originalLine: line.trim()
             };
         }
-        
         return null;
     }
 
