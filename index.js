@@ -139,8 +139,17 @@ async function monitorTextbox() {
 
     const page = await browser.newPage();
 
-    await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
-    console.log('✅ Page loaded. Watching for updates...');
+    // Attempt to connect to the War Thunder localhost service
+    try {
+        await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
+        console.log('✅ Page loaded. Watching for updates...');
+    } catch (err) {
+        console.error('❌ Cannot connect to the service at http://localhost:8111 (net::ERR_CONNECTION_REFUSED).');
+        console.error('   Make sure War Thunder is running and the localhost telemetry (http://localhost:8111) is enabled.');
+        // Close browser to avoid dangling processes and exit function gracefully
+        try { await browser.close(); } catch (_) {}
+        return; // Exit without throwing so the app fails gracefully
+    }
 
     // JSON file path
     const jsonFilePath = path.join(__dirname, 'parsed_data.json');

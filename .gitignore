@@ -6,7 +6,6 @@ dist/
 build/
 
 # Logs
-parsed_data*
 logs/
 parsed_data*
 *.log
