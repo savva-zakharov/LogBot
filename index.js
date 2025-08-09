@@ -827,8 +827,8 @@ async function monitorTextbox() {
 
                 // Format output strings for this game
                 squadronTotals.forEach((counts, squadron) => {
-                    // Strip square/round brackets from squadron name for display
-                    const cleaned = String(squadron).replace(/[\[\]()]/g, '');
+                    // Strip ALL non-alphanumeric characters from squadron name for display
+                    const cleaned = String(squadron).replace(/[^A-Za-z0-9]/g, '');
                     // Ensure first '|' at column 7 by fixing name to 6 characters (pad or truncate)
                     const fixedName = cleaned.padEnd(6, ' ').slice(0, 6);
                     const parts = OUTPUT_ORDER.map(label => `${counts[label]} ${label}`);
@@ -1000,34 +1000,118 @@ async function monitorTextbox() {
     });
 
     function parseNewLine(line) {
-        // Anchor parsing after specific HUD keywords, then extract squadron, player, vehicle
-        const keywords = ['destroyed', 'has achieved', 'has crashed'];
+        // Rules:
+        // - Data may come BEFORE 'destroyed' | 'has achieved' | 'has crashed'
+        // - Or come AFTER 'destroyed' (e.g., "destroyed by ...")
+        // - Format: [SQ] Player (Vehicle)  OR  SQ Player (Vehicle)  OR  Player (Vehicle)
+        //   where SQ is <=5 alphanumeric chars after stripping non-alphanumerics. Player has no spaces.
+
         const lower = String(line).toLowerCase();
-        let pos = -1;
-        let used = '';
-        for (const kw of keywords) {
-            const idx = lower.indexOf(kw);
-            if (idx !== -1 && (pos === -1 || idx < pos)) { pos = idx; used = kw; }
-        }
-        let segment = String(line).trim();
-        if (pos !== -1) {
-            segment = line.slice(pos + used.length).trim();
-            // Remove leading separators or filler words like 'by', '-', ':' if present
-            segment = segment.replace(/^(:|-|–|—|by)\s+/i, '');
+        const kwList = ['destroyed', 'has achieved', 'has crashed'];
+        let earliest = { idx: -1, kw: '' };
+        for (const kw of kwList) {
+            const i = lower.indexOf(kw);
+            if (i !== -1 && (earliest.idx === -1 || i < earliest.idx)) {
+                earliest = { idx: i, kw };
+            }
         }
 
-        // Regex to match squadron, player name, and vehicle in parentheses (same as before)
-        const regex = /([\^=\[\]\-⋇┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1}[^\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿()]+[\^=\[\]\-┌┐└┘├┤┬┴┼─│┏┓┗┛┣┫┳┻╋━┃┍┑┕┙┝┥┯┷┿┎┒┖┚┞┦┰┸╀┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼╽╾╿]{1})\s+([^()]+?)\s+\(([^()]*?(?:\([^()]*\)[^()]*)*)\)/;
+        const original = String(line).trim();
+        const segments = [];
+        if (earliest.idx !== -1) {
+            // Before the earliest keyword
+            const before = original.slice(0, earliest.idx).trim();
+            if (before) segments.push(before);
+            // After 'destroyed' specifically
+            if (earliest.kw === 'destroyed') {
+                let after = original.slice(earliest.idx + 'destroyed'.length).trim();
+                after = after.replace(/^(:|-|–|—|by)\s+/i, '');
+                if (after) segments.push(after);
+            }
+        } else {
+            // No keywords — fallback to whole line
+            segments.push(original);
+        }
 
-        const match = segment.match(regex);
-        if (match) {
-            const [, squadron, player, vehicle] = match;
-            return {
-                squadron: squadron.trim(),
-                player: player.trim(),
-                vehicle: vehicle.trim(),
-                originalLine: line.trim()
-            };
+        // Helper to try parsing a segment with multiple patterns
+        const VEH = '([^()]*?(?:\\([^()]*\\)[^()]*)*)'; // balanced parentheses approximation
+        // Allow optional dash/colon between squad and player, enforce player single token, and strip timestamps before matching
+        const reBracketed = new RegExp(
+            '^\\s*\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+        );
+        const reUnbrSquad = new RegExp(
+            // Capture a raw first token as potential squad tag, then a single-token player
+            '^\\s*(?<sqraw>\\S{1,12})\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+        );
+        const reNoSquad = new RegExp(
+            // Player is a single token (no spaces)
+            '^\\s*(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+        );
+
+        const tryParse = (seg) => {
+            // Remove leading timestamp like 2:29 or 12:05:31 and optional separator
+            const norm = String(seg).replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–—: ]?\s*/, '');
+            let m = norm.match(reBracketed);
+            if (m) {
+                // Clean bracketed squad; if empty after cleaning, treat as no-squad
+                const sqClean = (m.groups.sq || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 5);
+                if (sqClean.length >= 1) {
+                    return {
+                        squadron: sqClean,
+                        player: m.groups.player.trim(),
+                        vehicle: m.groups.vehicle.trim(),
+                        originalLine: original
+                    };
+                }
+                // Fall back to parsing without squad
+                const mNoB = norm.match(reNoSquad);
+                if (mNoB) {
+                    return {
+                        squadron: 'UNKNOWN',
+                        player: mNoB.groups.player.trim(),
+                        vehicle: mNoB.groups.vehicle.trim(),
+                        originalLine: original
+                    };
+                }
+            }
+            m = norm.match(reUnbrSquad);
+            if (m) {
+                // Clean the raw squad token by stripping non-alphanumerics
+                const cleanedSq = (m.groups.sqraw || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 5);
+                if (cleanedSq.length >= 1) {
+                    return {
+                        squadron: cleanedSq,
+                        player: m.groups.player.trim(),
+                        vehicle: m.groups.vehicle.trim(),
+                        originalLine: original
+                    };
+                }
+                // If cleaning produced empty squad, fall back to no-squad pattern on same segment
+                const mNo = norm.match(reNoSquad);
+                if (mNo) {
+                    return {
+                        squadron: 'UNKNOWN',
+                        player: mNo.groups.player.trim(),
+                        vehicle: mNo.groups.vehicle.trim(),
+                        originalLine: original
+                    };
+                }
+            }
+            m = norm.match(reNoSquad);
+            if (m) {
+                return {
+                    squadron: 'UNKNOWN',
+                    player: m.groups.player.trim(),
+                    vehicle: m.groups.vehicle.trim(),
+                    originalLine: original
+                };
+            }
+            return null;
+        };
+
+        for (const seg of segments) {
+            const parsed = tryParse(seg);
+            if (parsed) return parsed;
         }
         return null;
     }
