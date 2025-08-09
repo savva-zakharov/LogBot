@@ -661,51 +661,32 @@ async function monitorTextbox() {
         }
     };
 
-    // Function to handle game increment (no delay; retains 10s cooldown)
+    // Function to handle game increment (no delay; no cooldown)
     const handleGameIncrement = () => {
-        const now = Date.now();
-        const timeSinceLastIncrement = now - lastGameIncrementTime;
-        if (timeSinceLastIncrement >= 10000) {
+        try {
+            currentGame++;
+            lastGameIncrementTime = Date.now();
+            // Persist game state to JSON immediately
+            let existingData = {};
             try {
-                currentGame++;
-                lastGameIncrementTime = Date.now();
-                // Persist game state to JSON immediately
-                let existingData = {};
-                try {
-                    const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
-                    if (fileContent.trim()) {
-                        existingData = JSON.parse(fileContent);
-                    }
-                } catch (_) {
-                    existingData = {};
+                const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
+                if (fileContent.trim()) {
+                    existingData = JSON.parse(fileContent);
                 }
-                existingData._gameState = {
-                    currentGame: currentGame,
-                    lastGameIncrementTime: lastGameIncrementTime
-                };
-                fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
-                const message = `🎮 Game incremented to ${currentGame} - "The Best Squad" achieved!`;
-                console.log(message);
-                broadcastToWeb(message, 'game');
-                return true;
-            } catch (err) {
-                console.error('❌ Error during game increment:', err);
-                return false;
+            } catch (_) {
+                existingData = {};
             }
-        } else {
-            const remainingCooldown = Math.ceil((10000 - timeSinceLastIncrement) / 1000);
-            const message = `⏰ Game increment on cooldown - ${remainingCooldown}s remaining`;
+            existingData._gameState = {
+                currentGame: currentGame,
+                lastGameIncrementTime: lastGameIncrementTime
+            };
+            fs.writeFileSync(jsonFilePath, JSON.stringify(existingData, null, 2), 'utf8');
+            const message = `🎮 Game incremented to ${currentGame} - time reset detected`;
             console.log(message);
-            broadcastToWeb(message, 'info');
-            // Notify when cooldown lapses (single notification)
-            if (!gameCooldownNotifyTimeout) {
-                const msLeft = Math.max(0, 10000 - timeSinceLastIncrement);
-                gameCooldownNotifyTimeout = setTimeout(() => {
-                    console.log('⏱️ Game increment cooldown finished');
-                    broadcastToWeb('⏱️ Game increment cooldown finished', 'info');
-                    gameCooldownNotifyTimeout = null;
-                }, msLeft);
-            }
+            broadcastToWeb(message, 'game');
+            return true;
+        } catch (err) {
+            console.error('❌ Error during game increment:', err);
             return false;
         }
     };
@@ -884,9 +865,16 @@ async function monitorTextbox() {
     // Deduplicate rapid duplicate HUD events (e.g., re-renders). Keep short-term memory of recent events
     const recentEvents = new Map();
     const DEDUPE_MS = 100; // suppress identical events seen within 0.1 seconds
-    // Delimit "best squad" by HUD timestamp: only once per unique leading timestamp
-    const bestSquadSeenTimestamps = [];
-    const BEST_SQUAD_TS_CAP = 200; // cap memory to avoid growth
+    // Track HUD timestamps to auto-increment game when time decreases (new match)
+    let lastHudTsSec = null; // number of seconds of last seen HUD timestamp
+    let lastHudTsStr = null; // string form of last seen HUD timestamp
+    let lastResetAnchor = null; // the ts string that triggered the last increment
+    function tsToSeconds(tsStr) {
+        const parts = tsStr.split(':').map(function(p){ return parseInt(p, 10); });
+        if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+        if (parts.length === 2) return parts[0]*60 + parts[1];
+        return 0;
+    }
 
     const observer = new MutationObserver(() => {
         const newText = target.innerText.trim(); // PRESERVE visual line breaks
@@ -904,30 +892,22 @@ async function monitorTextbox() {
             addedLines.forEach(line => {
                 if (!line.trim()) return; // Skip empty lines
                 
-                // Check for "The Best Squad" achievement to increment game
-                if (line.includes('has delivered the final blow!')) {
-                    // Extract leading timestamp like 0:12, 12:34 or 01:02:03
-                    const mTs = line.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
-                    const ts = mTs ? mTs[1] : null;
-                    if (ts) {
-                        if (!bestSquadSeenTimestamps.includes(ts)) {
-                            bestSquadSeenTimestamps.push(ts);
-                            if (bestSquadSeenTimestamps.length > BEST_SQUAD_TS_CAP) {
-                                bestSquadSeenTimestamps.splice(0, bestSquadSeenTimestamps.length - BEST_SQUAD_TS_CAP);
-                            }
+                // Auto-increment game when HUD timestamp decreases (new match detected)
+                const mTs = line.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+                if (mTs) {
+                    const tsStr = mTs[1];
+                    const sec = tsToSeconds(tsStr);
+                    if (lastHudTsSec !== null && sec < lastHudTsSec) {
+                        // Deduplicate increments for the same reset anchor timestamp
+                        if (lastResetAnchor !== tsStr) {
+                            const prevTs = lastHudTsStr || String(lastHudTsSec);
+                            window.printToCLI(`⏱️ HUD timestamp decreased ${prevTs} → ${tsStr}. Advancing game counter.`);
                             window.handleGameIncrement();
-                        }
-                    } else {
-                        // No timestamp present; fallback to a single immediate increment and ignore further duplicates without timestamps
-                        const FALLBACK_KEY = '__NO_TS_BEST_SQUAD__';
-                        if (!bestSquadSeenTimestamps.includes(FALLBACK_KEY)) {
-                            bestSquadSeenTimestamps.push(FALLBACK_KEY);
-                            if (bestSquadSeenTimestamps.length > BEST_SQUAD_TS_CAP) {
-                                bestSquadSeenTimestamps.splice(0, bestSquadSeenTimestamps.length - BEST_SQUAD_TS_CAP);
-                            }
-                            window.handleGameIncrement();
+                            lastResetAnchor = tsStr;
                         }
                     }
+                    lastHudTsSec = sec;
+                    lastHudTsStr = tsStr;
                 }
                 // Parse the line for the specific pattern
                 const parseResult = parseNewLine(line);
