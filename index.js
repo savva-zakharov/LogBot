@@ -6,6 +6,77 @@ const http = require('http');
 
 // Load vehicle classifications
 let vehicleClassifications = {};
+// Cache to avoid repeated enrich calls per session
+const pendingEnrichment = new Set();
+let wikiBrowser = null; // Lazy-initialized Puppeteer browser for wiki scraping
+
+// Map wiki "type" text to our categories
+const mapWikiTypeToCategory = (typeText) => {
+    if (!typeText) return 'other';
+    const t = typeText.toLowerCase();
+    // Common mappings — extend as needed
+    if (t.includes('light tank') || t.includes('scout')) return 'light_scout';
+    if (t.includes('tank') || t.includes('medium') || t.includes('heavy')) return 'tanks';
+    if (t.includes('spaa') || t.includes('anti-air') || t.includes('aa')) return 'spaa';
+    if (t.includes('bomber')) return 'bombers';
+    if (t.includes('attacker') || t.includes('fighter') || t.includes('strike') || t.includes('aircraft')) return 'aircraft';
+    if (t.includes('helicopter') || t.includes('heli')) return 'heli';
+    if (t.includes('boat') || t.includes('ship') || t.includes('naval')) return 'naval';
+    return 'other';
+};
+
+// Persist a newly learned classification to JSON and memory
+const appendVehicleToClassification = (vehicleName, category) => {
+    try {
+        const comprehensivePath = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
+        let db = {};
+        if (fs.existsSync(comprehensivePath)) {
+            db = JSON.parse(fs.readFileSync(comprehensivePath, 'utf8'));
+        }
+        if (!db[category]) db[category] = [];
+        if (!db[category].includes(vehicleName)) {
+            db[category].push(vehicleName);
+            fs.writeFileSync(comprehensivePath, JSON.stringify(db, null, 2), 'utf8');
+        }
+        // Update in-memory set too
+        if (!vehicleClassifications[category]) vehicleClassifications[category] = [];
+        if (!vehicleClassifications[category].includes(vehicleName)) {
+            vehicleClassifications[category].push(vehicleName);
+        }
+        console.log(`🔎 Learned classification from Wiki: ${vehicleName} -> ${category}`);
+    } catch (e) {
+        console.error('❌ Failed to append learned classification:', e);
+    }
+};
+
+// Attempt to enrich classification by scraping the War Thunder wiki
+const enrichClassificationFromWiki = async (vehicleName) => {
+    try {
+        if (!vehicleName || pendingEnrichment.has(vehicleName)) return;
+        pendingEnrichment.add(vehicleName);
+        const urlName = encodeURIComponent(vehicleName.replace(/\s+/g, '_'));
+        const url = `https://wiki.warthunder.com/${urlName}`;
+        if (!wikiBrowser) {
+            wikiBrowser = await puppeteer.launch({ headless: 'new' });
+        }
+        const page = await wikiBrowser.newPage();
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        // Query the given selector path and extract text
+        const sel = 'div.game-unit_card-info_line:nth-child(2) > div:nth-child(2) > div:nth-child(1)';
+        const typeText = await page.$eval(sel, el => el.innerText.trim()).catch(() => '');
+        await page.close();
+        const category = mapWikiTypeToCategory(typeText);
+        if (category && category !== 'other') {
+            appendVehicleToClassification(vehicleName, category);
+        } else {
+            console.log(`ℹ️ Wiki type not conclusive for ${vehicleName} ("${typeText}")`);
+        }
+    } catch (err) {
+        console.log(`⚠️ Wiki lookup failed for ${vehicleName}:`, err.message || err);
+    } finally {
+        pendingEnrichment.delete(vehicleName);
+    }
+};
 const loadVehicleClassifications = () => {
     try {
         // Try to load comprehensive database first
@@ -84,7 +155,9 @@ const classifyVehicle = (vehicleName) => {
             }
         }
     }
-    return 'other'; // Default category for unclassified vehicles
+    // Not found — trigger background enrichment (fire-and-forget)
+    enrichClassificationFromWiki(vehicleName);
+    return 'other'; // Default category for unclassified vehicles for now
 };
 
 // Global game state variables
@@ -920,24 +993,25 @@ async function monitorTextbox() {
                 if (parseResult) {
                     // Get current game number and process the match
                     window.getCurrentGame().then(currentGameNumber => {
-                        // Always ensure this record exists in the database as active first
-                        window.saveDataToJSON({
-                            Game: currentGameNumber,
-                            Squadron: parseResult.squadron,
-                            Player: parseResult.player,
-                            Vehicle: parseResult.vehicle,
-                            status: 'active'
-                        });
-
                         // Determine if this specific vehicle is destroyed or has crashed
                         const vehicleText = `(${parseResult.vehicle})`;
                         const lineText = parseResult.originalLine || line;
                         const vehicleIdx = lineText.indexOf(vehicleText);
                         const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
-
-                        // Also consider crash events where the vehicle is followed by "has crashed"
                         const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
-                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1);
+                        const hasDestroyedWord = (lineText.toLowerCase().indexOf('destroyed') !== -1);
+
+                        // Initial write: mark destroyed immediately if the HUD line contains 'destroyed' (covers 'destroyed by ...')
+                        window.saveDataToJSON({
+                            Game: currentGameNumber,
+                            Squadron: parseResult.squadron,
+                            Player: parseResult.player,
+                            Vehicle: parseResult.vehicle,
+                            status: hasDestroyedWord ? 'destroyed' : 'active'
+                        });
+
+                        // Compute destroyed state
+                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || hasDestroyedWord;
 
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
