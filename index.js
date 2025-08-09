@@ -728,8 +728,21 @@ async function monitorTextbox() {
                 if (parseResult) {
                     // Get current game number and process the match
                     window.getCurrentGame().then(currentGameNumber => {
-                        // Check if this is a destruction event
-                        const isDestroyed = line.includes(' destroyed ');
+                        // Always ensure this record exists in the database as active first
+                        window.saveDataToJSON({
+                            Game: currentGameNumber,
+                            Squadron: parseResult.squadron,
+                            Player: parseResult.player,
+                            Vehicle: parseResult.vehicle,
+                            status: 'active'
+                        });
+
+                        // Determine if the word "destroyed" precedes this specific vehicle occurrence
+                        const vehicleText = `(${parseResult.vehicle})`;
+                        const lineText = parseResult.originalLine || line;
+                        const vehicleIdx = lineText.indexOf(vehicleText);
+                        const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
+                        const isDestroyed = destroyedIdx !== -1;
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
                         const key = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|${status}`;
@@ -755,14 +768,16 @@ async function monitorTextbox() {
                             window.broadcastEvent(logMessage, isDestroyed ? 'destroyed' : 'match');
                         }
                         
-                        // Save to JSON file with status
-                        window.saveDataToJSON({
-                            Game: currentGameNumber,
-                            Squadron: parseResult.squadron,
-                            Player: parseResult.player,
-                            Vehicle: parseResult.vehicle,
-                            status: status
-                        });
+                        // Update JSON if this specific vehicle is destroyed
+                        if (isDestroyed) {
+                            window.saveDataToJSON({
+                                Game: currentGameNumber,
+                                Squadron: parseResult.squadron,
+                                Player: parseResult.player,
+                                Vehicle: parseResult.vehicle,
+                                status: 'destroyed'
+                            });
+                        }
                     });
                 }
             });
