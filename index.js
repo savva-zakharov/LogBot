@@ -20,6 +20,53 @@ process.on('unhandledRejection', (reason, promise) => {
 let vehicleClassifications = {}; // category -> [vehicles]
 let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
 
+// Settings loader: reads settings.json (fallback to highlights.json) and provides defaults
+function loadSettings() {
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111' };
+  try {
+    const cwd = process.cwd();
+    const candidates = [
+      path.join(cwd, 'settings.json'),
+      path.join(cwd, 'highlights.json'),
+      path.join(__dirname, 'settings.json'),
+      path.join(__dirname, 'highlights.json'),
+    ];
+    const fileToRead = candidates.find(p => { try { return fs.existsSync(p); } catch (_) { return false; } }) || null;
+    if (!fileToRead) return defaults;
+    const raw = fs.readFileSync(fileToRead, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        players: parsed.players || {},
+        squadrons: parsed.squadrons || {},
+        telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
+      };
+    }
+  } catch (_) {}
+  return defaults;
+}
+
+// Ensure an external settings.json exists in the writable working directory.
+function ensureExternalSettings() {
+  try {
+    const cfgPath = path.join(process.cwd(), 'settings.json');
+    if (!fs.existsSync(cfgPath)) {
+      const defaults = {
+        telemetryUrl: 'http://localhost:8111',
+        players: {},
+        squadrons: {}
+      };
+      fs.writeFileSync(cfgPath, JSON.stringify(defaults, null, 2), 'utf8');
+      console.log(`⚙️ Created default settings at ${cfgPath}`);
+    }
+  } catch (e) {
+    try { console.warn('⚠️ Could not create default settings.json in working directory:', e && e.message ? e.message : e); } catch (_) {}
+  }
+}
+
+// Create external settings on startup if missing
+ensureExternalSettings();
+
 // ---------------- Squadron Summary Mapping ----------------
 // Summary output columns order (all categories except Naval)
 const OUTPUT_ORDER = [
@@ -213,11 +260,13 @@ async function monitorTextbox() {
     });
     const page = await browser.newPage();
     try {
-        await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
-        console.log('✅ Page loaded. Watching for updates...');
+        const { telemetryUrl } = loadSettings();
+        await page.goto(telemetryUrl, { waitUntil: 'domcontentloaded' });
+        console.log(`✅ Page loaded at ${telemetryUrl}. Watching for updates...`);
     } catch (err) {
-        console.error('❌ Cannot connect to the service at http://localhost:8111 (net::ERR_CONNECTION_REFUSED).');
-        console.error('   Make sure War Thunder is running and the localhost telemetry (http://localhost:8111) is enabled.');
+        const { telemetryUrl } = loadSettings();
+        console.error(`❌ Cannot connect to the service at ${telemetryUrl} (e.g., net::ERR_CONNECTION_REFUSED).`);
+        console.error(`   Make sure War Thunder is running and the telemetry (${telemetryUrl}) is enabled.`);
         try { await browser.close(); } catch (_) {}
         return; // Exit gracefully
     }
@@ -306,16 +355,9 @@ async function monitorTextbox() {
                 });
                 res.end(JSON.stringify(payload));
             } else if (pathname === '/api/highlights') {
-                // API endpoint: return highlight configuration
-                let payload = { players: {}, squadrons: {} };
-                try {
-                    const hlPath = path.join(__dirname, 'highlights.json');
-                    if (fs.existsSync(hlPath)) {
-                        const raw = fs.readFileSync(hlPath, 'utf8');
-                        const parsed = JSON.parse(raw);
-                        if (parsed && typeof parsed === 'object') payload = parsed;
-                    }
-                } catch (_) { /* ignore, return defaults */ }
+                // API endpoint: return settings (formerly highlights) but only players/squadrons to keep UI unchanged
+                const s = loadSettings();
+                const payload = { players: s.players || {}, squadrons: s.squadrons || {} };
                 res.writeHead(200, {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
