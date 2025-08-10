@@ -1055,6 +1055,7 @@ async function monitorTextbox() {
                                 const vehicleIdx = lineText.indexOf(vehicleText);
                                 const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
                                 const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
+                                const wreckedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has been wrecked', vehicleIdx + vehicleText.length);
                                 const shotIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' shot down ', vehicleIdx);
 
                                 // Always write as active first
@@ -1066,7 +1067,7 @@ async function monitorTextbox() {
                                     status: 'active'
                                 });
 
-                                const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || (shotIdx !== -1);
+                                const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || (wreckedIdx !== -1) || (shotIdx !== -1);
                                 if (isDestroyed) {
                                     window.saveDataToJSON({
                                         Game: currentGameNumber,
@@ -1106,7 +1107,7 @@ async function monitorTextbox() {
         //   where SQ is <=5 alphanumeric chars after stripping non-alphanumerics. Player has no spaces.
 
         const lower = String(line).toLowerCase();
-        const kwList = ['destroyed', 'has achieved', 'has crashed', 'shot down'];
+        const kwList = ['destroyed', 'has achieved', 'has crashed', 'shot down', `has been wrecked`];
         let earliest = { idx: -1, kw: '' };
         for (const kw of kwList) {
             const i = lower.indexOf(kw);
@@ -1137,15 +1138,15 @@ async function monitorTextbox() {
         const VEH = '([^()]*?(?:\\([^()]*\\)[^()]*)*)'; // balanced parentheses approximation
         // Allow optional dash/colon between squad and player, enforce player single token, and strip timestamps before matching
         const reBracketed = new RegExp(
-            '^\\s*\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+            '^\\s*\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>[^()]+?)\\s+\\((?<vehicle>' + VEH + ')\\)'
         );
         const reUnbrSquad = new RegExp(
-            // Capture a raw first token as potential squad tag, then a single-token player
-            '^\\s*(?<sqraw>\\S{1,12})\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+            // Capture a raw first token as potential squad tag, then a player name that may contain spaces
+            '^\\s*(?<sqraw>\\S{1,12})\\s*[-–—:]?\\s+(?<player>[^()]+?)\\s+\\((?<vehicle>' + VEH + ')\\)'
         );
         const reNoSquad = new RegExp(
-            // Player is a single token (no spaces)
-            '^\\s*(?<player>\\S+)\\s+\\((?<vehicle>' + VEH + ')\\)'
+            // Player name may contain spaces; capture up to the vehicle parenthesis
+            '^\\s*(?<player>[^()]+?)\\s+\\((?<vehicle>' + VEH + ')\\)'
         );
 
         const tryParse = (seg) => {
@@ -1207,7 +1208,7 @@ async function monitorTextbox() {
                 };
             }
             // Fallback: search pattern anywhere in the segment (non-anchored)
-            const anyBracketed = new RegExp("\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>" + VEH + ")\\)");
+            const anyBracketed = new RegExp("\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>[^()]+?)\\s+\\((?<vehicle>" + VEH + ")\\)");
             m = norm.match(anyBracketed);
             if (m && m.groups) {
                 const sqClean2 = (m.groups.sq || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 5);
@@ -1218,7 +1219,7 @@ async function monitorTextbox() {
                     originalLine: original
                 };
             }
-            const anyNoSquad = new RegExp("(?<!\\S)(?<player>\\S+)\\s+\\((?<vehicle>" + VEH + ")\\)");
+            const anyNoSquad = new RegExp("(?<!\\S)(?<player>[^()]+?)\\s+\\((?<vehicle>" + VEH + ")\\)");
             m = norm.match(anyNoSquad);
             if (m && m.groups) {
                 return {
