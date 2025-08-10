@@ -7,6 +7,8 @@ build/
 
 # Logs
 logs/
+old_logs/
+
 parsed_data*
 *.log
 npm-debug.log*

@@ -8,9 +8,6 @@ const { loadVehicleClassifications: loadVC, classifyVehicleLenient } = require('
 // Load vehicle classifications
 let vehicleClassifications = {}; // category -> [vehicles]
 let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
-// Cache to avoid repeated enrich calls per session
-const pendingEnrichment = new Set();
-let wikiBrowser = null; // Lazy-initialized Puppeteer browser for wiki scraping
 
 // ---------------- Squadron Summary Mapping ----------------
 // Summary output columns order (all categories except Naval)
@@ -40,85 +37,6 @@ const CATEGORY_TO_OUTPUT = {
   'SPAA': 'SPAA',
 };
 
-// Map wiki "type" text to our categories
-const mapWikiTypeToCategory = (typeText) => {
-    if (!typeText) return 'other';
-    const t = typeText.toLowerCase();
-    // Common mappings — extend as needed
-    if (t.includes('light tank') || t.includes('scout')) return 'light_scout';
-    if (t.includes('tank') || t.includes('medium') || t.includes('heavy')) return 'tanks';
-    if (t.includes('spaa') || t.includes('anti-air') || t.includes('aa')) return 'spaa';
-    if (t.includes('bomber')) return 'bombers';
-    if (t.includes('attacker') || t.includes('fighter') || t.includes('strike') || t.includes('aircraft')) return 'aircraft';
-    if (t.includes('helicopter') || t.includes('heli')) return 'heli';
-    if (t.includes('boat') || t.includes('ship') || t.includes('naval')) return 'naval';
-    return 'other';
-};
-
-// Persist a newly learned classification to JSON and memory
-const appendVehicleToClassification = (vehicleName, category) => {
-    try {
-        const comprehensivePath = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
-        let raw = {};
-        if (fs.existsSync(comprehensivePath)) {
-            raw = JSON.parse(fs.readFileSync(comprehensivePath, 'utf8'));
-        }
-        // Detect format: new format if values are strings
-        const isNewFormat = raw && Object.values(raw)[0] && typeof Object.values(raw)[0] === 'string';
-        let mapOut = {};
-        if (isNewFormat) {
-            mapOut = raw;
-        } else {
-            // Convert old format (category -> array) to new (vehicle -> category)
-            Object.entries(raw || {}).forEach(([cat, list]) => {
-                if (Array.isArray(list)) {
-                    list.forEach(v => { mapOut[v] = cat; });
-                }
-            });
-        }
-        // Add new mapping if absent
-        if (!mapOut[vehicleName]) {
-            mapOut[vehicleName] = category;
-            fs.writeFileSync(comprehensivePath, JSON.stringify(mapOut, null, 2), 'utf8');
-        }
-        // Update in-memory maps
-        vehicleToCategory[vehicleName] = category;
-        if (!vehicleClassifications[category]) vehicleClassifications[category] = [];
-        if (!vehicleClassifications[category].includes(vehicleName)) vehicleClassifications[category].push(vehicleName);
-        console.log(`🔎 Learned classification from Wiki: ${vehicleName} -> ${category}`);
-    } catch (e) {
-        console.error('❌ Failed to append learned classification:', e);
-    }
-};
-
-// Attempt to enrich classification by scraping the War Thunder wiki
-const enrichClassificationFromWiki = async (vehicleName) => {
-    try {
-        if (!vehicleName || pendingEnrichment.has(vehicleName)) return;
-        pendingEnrichment.add(vehicleName);
-        const urlName = encodeURIComponent(vehicleName.replace(/\s+/g, '_'));
-        const url = `https://wiki.warthunder.com/${urlName}`;
-        if (!wikiBrowser) {
-            wikiBrowser = await puppeteer.launch({ headless: 'new' });
-        }
-        const page = await wikiBrowser.newPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        // Query the given selector path and extract text
-        const sel = 'div.game-unit_card-info_line:nth-child(2) > div:nth-child(2) > div:nth-child(1)';
-        const typeText = await page.$eval(sel, el => el.innerText.trim()).catch(() => '');
-        await page.close();
-        const category = mapWikiTypeToCategory(typeText);
-        if (category && category !== 'other') {
-            appendVehicleToClassification(vehicleName, category);
-        } else {
-            console.log(`ℹ️ Wiki type not conclusive for ${vehicleName} ("${typeText}")`);
-        }
-    } catch (err) {
-        console.log(`⚠️ Wiki lookup failed for ${vehicleName}:`, err.message || err);
-    } finally {
-        pendingEnrichment.delete(vehicleName);
-    }
-};
 const loadVehicleClassifications = () => {
     try {
         const { vehicleToCategory: v2c, vehicleClassifications: cats } = loadVC();
@@ -208,16 +126,19 @@ async function monitorTextbox() {
     // Pending delayed game increment (no longer used for delay, but keep reference null)
     let pendingGameIncrementTimeout = null;
 
-    // Always rename existing file and start fresh
+    // Always rename existing file and start fresh (move into old_logs/)
     try {
         if (fs.existsSync(jsonFilePath)) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const backupPath = jsonFilePath.replace('.json', `_${timestamp}.json`);
+            const archiveDir = path.join(__dirname, 'old_logs');
+            try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
+            const backupName = `parsed_data_${timestamp}.json`;
+            const backupPath = path.join(archiveDir, backupName);
             fs.renameSync(jsonFilePath, backupPath);
-            console.log(`💾 Previous JSON renamed to: ${path.basename(backupPath)}`);
+            console.log(`💾 Previous JSON moved to old_logs: ${path.basename(backupPath)}`);
         }
     } catch (error) {
-        console.log('⚠️ Could not rename existing JSON, proceeding to reset:', error && error.message ? error.message : error);
+        console.log('⚠️ Could not rotate existing JSON to old_logs, proceeding to reset:', error && error.message ? error.message : error);
         try { fs.unlinkSync(jsonFilePath); } catch (_) {}
     }
 
@@ -296,6 +217,58 @@ async function monitorTextbox() {
                     'Access-Control-Allow-Origin': '*'
                 });
                 res.end(JSON.stringify(payload));
+            } else if (pathname === '/api/result') {
+                // API endpoint: record a result (win/loss) for a game as a single boolean
+                const type = (urlObj.searchParams.get('type') || '').toLowerCase();
+                let gameParam = urlObj.searchParams.get('game');
+                try {
+                    if (!['win', 'loss'].includes(type)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                        return res.end(JSON.stringify({ error: 'type must be win or loss' }));
+                    }
+                    if (!gameParam || gameParam === 'current' || gameParam === 'all') {
+                        gameParam = String(currentGame);
+                    }
+                    const gid = String(parseInt(gameParam, 10));
+                    const content = fs.existsSync(jsonFilePath) ? fs.readFileSync(jsonFilePath, 'utf8') : '{}';
+                    const data = content.trim() ? JSON.parse(content) : {};
+                    if (!data._results) data._results = {};
+                    // store single boolean: true => win, false => loss, undefined => unset
+                    data._results[gid] = (type === 'win');
+                    // persist
+                    fs.writeFileSync(jsonFilePath, JSON.stringify(data, null, 2), 'utf8');
+                    const value = data._results[gid];
+                    const note = `🏁 Result set: Game ${gid} -> ${value === true ? 'WIN' : 'LOSS'}`;
+                    console.log(note);
+                    // Trigger clients to refresh
+                    broadcastToWeb(note, 'update');
+                    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                    res.end(JSON.stringify({ game: parseInt(gid, 10), result: value }));
+                } catch (e) {
+                    console.error('❌ Error recording result:', e);
+                    try {
+                        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                        res.end(JSON.stringify({ error: 'internal_error' }));
+                    } catch (_) {}
+                }
+            } else if (pathname === '/favicon.svg') {
+                try {
+                    const favPath = path.join(__dirname, 'favicon.svg');
+                    if (fs.existsSync(favPath)) {
+                        const svg = fs.readFileSync(favPath);
+                        res.writeHead(200, {
+                            'Content-Type': 'image/svg+xml',
+                            'Cache-Control': 'public, max-age=86400',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        return res.end(svg);
+                    }
+                } catch (_) {}
+                res.writeHead(404).end();
+            } else if (pathname === '/favicon.png' || pathname === '/favicon.ico') {
+                // Fallback: redirect to SVG placeholder
+                res.writeHead(302, { 'Location': '/favicon.svg' });
+                res.end();
             } else if (pathname === '/') {
                 // Serve NEW UI (fresh minimal table with hierarchical filters)
                 const html = `
@@ -304,6 +277,9 @@ async function monitorTextbox() {
 <head>
   <meta charset="utf-8" />
   <title>War Thunder Parsed Data</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
   <style>
     body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
     .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
@@ -387,8 +363,16 @@ async function monitorTextbox() {
         const results = await Promise.all(promises);
         rows = [].concat.apply([], results);
       } else {
+        // Fetch only the selected game
         const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
         rows = await resp.json();
+        // ensure game column present for display
+        rows = rows.map(function(item){
+          if (item && (item.game === undefined || item.game === null)) {
+            item.game = (isNaN(parseInt(game, 10)) ? game : parseInt(game, 10));
+          }
+          return item;
+        });
       }
     }
 
@@ -396,17 +380,39 @@ async function monitorTextbox() {
       const gameSel = document.getElementById('filterGame');
       let game = gameSel.value;
       if (game === 'current') {
-        try {
-          const current = (await (await fetch('/api/current-game')).json()).currentGame;
-          game = String(current);
-        } catch (_) { /* ignore */ }
+        const resp = await fetch('/api/current-game');
+        const j = await resp.json();
+        game = j.currentGame;
+      } else if (game === 'all') {
+        // keep as 'all' for summaries call
       }
-      if (game === 'all') {
-        const resp = await fetch('/api/summaries?game=all');
-        summaries = await resp.json();
-      } else {
-        const resp = await fetch('/api/summaries?game=' + encodeURIComponent(game));
-        summaries = await resp.json();
+      const params = new URLSearchParams();
+      if (game !== 'all') params.set('game', game);
+      const res = await fetch('/api/summaries' + (params.toString() ? ('?' + params.toString()) : ''));
+      summaries = await res.json();
+    }
+
+    // Record a manual result for the selected (or current) game
+    async function recordResult(kind) {
+      try {
+        let game = document.getElementById('filterGame').value;
+        if (game === 'all' || game === 'current') {
+          const j = await (await fetch('/api/current-game')).json();
+          game = String(j.currentGame);
+        }
+        const url = '/api/result?type=' + encodeURIComponent(kind) + '&game=' + encodeURIComponent(game);
+        const resp = await fetch(url, { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok) {
+          // Refresh data views
+          await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
+          applyFiltersAndRender();
+        } else {
+          console.error('Failed to record result:', data && data.error);
+        }
+      } catch (e) {
+        console.error('Error recording result:', e);
       }
     }
 
@@ -530,6 +536,8 @@ async function monitorTextbox() {
           applyFiltersAndRender();
         });
       });
+      document.getElementById('btnWin').addEventListener('click', () => recordResult('win'));
+      document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
     }
 
     ws.onmessage = async (ev) => {
@@ -586,6 +594,8 @@ async function monitorTextbox() {
         <option value="helicopter">Helicopter</option>
         <option value="other">Other</option>
       </select>
+      <button id="btnWin">Record Win</button>
+      <button id="btnLoss">Record Loss</button>
     </div>
     <table>
       <thead>
@@ -867,8 +877,32 @@ async function monitorTextbox() {
                     const cleaned = String(squadron).replace(/[^A-Za-z0-9]/g, '');
                     // Ensure first '|' at column 7 by fixing name to 6 characters (pad or truncate)
                     const fixedName = cleaned.padEnd(6, ' ').slice(0, 6);
-                    const parts = OUTPUT_ORDER.map(label => `${counts[label]} ${label}`);
-                    const line = `${fixedName} | ${parts.join(' | ')} |`;
+                        const parts = OUTPUT_ORDER.map(label => `${counts[label]} ${label}`);
+                    // Determine current game's indicator (W/L) and cumulative win/loss up to this gameId
+                    let indicator = '';
+                    let cum = { win: 0, loss: 0 };
+                    if (data._results && typeof data._results === 'object') {
+                        Object.keys(data._results)
+                          .filter(function(k){ return /^\d+$/.test(k) && parseInt(k, 10) <= parseInt(gameId, 10); })
+                          .forEach(function(k){
+                              const v = data._results[k];
+                              if (typeof v === 'boolean') {
+                                  if (v === true) cum.win++; else cum.loss++;
+                                  if (k === String(gameId)) indicator = v === true ? 'W' : 'L';
+                              } else if (v && typeof v === 'object') {
+                                  // Backward-compatibility: legacy { win, loss } per game; treat as 1 outcome if one side > 0
+                                  const w = (v.win|0), l = (v.loss|0);
+                                  if (w > 0 && l === 0) cum.win++;
+                                  else if (l > 0 && w === 0) cum.loss++;
+                                  if (k === String(gameId)) {
+                                      if (w > 0 && l === 0) indicator = 'W';
+                                      else if (l > 0 && w === 0) indicator = 'L';
+                                  }
+                                  // if both zero or both >0, treat as unknown -> ignore
+                              }
+                          });
+                    }
+                    const line = `${fixedName} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${cum.win}/${cum.loss} |`;
                     results.push({ game: parseInt(gameId, 10), squadron: cleaned, line, counts });
                 });
             });
@@ -1132,7 +1166,7 @@ async function monitorTextbox() {
                 const mNoB = norm.match(reNoSquad);
                 if (mNoB) {
                     return {
-                        squadron: 'NONE',
+                        squadron: 'none',
                         player: mNoB.groups.player.trim(),
                         vehicle: mNoB.groups.vehicle.trim(),
                         originalLine: original
@@ -1155,7 +1189,7 @@ async function monitorTextbox() {
                 const mNo = norm.match(reNoSquad);
                 if (mNo) {
                     return {
-                        squadron: 'NONE',
+                        squadron: 'none',
                         player: mNo.groups.player.trim(),
                         vehicle: mNo.groups.vehicle.trim(),
                         originalLine: original
@@ -1165,7 +1199,7 @@ async function monitorTextbox() {
             m = norm.match(reNoSquad);
             if (m) {
                 return {
-                    squadron: 'NONE',
+                    squadron: 'none',
                     player: m.groups.player.trim(),
                     vehicle: m.groups.vehicle.trim(),
                     originalLine: original
