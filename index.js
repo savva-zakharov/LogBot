@@ -496,7 +496,7 @@ async function monitorTextbox() {
 </head>
 <body>
   <div class="container">
-    <h1>War Thunder Parsed Data</h1>
+    <h1>War Thunder LogBot Game Log Assistant</h1>
     <div class="filters">
       <select id="filterGame"></select>
       <select id="filterSquadron"><option value="all">All Squadrons</option></select>
@@ -898,12 +898,16 @@ async function monitorTextbox() {
                     const tsStr = mTs[1];
                     const sec = tsToSeconds(tsStr);
                     if (lastHudTsSec !== null && sec < lastHudTsSec) {
-                        // Deduplicate increments for the same reset anchor timestamp
-                        if (lastResetAnchor !== tsStr) {
-                            const prevTs = lastHudTsStr || String(lastHudTsSec);
-                            window.printToCLI(`⏱️ HUD timestamp decreased ${prevTs} → ${tsStr}. Advancing game counter.`);
-                            window.handleGameIncrement();
-                            lastResetAnchor = tsStr;
+                        const delta = lastHudTsSec - sec; // seconds decreased by
+                        // Only consider as new game if drop is >= 60 seconds
+                        if (delta >= 60) {
+                            // Deduplicate increments for the same reset anchor timestamp
+                            if (lastResetAnchor !== tsStr) {
+                                const prevTs = lastHudTsStr || String(lastHudTsSec);
+                                window.printToCLI(` HUD time dropped by ${delta}s (${prevTs} → ${tsStr}). Advancing game counter.`);
+                                window.handleGameIncrement();
+                                lastResetAnchor = tsStr;
+                            }
                         }
                     }
                     lastHudTsSec = sec;
