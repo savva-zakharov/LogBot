@@ -5,6 +5,16 @@ const WebSocket = require('ws');
 const http = require('http');
 const { loadVehicleClassifications: loadVC, classifyVehicleLenient } = require('./classifier');
 
+// Global safety nets: never let the process die silently
+process.on('uncaughtException', (err) => {
+  try { console.error('❌ Uncaught Exception:', err && err.stack ? err.stack : err); }
+  catch (_) {}
+});
+process.on('unhandledRejection', (reason, promise) => {
+  try { console.error('❌ Unhandled Rejection:', reason && reason.stack ? reason.stack : reason); }
+  catch (_) {}
+});
+
 // Load vehicle classifications
 let vehicleClassifications = {}; // category -> [vehicles]
 let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
@@ -1028,70 +1038,61 @@ async function monitorTextbox() {
                     lastHudTsStr = tsStr;
                 }
                 // Parse the line for the specific pattern
-                const parseResult = parseNewLine(line);
-                if (parseResult) {
+                let parseResults = [];
+                try {
+                    parseResults = parseNewLine(line);
+                } catch (e) {
+                    console.error('❌ parseNewLine error:', e, 'Line:', line);
+                }
+                if (Array.isArray(parseResults) && parseResults.length > 0) {
                     // Get current game number and process the match
                     window.getCurrentGame().then(currentGameNumber => {
-                        // Determine if this specific vehicle is destroyed or has crashed
-                        const vehicleText = `(${parseResult.vehicle})`;
-                        const lineText = parseResult.originalLine || line;
-                        const vehicleIdx = lineText.indexOf(vehicleText);
-                        // destroyed must appear BEFORE the vehicle text to count
-                        const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
-                        // 'has crashed' appears AFTER the vehicle text on self-crash events
-                        const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
-                        // 'shot down' should appear BEFORE the vehicle text to count (mirror 'destroyed' rule)
-                        const shotIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' shot down ', vehicleIdx);
+                        try {
+                            const results = parseResults;
+                            const lineText = (results[0] && results[0].originalLine) || line;
+                            for (const pr of results) {
+                                const vehicleText = `(${pr.vehicle})`;
+                                const vehicleIdx = lineText.indexOf(vehicleText);
+                                const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
+                                const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
+                                const shotIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' shot down ', vehicleIdx);
 
-                        // Initial write: always create/update as active first; status may flip to destroyed below
-                        window.saveDataToJSON({
-                            Game: currentGameNumber,
-                            Squadron: parseResult.squadron,
-                            Player: parseResult.player,
-                            Vehicle: parseResult.vehicle,
-                            status: 'active'
-                        });
+                                // Always write as active first
+                                window.saveDataToJSON({
+                                    Game: currentGameNumber,
+                                    Squadron: pr.squadron,
+                                    Player: pr.player,
+                                    Vehicle: pr.vehicle,
+                                    status: 'active'
+                                });
 
-                        // Compute destroyed state strictly by position
-                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || (shotIdx !== -1);
+                                const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || (shotIdx !== -1);
+                                if (isDestroyed) {
+                                    window.saveDataToJSON({
+                                        Game: currentGameNumber,
+                                        Squadron: pr.squadron,
+                                        Player: pr.player,
+                                        Vehicle: pr.vehicle,
+                                        status: 'destroyed'
+                                    });
+                                }
 
-                        const status = isDestroyed ? 'destroyed' : 'active';
-                        // Dedupe identical events in a short window
-                        const key = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|${status}`;
-                        const now = Date.now();
-                        const prev = recentEvents.get(key);
-                        const suppressLog = !!(prev && (now - prev) < DEDUPE_MS);
-                        if (!suppressLog) {
-                            recentEvents.set(key, now);
+                                const finalStatus = isDestroyed ? 'destroyed' : 'active';
+                                const key = `${currentGameNumber}|${pr.squadron}|${pr.player}|${pr.vehicle}|${finalStatus}`;
+                                const now = Date.now();
+                                const prev = recentEvents.get(key);
+                                if (!prev || (now - prev) >= DEDUPE_MS) {
+                                    recentEvents.set(key, now);
+                                }
+                                for (const [k, ts] of Array.from(recentEvents.entries())) {
+                                    if ((now - ts) > DEDUPE_MS) recentEvents.delete(k);
+                                }
+                            }
+                            window.printToCLI(` Processed line with ${results.length} entity(ies).`);
+                        } catch (e) {
+                            console.error('❌ Line handling error:', e, 'Line:', line);
                         }
-                        // Cleanup old entries
-                        for (const [k, ts] of Array.from(recentEvents.entries())) {
-                            if ((now - ts) > DEDUPE_MS) recentEvents.delete(k);
-                        }
-                        
-                        const logMessage = isDestroyed ? 
-                            `💥 Vehicle destroyed - Game: ${currentGameNumber}, Squadron: ${parseResult.squadron}, Player: ${parseResult.player}, Vehicle: ${parseResult.vehicle}` :
-                            `🎯 Match found - Game: ${currentGameNumber}, Squadron: ${parseResult.squadron}, Player: ${parseResult.player}, Vehicle: ${parseResult.vehicle}`;
-                        
-                        if (!suppressLog) {
-                            window.printToCLI(logMessage);
-                        } else {
-                            // trigger UI refresh without spamming CLI
-                            window.broadcastEvent(logMessage, isDestroyed ? 'destroyed' : 'match');
-                        }
-                        
-                        // Update JSON if this specific vehicle is destroyed (per strict rules above)
-                        if (isDestroyed) {
-                            window.saveDataToJSON({
-                                Game: currentGameNumber,
-                                Squadron: parseResult.squadron,
-                                Player: parseResult.player,
-                                Vehicle: parseResult.vehicle,
-                                status: 'destroyed'
-                            });
-                        }
-
-                    });
+                    }).catch(e => console.error('❌ getCurrentGame failed:', e));
                 }
             });
         }
@@ -1099,8 +1100,8 @@ async function monitorTextbox() {
 
     function parseNewLine(line) {
         // Rules:
-        // - Data may come BEFORE 'destroyed' | 'has achieved' | 'has crashed'
-        // - Or come AFTER 'destroyed' (e.g., "destroyed by ...")
+        // - Data may come BEFORE 'destroyed' | 'has achieved' | 'has crashed' | 'shot down'
+        // - Or come AFTER 'destroyed' | 'shot down' (e.g., "destroyed by ...")
         // - Format: [SQ] Player (Vehicle)  OR  SQ Player (Vehicle)  OR  Player (Vehicle)
         //   where SQ is <=5 alphanumeric chars after stripping non-alphanumerics. Player has no spaces.
 
@@ -1117,9 +1118,10 @@ async function monitorTextbox() {
         const original = String(line).trim();
         const segments = [];
         if (earliest.idx !== -1) {
-            // For 'destroyed' or 'shot down', ONLY parse the segment to the right of the keyword
+            // For 'destroyed' or 'shot down',parse the segment to the right AND the left of the keyword
             if (earliest.kw === 'destroyed' || earliest.kw === 'shot down') {
-                let after = original.slice(earliest.idx + 'destroyed'.length).trim();
+                const keyLen = earliest.kw.length; // robust to exact keyword used
+                let after = original.slice(earliest.idx + keyLen).trim();
                 after = after.replace(/^(:|-|–|—|by)\s+/i, '');
                 if (after) segments.push(after);
             }
@@ -1204,14 +1206,37 @@ async function monitorTextbox() {
                     originalLine: original
                 };
             }
+            // Fallback: search pattern anywhere in the segment (non-anchored)
+            const anyBracketed = new RegExp("\\[(?<sq>[^\\[\\]]{1,5})\\]\\s*[-–—:]?\\s+(?<player>\\S+)\\s+\\((?<vehicle>" + VEH + ")\\)");
+            m = norm.match(anyBracketed);
+            if (m && m.groups) {
+                const sqClean2 = (m.groups.sq || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 5);
+                return {
+                    squadron: sqClean2 || 'none',
+                    player: (m.groups.player || '').trim(),
+                    vehicle: (m.groups.vehicle || '').trim(),
+                    originalLine: original
+                };
+            }
+            const anyNoSquad = new RegExp("(?<!\\S)(?<player>\\S+)\\s+\\((?<vehicle>" + VEH + ")\\)");
+            m = norm.match(anyNoSquad);
+            if (m && m.groups) {
+                return {
+                    squadron: 'none',
+                    player: (m.groups.player || '').trim(),
+                    vehicle: (m.groups.vehicle || '').trim(),
+                    originalLine: original
+                };
+            }
             return null;
         };
 
+        const out = [];
         for (const seg of segments) {
             const parsed = tryParse(seg);
-            if (parsed) return parsed;
+            if (parsed) out.push(parsed);
         }
-        return null;
+        return out;
     }
 
     observer.observe(target, { childList: true, subtree: true });
