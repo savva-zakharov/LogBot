@@ -1,4 +1,4 @@
-const fs = require('fs');
+    const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 const WebSocket = require('ws');
@@ -13,19 +13,30 @@ const pendingEnrichment = new Set();
 let wikiBrowser = null; // Lazy-initialized Puppeteer browser for wiki scraping
 
 // ---------------- Squadron Summary Mapping ----------------
-// Summary output columns order
-const OUTPUT_ORDER = ['Tanks', 'light', 'Air', 'Heli', 'SPAA', 'Bomber'];
+// Summary output columns order (all categories except Naval)
+const OUTPUT_ORDER = [
+  'Medium',
+  'Heavy',
+  'Light',
+  'SPG',
+  'Fighter',
+  'Attacker',
+  'Bomber',
+  'Helicopter',
+  'SPAA'
+];
 
-// Map Title Case categories from classifier to summary labels
+// Map Title Case categories from classifier to summary labels (identity mapping),
+// exclude 'Naval' from summaries by not providing a mapping for it
 const CATEGORY_TO_OUTPUT = {
-  'Medium Tank': 'Tanks',
-  'Heavy Tank': 'Tanks',
-  'Tank destroyer': 'Tanks', // SPG
-  'Light Tank': 'light',
+  'Medium Tank': 'Medium',
+  'Heavy Tank': 'Heavy',
+  'Light Tank': 'Light',
+  'Tank destroyer': 'SPG',
+  'Fighter': 'Fighter',
+  'Attacker': 'Attacker',
   'Bomber': 'Bomber',
-  'Attacker': 'Air',
-  'Fighter': 'Air',
-  'Helicopter': 'Heli',
+  'Helicopter': 'Helicopter',
   'SPAA': 'SPAA',
 };
 
@@ -124,10 +135,7 @@ const loadVehicleClassifications = () => {
     }
 };
 
-// Function to classify a vehicle using lenient matching over the DB
-const classifyVehicle = (vehicleName) => {
-    return classifyVehicleLenient(vehicleName, vehicleToCategory, { minScore: 4 });
-};
+// Removed local classifyVehicle; use classifier.classifyVehicleLenient directly.
 
 // Global game state variables
 let currentGame = 0;
@@ -272,6 +280,22 @@ async function monitorTextbox() {
                     'Access-Control-Allow-Origin': '*'
                 });
                 res.end(JSON.stringify(payload));
+            } else if (pathname === '/api/highlights') {
+                // API endpoint: return highlight configuration
+                let payload = { players: {}, squadrons: {} };
+                try {
+                    const hlPath = path.join(__dirname, 'highlights.json');
+                    if (fs.existsSync(hlPath)) {
+                        const raw = fs.readFileSync(hlPath, 'utf8');
+                        const parsed = JSON.parse(raw);
+                        if (parsed && typeof parsed === 'object') payload = parsed;
+                    }
+                } catch (_) { /* ignore, return defaults */ }
+                res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                });
+                res.end(JSON.stringify(payload));
             } else if (pathname === '/') {
                 // Serve NEW UI (fresh minimal table with hierarchical filters)
                 const html = `
@@ -299,6 +323,7 @@ async function monitorTextbox() {
   <script>
     let rows = [];
     let summaries = [];
+    let highlights = { players: {}, squadrons: {} };
     const ws = new WebSocket('ws://localhost:3001');
 
     async function fetchGames() {
@@ -309,6 +334,29 @@ async function monitorTextbox() {
       const games = await gamesResp.json();
       const current = (await currentResp.json()).currentGame;
       return { games, current };
+    }
+
+    // Load highlight colors for players and squadrons
+    async function fetchHighlights() {
+      try {
+        const resp = await fetch('/api/highlights');
+        const data = await resp.json();
+        if (data && typeof data === 'object') {
+          highlights = {
+            players: data.players || {},
+            squadrons: data.squadrons || {}
+          };
+        }
+      } catch (_) { /* keep defaults */ }
+    }
+
+    function getColorPair(entry) {
+      // Accept either string (treated as background) or object { bg, fg }
+      if (!entry) return { bg: '', fg: '' };
+      if (typeof entry === 'string') return { bg: entry, fg: '' };
+      const bg = (entry.bg || '').trim();
+      const fg = (entry.fg || '').trim();
+      return { bg, fg };
     }
 
     async function fetchRowsForSelectedGame() {
@@ -406,7 +454,14 @@ async function monitorTextbox() {
       const tbody = document.getElementById('tableBody');
       tbody.innerHTML = filtered.map(function(r) {
         var statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
-        return '<tr>' +
+        // Player highlight overrides squadron highlight
+        var hl = getColorPair(highlights.players[r.player]) ;
+        if (!hl.bg && !hl.fg) hl = getColorPair(highlights.squadrons[r.squadron]);
+        var styles = [];
+        if (hl.bg) styles.push('background-color: ' + hl.bg + ';');
+        if (hl.fg) styles.push('color: ' + hl.fg + ';');
+        var rowStyle = styles.length ? (' style="' + styles.join(' ') + '"') : '';
+        return '<tr' + rowStyle + '>' +
           '<td>' + r.game + '</td>' +
           '<td>' + r.squadron + '</td>' +
           '<td>' + r.player + '</td>' +
@@ -420,23 +475,34 @@ async function monitorTextbox() {
       // Render summaries below
       const selGame = document.getElementById('filterGame').value;
       const summaryTbody = document.getElementById('summaryBody');
-      const view = (selGame === 'all') ? summaries : summaries.filter(function(s){ return String(s.game) === String(selGame); });
+      // If 'all' or 'current' is selected, summaries already contain the correct scope
+      // (fetchSummariesForSelectedGame() requested the appropriate dataset),
+      // so do not re-filter by the literal 'current' value.
+      const view = (selGame === 'all' || selGame === 'current')
+        ? summaries
+        : summaries.filter(function(s){ return String(s.game) === String(selGame); });
       // group by game then sort by squadron already pre-sorted
       let html = '';
       let lastGame = null;
       view.forEach(function(s){
+        var hl = getColorPair(highlights.squadrons[s.squadron]);
+        var styles = [];
+        if (hl.bg) styles.push('background-color: ' + hl.bg + ';');
+        if (hl.fg) styles.push('color: ' + hl.fg + ';');
+        var cellStyle = styles.length ? (' style="' + styles.join(' ') + '"') : '';
         if (lastGame !== s.game) {
           html += '<tr><td><strong>Game ' + s.game + '</strong></td></tr>';
           lastGame = s.game;
         }
         // Render a single preformatted line (already padded so first | is column 7)
-        html += '<tr><td>' + s.line + '</td></tr>';
+        html += '<tr><td' + cellStyle + '>' + s.line + '</td></tr>';
       });
       summaryTbody.innerHTML = html || '<tr><td>No data</td></tr>';
     }
 
     async function init() {
       const { games, current } = await fetchGames();
+      await fetchHighlights();
       const gameSel = document.getElementById('filterGame');
       const saved = localStorage.getItem('selectedGame');
       const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved, 10)) ? saved : 'current');
@@ -615,16 +681,22 @@ async function monitorTextbox() {
                 existingData[data.Game][data.Squadron][data.Player] = {};
             }
             
-            // Ensure vehicle slot exists
+            // Ensure vehicle slot exists; set classification at creation time
             if (!existingData[data.Game][data.Squadron][data.Player][data.Vehicle]) {
                 existingData[data.Game][data.Squadron][data.Player][data.Vehicle] = {
                     status: data.status || 'active', // 'active' or 'destroyed'
                     firstSeen: new Date().toISOString(),
-                    kills: 0
+                    kills: 0,
+                    classification: classifyVehicleLenient(data.Vehicle, vehicleToCategory, { minScore: 4 })
                 };
             }
 
             const vehicleRef = existingData[data.Game][data.Squadron][data.Player][data.Vehicle];
+
+            // Backfill classification for legacy entries missing it
+            if (!vehicleRef.classification) {
+                vehicleRef.classification = classifyVehicleLenient(data.Vehicle, vehicleToCategory, { minScore: 4 });
+            }
 
             // Update status to destroyed if requested
             if (data.status === 'destroyed' && vehicleRef.status !== 'destroyed') {
@@ -732,7 +804,8 @@ async function monitorTextbox() {
                                 player,
                                 vehicle,
                                 status: vehicleData.status,
-                                classification: classifyVehicle(vehicle),
+                                classification: (vehicleData.classification
+                                || classifyVehicleLenient(vehicle, vehicleToCategory, { minScore: 4 })),
                                 firstSeen: vehicleData.firstSeen,
                                 destroyedAt: vehicleData.destroyedAt || null,
                                 kills: vehicleData.kills || 0
@@ -747,18 +820,6 @@ async function monitorTextbox() {
             return [];
         }
     };
-
-    // Mapping from internal categories to output labels
-    const CATEGORY_TO_OUTPUT = {
-        tanks: 'Tanks',
-        light_scout: 'light',
-        bombers: 'Bomber',
-        fixed_wing: 'Air',
-        helicopters: 'Heli',
-        anti_air: 'SPAA'
-    };
-
-    const OUTPUT_ORDER = ['Tanks', 'light', 'Bomber', 'Air', 'Heli', 'SPAA'];
 
     // Function to summarize each squadron per game
     // If targetGameId is provided, only that game is summarized
@@ -789,9 +850,11 @@ async function monitorTextbox() {
                     const acc = squadronTotals.get(squadron);
                     Object.keys(gameBlock[squadron]).forEach(player => {
                         Object.keys(gameBlock[squadron][player]).forEach(vehicle => {
-                            const cat = classifyVehicle(vehicle);
+                            const vehicleData = gameBlock[squadron][player][vehicle] || {};
+                            const cat = vehicleData.classification
+                                || classifyVehicleLenient(vehicle, vehicleToCategory, { minScore: 4 });
                             const label = CATEGORY_TO_OUTPUT[cat];
-                            if (label && acc.hasOwnProperty(label)) {
+                            if (label && Object.prototype.hasOwnProperty.call(acc, label)) {
                                 acc[label] += 1;
                             }
                         });
@@ -1069,7 +1132,7 @@ async function monitorTextbox() {
                 const mNoB = norm.match(reNoSquad);
                 if (mNoB) {
                     return {
-                        squadron: 'UNKNOWN',
+                        squadron: 'NONE',
                         player: mNoB.groups.player.trim(),
                         vehicle: mNoB.groups.vehicle.trim(),
                         originalLine: original
@@ -1092,7 +1155,7 @@ async function monitorTextbox() {
                 const mNo = norm.match(reNoSquad);
                 if (mNo) {
                     return {
-                        squadron: 'UNKNOWN',
+                        squadron: 'NONE',
                         player: mNo.groups.player.trim(),
                         vehicle: mNo.groups.vehicle.trim(),
                         originalLine: original
@@ -1102,7 +1165,7 @@ async function monitorTextbox() {
             m = norm.match(reNoSquad);
             if (m) {
                 return {
-                    squadron: 'UNKNOWN',
+                    squadron: 'NONE',
                     player: m.groups.player.trim(),
                     vehicle: m.groups.vehicle.trim(),
                     originalLine: original
