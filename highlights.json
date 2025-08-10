@@ -1,6 +1,6 @@
 {
     "players": {
-      "Mindbird": { "bg": "#481A01", "fg": "#FFB74D" }
+      "Mindbird": { "bg": "#48430E", "fg": "#FFB74D" }
     },
     "squadrons": {
       "NONE": { "bg": "#2E2E2E", "fg": "#cccccc" },
