@@ -335,6 +335,23 @@ async function monitorTextbox() {
       return { bg, fg };
     }
 
+    // Map stored classification (Title Case, e.g. "Light Tank", "Tank destroyer")
+    // to filter option value (lowercase: 'light tank', 'spg', etc.)
+    function normalizeType(cls) {
+      if (!cls) return 'other';
+      const c = String(cls).toLowerCase();
+      if (c === 'light tank') return 'light tank';
+      if (c === 'medium tank') return 'medium tank';
+      if (c === 'heavy tank') return 'heavy tank';
+      if (c === 'tank destroyer') return 'spg';
+      if (c === 'spaa') return 'spaa';
+      if (c === 'fighter') return 'fighter';
+      if (c === 'attacker') return 'attacker';
+      if (c === 'bomber') return 'bomber';
+      if (c === 'helicopter') return 'helicopter';
+      return 'other';
+    }
+
     async function fetchRowsForSelectedGame() {
       const gameSel = document.getElementById('filterGame');
       let game = gameSel.value;
@@ -446,7 +463,7 @@ async function monitorTextbox() {
         (player === 'all' || r.player === player) &&
         (vehicle === 'all' || r.vehicle === vehicle) &&
         (status === 'all' || r.status === status) &&
-        (type === 'all' || r.classification === type)
+        (type === 'all' || normalizeType(r.classification) === type)
       ));
 
       // Update dependent filters from filtered dataset
@@ -1023,6 +1040,8 @@ async function monitorTextbox() {
                         const destroyedIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' destroyed ', vehicleIdx);
                         // 'has crashed' appears AFTER the vehicle text on self-crash events
                         const crashedIdx = vehicleIdx === -1 ? -1 : lineText.indexOf(' has crashed', vehicleIdx + vehicleText.length);
+                        // 'shot down' should appear BEFORE the vehicle text to count (mirror 'destroyed' rule)
+                        const shotIdx = vehicleIdx === -1 ? -1 : lineText.lastIndexOf(' shot down ', vehicleIdx);
 
                         // Initial write: always create/update as active first; status may flip to destroyed below
                         window.saveDataToJSON({
@@ -1034,7 +1053,7 @@ async function monitorTextbox() {
                         });
 
                         // Compute destroyed state strictly by position
-                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1);
+                        const isDestroyed = (destroyedIdx !== -1) || (crashedIdx !== -1) || (shotIdx !== -1);
 
                         const status = isDestroyed ? 'destroyed' : 'active';
                         // Dedupe identical events in a short window
@@ -1072,25 +1091,6 @@ async function monitorTextbox() {
                             });
                         }
 
-                        // Increment kills for attacker if applicable (deduped per exact lineText)
-                        // Optional: only process kill increments if killIdx was defined upstream
-                        if (typeof killIdx !== 'undefined' && killIdx !== -1) {
-                            const killKey = `${currentGameNumber}|${parseResult.squadron}|${parseResult.player}|${parseResult.vehicle}|kill|${lineText}`;
-                            const prevKill = recentEvents.get(killKey);
-                            const suppressKill = !!(prevKill && (now - prevKill) < 2000); // safer window for re-renders
-                            if (!suppressKill) {
-                                recentEvents.set(killKey, now);
-                                window.saveDataToJSON({
-                                    Game: currentGameNumber,
-                                    Squadron: parseResult.squadron,
-                                    Player: parseResult.player,
-                                    Vehicle: parseResult.vehicle,
-                                    killsDelta: 1
-                                });
-                                // Signal UI to refresh without spamming CLI
-                                window.signalUpdate('kill');
-                            }
-                        }
                     });
                 }
             });
@@ -1105,7 +1105,7 @@ async function monitorTextbox() {
         //   where SQ is <=5 alphanumeric chars after stripping non-alphanumerics. Player has no spaces.
 
         const lower = String(line).toLowerCase();
-        const kwList = ['destroyed', 'has achieved', 'has crashed'];
+        const kwList = ['destroyed', 'has achieved', 'has crashed', 'shot down'];
         let earliest = { idx: -1, kw: '' };
         for (const kw of kwList) {
             const i = lower.indexOf(kw);
@@ -1117,16 +1117,15 @@ async function monitorTextbox() {
         const original = String(line).trim();
         const segments = [];
         if (earliest.idx !== -1) {
-            // For 'destroyed', ONLY parse the segment to the right of the keyword
-            if (earliest.kw === 'destroyed') {
+            // For 'destroyed' or 'shot down', ONLY parse the segment to the right of the keyword
+            if (earliest.kw === 'destroyed' || earliest.kw === 'shot down') {
                 let after = original.slice(earliest.idx + 'destroyed'.length).trim();
                 after = after.replace(/^(:|-|–|—|by)\s+/i, '');
                 if (after) segments.push(after);
-            } else {
-                // For other keywords, parse the segment before the keyword (vehicle appears before the phrase)
-                const before = original.slice(0, earliest.idx).trim();
-                if (before) segments.push(before);
             }
+            // For all keywords, parse the segment before the keyword (vehicle appears before the phrase)
+            const before = original.slice(0, earliest.idx).trim();
+            if (before) segments.push(before);
         } else {
             // No keywords — fallback to whole line
             segments.push(original);
