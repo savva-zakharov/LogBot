@@ -12,6 +12,7 @@ parsed_data*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.bak.json
 
 # Env/config
 .env

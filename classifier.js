@@ -78,6 +78,9 @@ const extractVehicles = (data) => {
   return Array.from(vehicles);
 };
 
+// Export for external usage
+module.exports.extractVehicles = extractVehicles;
+
 // Main classifier with exact and partial normalized matching + pattern heuristics
 const classifyVehicle = (vehicleName, classifications) => {
   if (!vehicleName) return 'other';

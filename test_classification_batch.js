@@ -1,11 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  loadClassifications,
+  loadVehicleClassifications,
   extractVehicles,
-  classifyVehicle,
-  classifyVehicleNewScheme,
-  normalizeVehicleName,
+  classifyVehicleStrictWithEnrichment,
 } = require('./classifier');
 
 // Find all parsed_data files
@@ -31,7 +29,7 @@ const loadDataFile = (filename) => {
 };
 
 // Process a single file
-const processFile = (filename, classifications) => {
+const processFile = (filename, vehicleToCategory) => {
   console.log(`\n📂 Processing file: ${filename}`);
   const data = loadDataFile(filename);
   if (!data) return null;
@@ -42,7 +40,7 @@ const processFile = (filename, classifications) => {
   // Classify each vehicle
   const results = {};
   vehicles.forEach(vehicle => {
-    const type = classifyVehicleNewScheme(vehicle, classifications);
+    const type = classifyVehicleStrictWithEnrichment(vehicle, vehicleToCategory);
     if (!results[type]) results[type] = [];
     results[type].push(vehicle);
   });
@@ -95,9 +93,9 @@ const main = () => {
   console.log('🚀 Starting Batch Vehicle Classification Test (module-based)\n');
   
   // Load data
-  const classifications = loadClassifications();
+  const { vehicleToCategory, vehicleClassifications } = loadVehicleClassifications();
   console.log('   Categories loaded:');
-  Object.entries(classifications).forEach(([cat, list]) => {
+  Object.entries(vehicleClassifications).forEach(([cat, list]) => {
     console.log(`   - ${cat}: ${list.length} vehicles`);
   });
 
@@ -113,7 +111,7 @@ const main = () => {
   // Process each file
   const fileResults = [];
   files.forEach(file => {
-    const result = processFile(file, classifications);
+    const result = processFile(file, vehicleToCategory);
     if (result) fileResults.push(result);
   });
   
