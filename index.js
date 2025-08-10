@@ -1106,8 +1106,8 @@ async function monitorTextbox() {
         // - Format: [SQ] Player (Vehicle)  OR  SQ Player (Vehicle)  OR  Player (Vehicle)
         //   where SQ is <=5 alphanumeric chars after stripping non-alphanumerics. Player has no spaces.
 
-        const lower = String(line).toLowerCase();
-        const kwList = ['destroyed', 'has achieved', 'has crashed', 'shot down', `has been wrecked`];
+        const lower = String(line).toLowerCase();   
+        const kwList = ['destroyed', 'has achieved', 'has crashed', 'shot down', `has been wrecked`, `set afire`];
         let earliest = { idx: -1, kw: '' };
         for (const kw of kwList) {
             const i = lower.indexOf(kw);
@@ -1120,7 +1120,7 @@ async function monitorTextbox() {
         const segments = [];
         if (earliest.idx !== -1) {
             // For 'destroyed' or 'shot down',parse the segment to the right AND the left of the keyword
-            if (earliest.kw === 'destroyed' || earliest.kw === 'shot down') {
+            if (earliest.kw === 'destroyed' || earliest.kw === 'shot down' || earliest.kw === 'set afire') {
                 const keyLen = earliest.kw.length; // robust to exact keyword used
                 let after = original.slice(earliest.idx + keyLen).trim();
                 after = after.replace(/^(:|-|–|—|by)\s+/i, '');
