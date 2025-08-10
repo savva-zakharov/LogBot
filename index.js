@@ -1,6 +1,7 @@
     const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const { execSync } = require('child_process');
 const WebSocket = require('ws');
 const http = require('http');
 const { loadVehicleClassifications: loadVC, classifyVehicleLenient } = require('./classifier');
@@ -18,6 +19,53 @@ process.on('unhandledRejection', (reason, promise) => {
 // Load vehicle classifications
 let vehicleClassifications = {}; // category -> [vehicles]
 let vehicleToCategory = {}; // vehicle -> category (preferred lookup)
+
+// Settings loader: reads settings.json (fallback to highlights.json) and provides defaults
+function loadSettings() {
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111' };
+  try {
+    const cwd = process.cwd();
+    const candidates = [
+      path.join(cwd, 'settings.json'),
+      path.join(cwd, 'highlights.json'),
+      path.join(__dirname, 'settings.json'),
+      path.join(__dirname, 'highlights.json'),
+    ];
+    const fileToRead = candidates.find(p => { try { return fs.existsSync(p); } catch (_) { return false; } }) || null;
+    if (!fileToRead) return defaults;
+    const raw = fs.readFileSync(fileToRead, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        players: parsed.players || {},
+        squadrons: parsed.squadrons || {},
+        telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
+      };
+    }
+  } catch (_) {}
+  return defaults;
+}
+
+// Ensure an external settings.json exists in the writable working directory.
+function ensureExternalSettings() {
+  try {
+    const cfgPath = path.join(process.cwd(), 'settings.json');
+    if (!fs.existsSync(cfgPath)) {
+      const defaults = {
+        telemetryUrl: 'http://localhost:8111',
+        players: {},
+        squadrons: {}
+      };
+      fs.writeFileSync(cfgPath, JSON.stringify(defaults, null, 2), 'utf8');
+      console.log(`⚙️ Created default settings at ${cfgPath}`);
+    }
+  } catch (e) {
+    try { console.warn('⚠️ Could not create default settings.json in working directory:', e && e.message ? e.message : e); } catch (_) {}
+  }
+}
+
+// Create external settings on startup if missing
+ensureExternalSettings();
 
 // ---------------- Squadron Summary Mapping ----------------
 // Summary output columns order (all categories except Naval)
@@ -47,6 +95,91 @@ const CATEGORY_TO_OUTPUT = {
   'SPAA': 'SPAA',
 };
 
+// Attempt to resolve a local Chrome/Edge executable for puppeteer-core on Windows
+function resolveChromiumExecutable() {
+    // 1) Explicit env var
+    const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envPath && fs.existsSync(envPath)) return envPath;
+
+    if (process.platform === 'win32') {
+        // Helper: run 'where' and return first existing .exe
+        const tryWhere = (name) => {
+            try {
+                const out = execSync(`where ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+                const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+                for (const l of lines) { if (l.toLowerCase().endsWith('.exe') && fs.existsSync(l)) return l; }
+            } catch (_) {}
+            return null;
+        };
+
+        // 2) PATH lookup
+        let p = tryWhere('chrome'); if (p) return p;
+        p = tryWhere('msedge'); if (p) return p;
+
+        // Helper: read App Paths registry (parse default value)
+        const regRead = (key) => {
+            try {
+                const out = execSync(`reg query "${key}" /ve`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+                const match = out.match(/REG_SZ\s+(.+\.exe)/i);
+                if (match) {
+                    const file = match[1].trim();
+                    if (fs.existsSync(file)) return file;
+                }
+            } catch (_) {}
+            return null;
+        };
+
+        // 3) Windows Registry App Paths (HKCU/HKLM)
+        const keys = [
+            'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
+            'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
+            'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
+            'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
+        ];
+        for (const k of keys) { const r = regRead(k); if (r) return r; }
+
+        // 4) Known install locations
+        const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        const pf64 = process.env['ProgramW6432'] || pf;
+        const local = process.env.LOCALAPPDATA || '';
+        const candidates = [
+            path.join(pf64, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(pf86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            local ? path.join(local, 'Google', 'Chrome', 'Application', 'chrome.exe') : null,
+            path.join(pf64, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            path.join(pf86, 'Microsoft', 'Edge', 'Application', 'msedge.exe')
+        ].filter(Boolean);
+        for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch (_) {} }
+    } else {
+        // Linux (and others): use 'which' and common paths
+        const tryWhich = (name) => {
+            try {
+                const out = execSync(`which ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+                if (out && fs.existsSync(out)) return out;
+            } catch (_) {}
+            return null;
+        };
+        let p = tryWhich('google-chrome'); if (p) return p;
+        p = tryWhich('google-chrome-stable'); if (p) return p;
+        p = tryWhich('microsoft-edge'); if (p) return p;
+        p = tryWhich('chromium'); if (p) return p;
+        p = tryWhich('chromium-browser'); if (p) return p;
+
+        const candidates = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/microsoft-edge',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium'
+        ];
+        for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch (_) {} }
+    }
+
+    return null;
+}
+
 const loadVehicleClassifications = () => {
     try {
         const { vehicleToCategory: v2c, vehicleClassifications: cats } = loadVC();
@@ -69,9 +202,13 @@ const loadVehicleClassifications = () => {
 let currentGame = 0;
 let lastGameIncrementTime = 0;
 
+// Writable base directory for runtime files (works in pkg single-exe)
+const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
+try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
+
 // Function to load game state from JSON file
 const loadGameState = () => {
-    const jsonFilePath = path.join(__dirname, 'parsed_data.json');
+    const jsonFilePath = path.join(WRITE_BASE_DIR, 'parsed_data.json');
     
     if (fs.existsSync(jsonFilePath)) {
         try {
@@ -109,27 +246,33 @@ const loadGameState = () => {
 async function monitorTextbox() {
     // Game tracking variables are now global
 
+    // Launch puppeteer-core with system Chrome/Edge
+    const executablePath = resolveChromiumExecutable();
+    if (!executablePath) {
+        console.error('❌ Could not find Chrome/Edge executable.');
+        console.error('   Install Google Chrome or Microsoft Edge, or set PUPPETEER_EXECUTABLE_PATH to the browser executable.');
+        return;
+    }
     const browser = await puppeteer.launch({
         headless: true,
-        args: ['--disable-features=SitePerProcess'] // Just in case localhost has cross-origin features
+        executablePath,
+        args: ['--disable-features=SitePerProcess']
     });
-
     const page = await browser.newPage();
-
-    // Attempt to connect to the War Thunder localhost service
     try {
-        await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
-        console.log('✅ Page loaded. Watching for updates...');
+        const { telemetryUrl } = loadSettings();
+        await page.goto(telemetryUrl, { waitUntil: 'domcontentloaded' });
+        console.log(`✅ Page loaded at ${telemetryUrl}. Watching for updates...`);
     } catch (err) {
-        console.error('❌ Cannot connect to the service at http://localhost:8111 (net::ERR_CONNECTION_REFUSED).');
-        console.error('   Make sure War Thunder is running and the localhost telemetry (http://localhost:8111) is enabled.');
-        // Close browser to avoid dangling processes and exit function gracefully
+        const { telemetryUrl } = loadSettings();
+        console.error(`❌ Cannot connect to the service at ${telemetryUrl} (e.g., net::ERR_CONNECTION_REFUSED).`);
+        console.error(`   Make sure War Thunder is running and the telemetry (${telemetryUrl}) is enabled.`);
         try { await browser.close(); } catch (_) {}
-        return; // Exit without throwing so the app fails gracefully
+        return; // Exit gracefully
     }
 
-    // JSON file path
-    const jsonFilePath = path.join(__dirname, 'parsed_data.json');
+    // JSON file path (write to a real, writable location; __dirname is read-only in pkg)
+    const jsonFilePath = path.join(WRITE_BASE_DIR, 'parsed_data.json');
 
     // Cooldown notification timer (avoid spamming logs)
     let gameCooldownNotifyTimeout = null;
@@ -140,7 +283,7 @@ async function monitorTextbox() {
     try {
         if (fs.existsSync(jsonFilePath)) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const archiveDir = path.join(__dirname, 'old_logs');
+            const archiveDir = path.join(WRITE_BASE_DIR, 'old_logs');
             try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
             const backupName = `parsed_data_${timestamp}.json`;
             const backupPath = path.join(archiveDir, backupName);
@@ -212,16 +355,9 @@ async function monitorTextbox() {
                 });
                 res.end(JSON.stringify(payload));
             } else if (pathname === '/api/highlights') {
-                // API endpoint: return highlight configuration
-                let payload = { players: {}, squadrons: {} };
-                try {
-                    const hlPath = path.join(__dirname, 'highlights.json');
-                    if (fs.existsSync(hlPath)) {
-                        const raw = fs.readFileSync(hlPath, 'utf8');
-                        const parsed = JSON.parse(raw);
-                        if (parsed && typeof parsed === 'object') payload = parsed;
-                    }
-                } catch (_) { /* ignore, return defaults */ }
+                // API endpoint: return settings (formerly highlights) but only players/squadrons to keep UI unchanged
+                const s = loadSettings();
+                const payload = { players: s.players || {}, squadrons: s.squadrons || {} };
                 res.writeHead(200, {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
@@ -280,379 +416,16 @@ async function monitorTextbox() {
                 res.writeHead(302, { 'Location': '/favicon.svg' });
                 res.end();
             } else if (pathname === '/') {
-                // Serve NEW UI (fresh minimal table with hierarchical filters)
-                const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>War Thunder Parsed Data</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { color: #4CAF50; margin: 0 0 12px 0; }
-    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
-    thead th { background: #1e1e1e; color: #aaa; padding: 8px; border-bottom: 1px solid #333; text-align: left; }
-    tbody td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; }
-    .status-active { color: #66BB6A; }
-    .status-destroyed { color: #EF5350; }
-    .section-title { margin: 16px 0 8px 0; color: #90CAF9; }
-    /* Monospace summary table to preserve alignment */
-    .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .mono-table td { white-space: pre; }
-  </style>
-  <script>
-    let rows = [];
-    let summaries = [];
-    let highlights = { players: {}, squadrons: {} };
-    const ws = new WebSocket('ws://localhost:3001');
-
-    async function fetchGames() {
-      const [gamesResp, currentResp] = await Promise.all([
-        fetch('/api/games-list'),
-        fetch('/api/current-game')
-      ]);
-      const games = await gamesResp.json();
-      const current = (await currentResp.json()).currentGame;
-      return { games, current };
-    }
-
-    // Load highlight colors for players and squadrons
-    async function fetchHighlights() {
-      try {
-        const resp = await fetch('/api/highlights');
-        const data = await resp.json();
-        if (data && typeof data === 'object') {
-          highlights = {
-            players: data.players || {},
-            squadrons: data.squadrons || {}
-          };
-        }
-      } catch (_) { /* keep defaults */ }
-    }
-
-    function getColorPair(entry) {
-      // Accept either string (treated as background) or object { bg, fg }
-      if (!entry) return { bg: '', fg: '' };
-      if (typeof entry === 'string') return { bg: entry, fg: '' };
-      const bg = (entry.bg || '').trim();
-      const fg = (entry.fg || '').trim();
-      return { bg, fg };
-    }
-
-    // Map stored classification (Title Case, e.g. "Light Tank", "Tank destroyer")
-    // to filter option value (lowercase: 'light tank', 'spg', etc.)
-    function normalizeType(cls) {
-      if (!cls) return 'other';
-      const c = String(cls).toLowerCase();
-      if (c === 'light tank') return 'light tank';
-      if (c === 'medium tank') return 'medium tank';
-      if (c === 'heavy tank') return 'heavy tank';
-      if (c === 'tank destroyer') return 'spg';
-      if (c === 'spaa') return 'spaa';
-      if (c === 'fighter') return 'fighter';
-      if (c === 'attacker') return 'attacker';
-      if (c === 'bomber') return 'bomber';
-      if (c === 'helicopter') return 'helicopter';
-      return 'other';
-    }
-
-    async function fetchRowsForSelectedGame() {
-      const gameSel = document.getElementById('filterGame');
-      let game = gameSel.value;
-      if (game === 'current') {
-        try {
-          const current = (await (await fetch('/api/current-game')).json()).currentGame;
-          game = String(current);
-        } catch (_) { /* ignore */ }
-      }
-      if (game === 'all') {
-        // Fetch all games and aggregate
-        const gamesResp = await fetch('/api/games-list');
-        const games = await gamesResp.json();
-        const promises = games.map(function(g){
-          return fetch('/api/active-vehicles?game=' + encodeURIComponent(g))
-            .then(function(r){ return r.json(); })
-            .then(function(list){
-              return list.map(function(item){
-                if (item && (item.game === undefined || item.game === null)) {
-                  item.game = g; // ensure game column present
+                // Serve UI from external HTML file
+                try {
+                    const htmlPath = path.join(__dirname, 'index.html');
+                    const html = fs.readFileSync(htmlPath);
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end(html);
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end('Failed to load UI');
                 }
-                return item;
-              });
-            });
-        });
-        const results = await Promise.all(promises);
-        rows = [].concat.apply([], results);
-      } else {
-        // Fetch only the selected game
-        const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
-        rows = await resp.json();
-        // ensure game column present for display
-        rows = rows.map(function(item){
-          if (item && (item.game === undefined || item.game === null)) {
-            item.game = (isNaN(parseInt(game, 10)) ? game : parseInt(game, 10));
-          }
-          return item;
-        });
-      }
-    }
-
-    async function fetchSummariesForSelectedGame() {
-      const gameSel = document.getElementById('filterGame');
-      let game = gameSel.value;
-      if (game === 'current') {
-        const resp = await fetch('/api/current-game');
-        const j = await resp.json();
-        game = j.currentGame;
-      } else if (game === 'all') {
-        // keep as 'all' for summaries call
-      }
-      const params = new URLSearchParams();
-      if (game !== 'all') params.set('game', game);
-      const res = await fetch('/api/summaries' + (params.toString() ? ('?' + params.toString()) : ''));
-      summaries = await res.json();
-    }
-
-    // Record a manual result for the selected (or current) game
-    async function recordResult(kind) {
-      try {
-        let game = document.getElementById('filterGame').value;
-        if (game === 'all' || game === 'current') {
-          const j = await (await fetch('/api/current-game')).json();
-          game = String(j.currentGame);
-        }
-        const url = '/api/result?type=' + encodeURIComponent(kind) + '&game=' + encodeURIComponent(game);
-        const resp = await fetch(url, { method: 'POST' });
-        const data = await resp.json();
-        if (resp.ok) {
-          // Refresh data views
-          await fetchRowsForSelectedGame();
-          await fetchSummariesForSelectedGame();
-          applyFiltersAndRender();
-        } else {
-          console.error('Failed to record result:', data && data.error);
-        }
-      } catch (e) {
-        console.error('Error recording result:', e);
-      }
-    }
-
-    function populateFilter(selectId, values, placeholder) {
-      const sel = document.getElementById(selectId);
-      const prev = sel.value;
-      sel.innerHTML = '';
-      const allOpt = document.createElement('option');
-      allOpt.value = 'all';
-      allOpt.textContent = placeholder;
-      sel.appendChild(allOpt);
-      values.forEach(v => {
-        const opt = document.createElement('option');
-        opt.value = v;
-        opt.textContent = v;
-        sel.appendChild(opt);
-      });
-      if (values.includes(prev)) sel.value = prev; else sel.value = 'all';
-    }
-
-    function applyFiltersAndRender() {
-      const game = document.getElementById('filterGame').value;
-      const squadron = document.getElementById('filterSquadron').value;
-      const player = document.getElementById('filterPlayer').value;
-      const vehicle = document.getElementById('filterVehicle').value;
-      const status = document.getElementById('filterStatus').value;
-      const type = document.getElementById('filterType').value;
-
-      const filtered = rows.filter(r => (
-        (squadron === 'all' || r.squadron === squadron) &&
-        (player === 'all' || r.player === player) &&
-        (vehicle === 'all' || r.vehicle === vehicle) &&
-        (status === 'all' || r.status === status) &&
-        (type === 'all' || normalizeType(r.classification) === type)
-      ));
-
-      // Update dependent filters from filtered dataset
-      const squadrons = Array.from(new Set(rows.map(r => r.squadron))).sort();
-      const players = Array.from(new Set(rows.map(r => r.player))).sort();
-      const vehicles = Array.from(new Set(rows.map(r => r.vehicle))).sort();
-      populateFilter('filterSquadron', squadrons, 'All Squadrons');
-      populateFilter('filterPlayer', players, 'All Players');
-      populateFilter('filterVehicle', vehicles, 'All Vehicles');
-
-      const tbody = document.getElementById('tableBody');
-      tbody.innerHTML = filtered.map(function(r) {
-        var statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
-        // Player highlight overrides squadron highlight
-        var hl = getColorPair(highlights.players[r.player]) ;
-        if (!hl.bg && !hl.fg) hl = getColorPair(highlights.squadrons[r.squadron]);
-        var styles = [];
-        if (hl.bg) styles.push('background-color: ' + hl.bg + ';');
-        if (hl.fg) styles.push('color: ' + hl.fg + ';');
-        var rowStyle = styles.length ? (' style="' + styles.join(' ') + '"') : '';
-        return '<tr' + rowStyle + '>' +
-          '<td>' + r.game + '</td>' +
-          '<td>' + r.squadron + '</td>' +
-          '<td>' + r.player + '</td>' +
-          '<td>' + r.vehicle + '</td>' +
-          '<td>' + (r.classification || 'other') + '</td>' +
-          '<td class="' + statusClass + '">' + r.status + '</td>' +
-          '<td>' + (r.kills || 0) + '</td>' +
-        '</tr>';
-      }).join('');
-
-      // Render summaries below
-      const selGame = document.getElementById('filterGame').value;
-      const summaryTbody = document.getElementById('summaryBody');
-      // If 'all' or 'current' is selected, summaries already contain the correct scope
-      // (fetchSummariesForSelectedGame() requested the appropriate dataset),
-      // so do not re-filter by the literal 'current' value.
-      const view = (selGame === 'all' || selGame === 'current')
-        ? summaries
-        : summaries.filter(function(s){ return String(s.game) === String(selGame); });
-      // group by game then sort by squadron already pre-sorted
-      let html = '';
-      let lastGame = null;
-      view.forEach(function(s){
-        var hl = getColorPair(highlights.squadrons[s.squadron]);
-        var styles = [];
-        if (hl.bg) styles.push('background-color: ' + hl.bg + ';');
-        if (hl.fg) styles.push('color: ' + hl.fg + ';');
-        var cellStyle = styles.length ? (' style="' + styles.join(' ') + '"') : '';
-        if (lastGame !== s.game) {
-          html += '<tr><td><strong>Game ' + s.game + '</strong></td></tr>';
-          lastGame = s.game;
-        }
-        // Render a single preformatted line (already padded so first | is column 7)
-        html += '<tr><td' + cellStyle + '>' + s.line + '</td></tr>';
-      });
-      summaryTbody.innerHTML = html || '<tr><td>No data</td></tr>';
-    }
-
-    async function init() {
-      const { games, current } = await fetchGames();
-      await fetchHighlights();
-      const gameSel = document.getElementById('filterGame');
-      const saved = localStorage.getItem('selectedGame');
-      const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved, 10)) ? saved : 'current');
-      gameSel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
-      gameSel.value = initial;
-      localStorage.setItem('selectedGame', gameSel.value);
-
-      await fetchRowsForSelectedGame();
-      await fetchSummariesForSelectedGame();
-
-      // Initialize status and type filters
-      document.getElementById('filterStatus').value = 'all';
-      document.getElementById('filterType').value = 'all';
-
-      applyFiltersAndRender();
-
-      // Wire events
-      ['filterGame', 'filterSquadron', 'filterPlayer', 'filterVehicle', 'filterStatus', 'filterType'].forEach(id => {
-        document.getElementById(id).addEventListener('change', async (e) => {
-          if (id === 'filterGame') {
-            localStorage.setItem('selectedGame', e.target.value);
-            await fetchRowsForSelectedGame();
-            await fetchSummariesForSelectedGame();
-          }
-          applyFiltersAndRender();
-        });
-      });
-      document.getElementById('btnWin').addEventListener('click', () => recordResult('win'));
-      document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
-    }
-
-    ws.onmessage = async (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data.type === 'game') {
-          // refresh games list and keep selected
-          const { games } = await fetchGames();
-          const gameSel = document.getElementById('filterGame');
-          const prev = gameSel.value;
-          gameSel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(function(g){ return '<option value="' + g + '">Game ' + g + '</option>'; }).join('');
-          if (prev === 'current') { gameSel.value = 'current'; }
-          else if (prev === 'all') { gameSel.value = 'all'; }
-          else if (games.map(String).includes(prev)) gameSel.value = prev; else gameSel.value = String(games[games.length-1] || 'current');
-          localStorage.setItem('selectedGame', gameSel.value);
-          await fetchRowsForSelectedGame();
-          await fetchSummariesForSelectedGame();
-          applyFiltersAndRender();
-        } else if (data.type === 'match' || data.type === 'destroyed' || data.type === 'update') {
-          // If current selected game is active, refresh rows
-          await fetchRowsForSelectedGame();
-          await fetchSummariesForSelectedGame();
-          applyFiltersAndRender();
-        }
-      } catch (_) { }
-    };
-
-    window.addEventListener('load', init);
-  </script>
-</head>
-<body>
-  <div class="container">
-    <h1>War Thunder LogBot Game Log Assistant</h1>
-    <div class="filters">
-      <select id="filterGame"></select>
-      <select id="filterSquadron"><option value="all">All Squadrons</option></select>
-      <select id="filterPlayer"><option value="all">All Players</option></select>
-      <select id="filterVehicle"><option value="all">All Vehicles</option></select>
-      <select id="filterStatus">
-        <option value="all">All Status</option>
-        <option value="active">Active</option>
-        <option value="destroyed">Destroyed</option>
-      </select>
-      <select id="filterType">
-        <option value="all">All Types</option>
-        <option value="light tank">Light Tank</option>
-        <option value="medium tank">Medium Tank</option>
-        <option value="heavy tank">Heavy Tank</option>
-        <option value="spg">SPG</option>
-        <option value="spaa">SPAA</option>
-        <option value="fighter">Fighter</option>
-        <option value="attacker">Attacker</option>
-        <option value="bomber">Bomber</option>
-        <option value="helicopter">Helicopter</option>
-        <option value="other">Other</option>
-      </select>
-      <button id="btnWin">Record Win</button>
-      <button id="btnLoss">Record Loss</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Game</th>
-          <th>Squadron</th>
-          <th>Player</th>
-          <th>Vehicle</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Kills</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody"></tbody>
-    </table>
-
-    <h2 class="section-title">Squadron Summary (per game)</h2>
-    <table class="mono-table">
-      <thead>
-        <tr>
-          <th>Summary</th>
-        </tr>
-      </thead>
-      <tbody id="summaryBody"></tbody>
-    </table>
-  </div>
-</body>
-</html>`;
-                res.writeHead(200, { 'Content-Type': 'text/html' });
-                res.end(html);
             } else {
                 res.writeHead(404);
                 res.end('Not Found');
