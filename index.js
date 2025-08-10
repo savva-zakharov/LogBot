@@ -1,6 +1,7 @@
     const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const { execSync } = require('child_process');
 const WebSocket = require('ws');
 const http = require('http');
 const { loadVehicleClassifications: loadVC, classifyVehicleLenient } = require('./classifier');
@@ -47,6 +48,91 @@ const CATEGORY_TO_OUTPUT = {
   'SPAA': 'SPAA',
 };
 
+// Attempt to resolve a local Chrome/Edge executable for puppeteer-core on Windows
+function resolveChromiumExecutable() {
+    // 1) Explicit env var
+    const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envPath && fs.existsSync(envPath)) return envPath;
+
+    if (process.platform === 'win32') {
+        // Helper: run 'where' and return first existing .exe
+        const tryWhere = (name) => {
+            try {
+                const out = execSync(`where ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+                const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+                for (const l of lines) { if (l.toLowerCase().endsWith('.exe') && fs.existsSync(l)) return l; }
+            } catch (_) {}
+            return null;
+        };
+
+        // 2) PATH lookup
+        let p = tryWhere('chrome'); if (p) return p;
+        p = tryWhere('msedge'); if (p) return p;
+
+        // Helper: read App Paths registry (parse default value)
+        const regRead = (key) => {
+            try {
+                const out = execSync(`reg query "${key}" /ve`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+                const match = out.match(/REG_SZ\s+(.+\.exe)/i);
+                if (match) {
+                    const file = match[1].trim();
+                    if (fs.existsSync(file)) return file;
+                }
+            } catch (_) {}
+            return null;
+        };
+
+        // 3) Windows Registry App Paths (HKCU/HKLM)
+        const keys = [
+            'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
+            'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
+            'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
+            'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
+        ];
+        for (const k of keys) { const r = regRead(k); if (r) return r; }
+
+        // 4) Known install locations
+        const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        const pf64 = process.env['ProgramW6432'] || pf;
+        const local = process.env.LOCALAPPDATA || '';
+        const candidates = [
+            path.join(pf64, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(pf86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            local ? path.join(local, 'Google', 'Chrome', 'Application', 'chrome.exe') : null,
+            path.join(pf64, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            path.join(pf86, 'Microsoft', 'Edge', 'Application', 'msedge.exe')
+        ].filter(Boolean);
+        for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch (_) {} }
+    } else {
+        // Linux (and others): use 'which' and common paths
+        const tryWhich = (name) => {
+            try {
+                const out = execSync(`which ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+                if (out && fs.existsSync(out)) return out;
+            } catch (_) {}
+            return null;
+        };
+        let p = tryWhich('google-chrome'); if (p) return p;
+        p = tryWhich('google-chrome-stable'); if (p) return p;
+        p = tryWhich('microsoft-edge'); if (p) return p;
+        p = tryWhich('chromium'); if (p) return p;
+        p = tryWhich('chromium-browser'); if (p) return p;
+
+        const candidates = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/microsoft-edge',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium'
+        ];
+        for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch (_) {} }
+    }
+
+    return null;
+}
+
 const loadVehicleClassifications = () => {
     try {
         const { vehicleToCategory: v2c, vehicleClassifications: cats } = loadVC();
@@ -69,9 +155,13 @@ const loadVehicleClassifications = () => {
 let currentGame = 0;
 let lastGameIncrementTime = 0;
 
+// Writable base directory for runtime files (works in pkg single-exe)
+const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
+try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
+
 // Function to load game state from JSON file
 const loadGameState = () => {
-    const jsonFilePath = path.join(__dirname, 'parsed_data.json');
+    const jsonFilePath = path.join(WRITE_BASE_DIR, 'parsed_data.json');
     
     if (fs.existsSync(jsonFilePath)) {
         try {
@@ -109,29 +199,31 @@ const loadGameState = () => {
 async function monitorTextbox() {
     // Game tracking variables are now global
 
+    // Launch puppeteer-core with system Chrome/Edge
+    const executablePath = resolveChromiumExecutable();
+    if (!executablePath) {
+        console.error('❌ Could not find Chrome/Edge executable.');
+        console.error('   Install Google Chrome or Microsoft Edge, or set PUPPETEER_EXECUTABLE_PATH to the browser executable.');
+        return;
+    }
     const browser = await puppeteer.launch({
         headless: true,
-        args: ['--disable-features=SitePerProcess'] // Just in case localhost has cross-origin features
+        executablePath,
+        args: ['--disable-features=SitePerProcess']
     });
-
     const page = await browser.newPage();
-
-    // Attempt to connect to the War Thunder localhost service
     try {
         await page.goto('http://localhost:8111', { waitUntil: 'domcontentloaded' });
         console.log('✅ Page loaded. Watching for updates...');
     } catch (err) {
         console.error('❌ Cannot connect to the service at http://localhost:8111 (net::ERR_CONNECTION_REFUSED).');
         console.error('   Make sure War Thunder is running and the localhost telemetry (http://localhost:8111) is enabled.');
-        // Close browser to avoid dangling processes and exit function gracefully
         try { await browser.close(); } catch (_) {}
-        return; // Exit without throwing so the app fails gracefully
+        return; // Exit gracefully
     }
 
     // JSON file path (write to a real, writable location; __dirname is read-only in pkg)
-    const writeBaseDir = process.env.LOGBOT_DATA_DIR || process.cwd();
-    try { fs.mkdirSync(writeBaseDir, { recursive: true }); } catch (_) {}
-    const jsonFilePath = path.join(writeBaseDir, 'parsed_data.json');
+    const jsonFilePath = path.join(WRITE_BASE_DIR, 'parsed_data.json');
 
     // Cooldown notification timer (avoid spamming logs)
     let gameCooldownNotifyTimeout = null;
@@ -142,7 +234,7 @@ async function monitorTextbox() {
     try {
         if (fs.existsSync(jsonFilePath)) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const archiveDir = path.join(writeBaseDir, 'old_logs');
+            const archiveDir = path.join(WRITE_BASE_DIR, 'old_logs');
             try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
             const backupName = `parsed_data_${timestamp}.json`;
             const backupPath = path.join(archiveDir, backupName);
