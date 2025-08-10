@@ -3,7 +3,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const WebSocket = require('ws');
 const http = require('http');
-const { loadVehicleClassifications: loadVC, classifyVehicleStrictWithEnrichment } = require('./classifier');
+const { loadVehicleClassifications: loadVC, classifyVehicleLenient } = require('./classifier');
 
 // Load vehicle classifications
 let vehicleClassifications = {}; // category -> [vehicles]
@@ -124,9 +124,9 @@ const loadVehicleClassifications = () => {
     }
 };
 
-// Function to classify a vehicle using strict lookup; if unknown, trigger background wiki enrichment
+// Function to classify a vehicle using lenient matching over the DB
 const classifyVehicle = (vehicleName) => {
-    return classifyVehicleStrictWithEnrichment(vehicleName, vehicleToCategory);
+    return classifyVehicleLenient(vehicleName, vehicleToCategory, { minScore: 4 });
 };
 
 // Global game state variables

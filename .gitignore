@@ -21,3 +21,5 @@ yarn-error.log*
 
 # IDE
 .vscode/
+classification_batch_results*
+unclassified_vehicles*

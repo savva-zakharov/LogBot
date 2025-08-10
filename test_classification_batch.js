@@ -3,7 +3,8 @@ const path = require('path');
 const {
   loadVehicleClassifications,
   extractVehicles,
-  classifyVehicleStrictWithEnrichment,
+  classifyVehicleStrict,
+  classifyVehicleLenient,
 } = require('./classifier');
 
 // Find all parsed_data files
@@ -29,7 +30,7 @@ const loadDataFile = (filename) => {
 };
 
 // Process a single file
-const processFile = (filename, vehicleToCategory) => {
+const processFile = (filename, vehicleToCategory, opts) => {
   console.log(`\n📂 Processing file: ${filename}`);
   const data = loadDataFile(filename);
   if (!data) return null;
@@ -37,10 +38,12 @@ const processFile = (filename, vehicleToCategory) => {
   const vehicles = extractVehicles(data);
   console.log(`   Found ${vehicles.length} unique vehicles`);
   
-  // Classify each vehicle
+  // Classify each vehicle (strict DB lookup only)
   const results = {};
   vehicles.forEach(vehicle => {
-    const type = classifyVehicleStrictWithEnrichment(vehicle, vehicleToCategory);
+    const type = opts.useLenient
+      ? classifyVehicleLenient(vehicle, vehicleToCategory, { minScore: opts.minScore })
+      : classifyVehicleStrict(vehicle, vehicleToCategory);
     if (!results[type]) results[type] = [];
     results[type].push(vehicle);
   });
@@ -90,7 +93,18 @@ const generateReport = (fileResults) => {
 
 // Main function
 const main = () => {
+  // Args
+  const args = process.argv.slice(2);
+  const useLenient = args.includes('--lenient');
+  const minScoreArg = (args.find(a => a.startsWith('--minScore=')) || '').split('=')[1];
+  const minScore = Number.isFinite(parseInt(minScoreArg, 10)) ? parseInt(minScoreArg, 10) : 4;
+
   console.log('🚀 Starting Batch Vehicle Classification Test (module-based)\n');
+  if (useLenient) {
+    console.log(`   Mode: LENIENT (minScore=${minScore})`);
+  } else {
+    console.log('   Mode: STRICT');
+  }
   
   // Load data
   const { vehicleToCategory, vehicleClassifications } = loadVehicleClassifications();
@@ -111,7 +125,7 @@ const main = () => {
   // Process each file
   const fileResults = [];
   files.forEach(file => {
-    const result = processFile(file, vehicleToCategory);
+    const result = processFile(file, vehicleToCategory, { useLenient, minScore });
     if (result) fileResults.push(result);
   });
   
@@ -156,6 +170,8 @@ const main = () => {
   
   const output = {
     timestamp: new Date().toISOString(),
+    mode: useLenient ? 'lenient' : 'strict',
+    minScore: useLenient ? minScore : undefined,
     filesProcessed: fileResults.length,
     totalUniqueVehicles: report.totalVehicles,
     unclassifiedCount: unclassified.length,

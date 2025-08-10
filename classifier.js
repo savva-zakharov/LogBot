@@ -1,51 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Replace NBSP and multiple whitespace with single ascii space, remove diacritics, trim
-const normalizeWhitespaceAndDiacritics = (s) => {
-  return s
-    .replace(/\u00A0/g, ' ') // NBSP -> space
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '') // remove diacritics
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-
-// Remove leading non-alphanumeric symbols (e.g., squad icons like ␗, ▅)
-const stripLeadingSymbols = (s) => s.replace(/^[^\p{L}\p{N}]+/u, '');
-
-// Standardize punctuation variants for comparison (remove parentheses, collapse hyphens)
-const normalizePunct = (s) => s
-  .replace(/[()]/g, '')
-  .replace(/\s*-\s*/g, '-')
-  .replace(/-/g, ' ') // treat hyphen as space for lenient matching
-  .trim();
-
-// Build a normalized form used for equality/partial comparisons
-const normalizeVehicleName = (name) => {
-  if (!name || typeof name !== 'string') return '';
-  let out = String(name);
-  out = normalizeWhitespaceAndDiacritics(out);
-  out = stripLeadingSymbols(out);
-  out = normalizePunct(out);
-  return out.toLowerCase();
-};
-
-module.exports.normalizeVehicleName = normalizeVehicleName;
-
-const loadClassifications = () => {
-  try {
-    const comp = JSON.parse(fs.readFileSync(path.join(__dirname, 'comprehensive_vehicle_classifications.json'), 'utf8'));
-    return comp;
-  } catch (e) {
-    // If comprehensive is missing/unreadable, return an empty mapping.
-    // Heuristic/pattern matching and wiki overrides will still function.
-    return {};
-  }
-};
-
-// Overrides removed: all mappings are now consolidated into comprehensive_vehicle_classifications.json
+// Legacy normalization and heuristic code removed.
 
 // Extract unique vehicles from 4D or legacy structures
 const extractVehicles = (data) => {
@@ -81,58 +37,7 @@ const extractVehicles = (data) => {
 // Export for external usage
 module.exports.extractVehicles = extractVehicles;
 
-// Main classifier with exact and partial normalized matching + pattern heuristics
-const classifyVehicle = (vehicleName, classifications) => {
-  if (!vehicleName) return 'other';
-  const nameNorm = normalizeVehicleName(vehicleName);
-  if (!nameNorm) return 'other';
-
-  // Precompute normalized lookup per category
-  const categories = Object.keys(classifications);
-
-  // 1) Exact normalized match
-  for (const cat of categories) {
-    if (cat === 'other') continue;
-    const list = classifications[cat] || [];
-    if (list.some(v => normalizeVehicleName(v) === nameNorm)) return cat;
-  }
-
-  // 2) Partial contains match with scoring
-  const scores = {};
-  for (const cat of categories) {
-    if (cat === 'other') continue;
-    const list = classifications[cat] || [];
-    for (const v of list) {
-      const vn = normalizeVehicleName(v);
-      if (!vn) continue;
-      if (nameNorm.includes(vn) || vn.includes(nameNorm)) {
-        const score = Math.min(vn.length, nameNorm.length);
-        scores[cat] = Math.max(scores[cat] || 0, score);
-      }
-    }
-  }
-  const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
-  if (best && best[1] >= 3) return best[0];
-
-  // 3) Heuristic patterns on normalized name
-  const n = nameNorm;
-  const patterns = {
-    bombers: [/^b-?\d+\b/, /^il-?\d+\b/, /^tu-?\d+\b/, /^pe-?\d+\b/, /^he\s?\d+\b/, /^ju\s?\d+\b/, /^do\s?\d+\b/],
-    tanks: [/^t-?\d+\b/, /^m\d+\b/, /^is-?\d+\b/, /\bpanzer\b/, /\btiger\b/, /\bpanther\b/, /\bleopard\b/, /\bcenturion\b/, /\bchallenger\b/, /\bchieftain\b/],
-    light_scout: [/^m\d+\s/, /^bmp\b/, /^btr\b/, /^pt-?\d+\b/, /^asu-?\d+\b/, /^type\s?\d+\b/, /^m2[24]\b/, /^m3[15]\b/, /^object\b/, /^stb\b/, /^ru\s?251\b/, /^t92\b/],
-    fixed_wing: [/^[a-z]+-?\d+\b/, /^[a-z]+\s\d+\b/, /^[a-z]\d+\b/, /^[a-z]{2}-\d+\b/],
-    helicopters: [/^[a-z]+-?\d+\b/, /^mi-?\d+\b/, /^ah-?\d+\b/, /^uh-?\d+\b/, /^ka-?\d+\b/, /^oh-?\d+\b/],
-    anti_air: [/\baa\b/, /spaa/, /flak/, /\bzsu\b/, /shilka/, /tunguska/, /gepard/, /type\s?87\b/, /\bm163\b/, /vads/],
-    naval: [/^[a-z]{2,3}-?\d+\b/, /^[a-z]+\s\d+\b/, /\bpt-?\d+\b/, /\bpr\./, /type\s[a-z]\d+\b/, /^[a-z]+\d+[a-z]*\b/]
-  };
-  for (const [cat, regs] of Object.entries(patterns)) {
-    if (regs.some(r => r.test(n))) return cat;
-  }
-
-  return 'other';
-};
-
-// (legacy exports removed)
+// (legacy heuristic classifier removed)
 
 // ---------------- New-format helpers (vehicle -> category) ----------------
 // Load comprehensive classifications supporting both formats.
@@ -148,10 +53,10 @@ function loadVehicleClassifications() {
       vehicleToCategory = {};
       vehicleClassifications = {};
       Object.entries(raw).forEach(([veh, catRaw]) => {
-        const mapped = _mapNewTaxonomyToTitleCase(catRaw) || String(catRaw);
-        vehicleToCategory[veh] = mapped;
-        if (!vehicleClassifications[mapped]) vehicleClassifications[mapped] = [];
-        vehicleClassifications[mapped].push(veh);
+        const category = String(catRaw);
+        vehicleToCategory[veh] = category;
+        if (!vehicleClassifications[category]) vehicleClassifications[category] = [];
+        vehicleClassifications[category].push(veh);
       });
     } else {
       vehicleClassifications = raw || {};
@@ -183,78 +88,96 @@ function classifyVehicleStrict(name, vehicleToCategory) {
 
 module.exports.classifyVehicleStrict = classifyVehicleStrict;
 
-// Strict + background enrichment using enrich_from_wiki.js
-const _pendingWiki = new Set();
-
-function _mapNewTaxonomyToTitleCase(cat) {
-  switch (cat) {
-    case 'heavy_tank': return 'Heavy Tank';
-    case 'medium_tank': return 'Medium Tank';
-    case 'light_tank': return 'Light Tank';
-    case 'spg': return 'Tank destroyer';
-    case 'spaa': return 'SPAA';
-    case 'bomber': return 'Bomber';
-    case 'fighter':
-    case 'attacker':
-    case 'fixed_wing': return 'Fighter';
-    case 'helicopter': return 'Helicopter';
-    default: return null;
-  }
-}
-
-function _persistVehicleMapping(vehicleName, categoryTitle) {
-  try {
-    const file = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
-    let raw = {};
-    if (fs.existsSync(file)) raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const isMap = raw && typeof Object.values(raw)[0] === 'string';
-    let map = {};
-    if (isMap) {
-      map = raw;
-    } else {
-      Object.entries(raw || {}).forEach(([cat, list]) => {
-        if (Array.isArray(list)) list.forEach(v => { map[v] = cat; });
-      });
-    }
-    if (!map[vehicleName]) {
-      map[vehicleName] = categoryTitle;
-      fs.writeFileSync(file, JSON.stringify(map, null, 2), 'utf8');
-    }
-  } catch (e) {
-    console.error('❌ Failed saving classification:', e);
-  }
-}
-
+// Legacy background enrichment removed. Keep a no-op alias to avoid breaking callers.
 function classifyVehicleStrictWithEnrichment(name, vehicleToCategory) {
-  const res = classifyVehicleStrict(name, vehicleToCategory);
-  if (res !== 'other') return res;
-
-  const vehicleName = String(name || '').trim();
-  if (!vehicleName || _pendingWiki.has(vehicleName)) return 'other';
-  _pendingWiki.add(vehicleName);
-
-  (async () => {
-    try {
-      const { classifyViaWiki } = require('./enrich_from_wiki');
-      const result = await classifyViaWiki(vehicleName);
-      if (result && result.category) {
-        const title = _mapNewTaxonomyToTitleCase(result.category);
-        if (title) {
-          console.log(`🔎 Learned from Wiki: ${vehicleName} -> ${title} (${result.source || 'wiki'})`);
-          _persistVehicleMapping(vehicleName, title);
-          if (vehicleToCategory) vehicleToCategory[vehicleName] = title;
-        }
-      }
-    } catch (_) {
-      // ignore
-    } finally {
-      _pendingWiki.delete(vehicleName);
-    }
-  })();
-
-  return 'other';
+  return classifyVehicleStrict(name, vehicleToCategory);
 }
 
 module.exports.classifyVehicleStrictWithEnrichment = classifyVehicleStrictWithEnrichment;
 
 // Duplicate legacy block removed
+
+// ---------------- Lenient matching (partial, case-insensitive, normalized) ----------------
+// Lightweight normalization for matching
+function _normalizeForMatch(s) {
+  return String(s || '')
+    .replace(/\u00A0/g, ' ') // NBSP -> space
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/[\p{C}\p{S}]+/gu, '') // drop control and symbol glyphs (e.g., nation flags ▅, ␗)
+    .replace(/[()]/g, '')
+    .replace(/[_\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Cache normalized keys per mapping to avoid recomputing every call
+const _normIndexCache = new WeakMap();
+function _getNormIndex(vehicleToCategory) {
+  if (!vehicleToCategory || typeof vehicleToCategory !== 'object') return { list: [], byNorm: new Map() };
+  const cached = _normIndexCache.get(vehicleToCategory);
+  if (cached) return cached;
+  const list = [];
+  const byNorm = new Map(); // norm -> array of original keys
+  Object.keys(vehicleToCategory).forEach(orig => {
+    const norm = _normalizeForMatch(orig);
+    list.push({ orig, norm, cat: vehicleToCategory[orig] });
+    if (!byNorm.has(norm)) byNorm.set(norm, []);
+    byNorm.get(norm).push(orig);
+  });
+  const idx = { list, byNorm };
+  _normIndexCache.set(vehicleToCategory, idx);
+  return idx;
+}
+
+// Public lenient classifier
+function classifyVehicleLenient(name, vehicleToCategory, options = {}) {
+  if (!name || typeof name !== 'string') return 'other';
+  if (!vehicleToCategory || typeof vehicleToCategory !== 'object') return 'other';
+
+  const clean = name.trim();
+  // 1) Strict exact match first
+  if (Object.prototype.hasOwnProperty.call(vehicleToCategory, clean)) {
+    return vehicleToCategory[clean];
+  }
+
+  const { list, byNorm } = _getNormIndex(vehicleToCategory);
+  const q = _normalizeForMatch(clean);
+  if (!q) return 'other';
+
+  // 2) Exact normalized match
+  const same = byNorm.get(q);
+  if (same && same.length) {
+    return vehicleToCategory[same[0]];
+  }
+
+  // 3) Contains/substring scoring
+  let bestCat = null;
+  let bestScore = 0;
+  const minScore = options.minScore || 4; // require at least 4 chars overlap
+  for (const entry of list) {
+    const a = q;
+    const b = entry.norm;
+    let score = 0;
+    if (a.includes(b) || b.includes(a)) {
+      score = Math.min(a.length, b.length);
+    } else {
+      // token overlap score
+      const at = a.split(' ');
+      const bt = b.split(' ');
+      const setA = new Set(at);
+      let overlap = 0;
+      for (const t of bt) if (setA.has(t)) overlap += t.length >= 2 ? t.length : 0; // weight by token length
+      score = overlap;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestCat = entry.cat;
+    }
+  }
+  if (bestScore >= minScore && bestCat) return bestCat;
+  return 'other';
+}
+
+module.exports.classifyVehicleLenient = classifyVehicleLenient;
