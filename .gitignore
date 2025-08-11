@@ -21,6 +21,8 @@ settings.json
 highlights.json
 
 # Env/config
+settings.env
+*.env
 .env
 .env.*
 .DS_Store

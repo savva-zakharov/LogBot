@@ -30,7 +30,7 @@ async function resolveChannel() {
     if (isSnowflake(stripHash(desiredRaw))) {
       try {
         const byId = await client.channels.fetch(stripHash(desiredRaw));
-        if (byId && (byId.type === ChannelType.GuildText || (byId.isTextBased && byId.isTextBased()))) return byId;
+        if (byId && (byId.type === ChannelType.GuildText || byId.type === ChannelType.GuildAnnouncement || typeof byId.send === 'function')) return byId;
       } catch (e) {
         console.warn('⚠️ Discord: Channel fetch by ID failed:', e && e.message ? e.message : e);
       }
@@ -54,11 +54,11 @@ async function resolveChannel() {
       // If a guild name was provided, skip others
       if (desiredGuildName && guild.name.toLowerCase() !== desiredGuildName) continue;
       // Match by name
-      let found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildText) && c.name.toLowerCase() === desiredName);
+      let found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement) && c.name.toLowerCase() === desiredName);
       if (found) return found;
       // Match by channel ID inside this guild
       found = guild.channels.cache.get(desiredRaw);
-      if (found && found.type === ChannelType.GuildText) return found;
+      if (found && (found.type === ChannelType.GuildText || found.type === ChannelType.GuildAnnouncement || typeof found.send === 'function')) return found;
     }
   } catch (_) {}
   return null;
@@ -100,7 +100,7 @@ async function init(settings) {
         for (const [, guild] of client.guilds.cache) {
           await guild.channels.fetch();
           const texts = guild.channels.cache
-            .filter(c => c && c.type === ChannelType.GuildText)
+            .filter(c => c && (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement))
             .map(c => `#${c.name} (${c.id})`)
             .slice(0, 8)
             .join(', ');

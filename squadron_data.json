@@ -1,0 +1,1006 @@
+{
+  "squadronSnapshots": [
+    {
+      "ts": "2025-08-11T21:36:32.665Z",
+      "url": "https://warthunder.com/en/community/claninfo/Try%20Hard%20Coalition",
+      "totalPoints": 36561,
+      "totalPointsCalulated": 36561,
+      "data": {
+        "headers": [
+          "num.",
+          "Player",
+          "Personal clan rating",
+          "Activity",
+          "Role",
+          "Date of entry"
+        ],
+        "rows": [
+          {
+            "num.": "1",
+            "Player": "SzKevin2_HUN",
+            "Personal clan rating": "1554",
+            "Activity": "1307",
+            "Role": "Private",
+            "Date of entry": "01.05.2020"
+          },
+          {
+            "num.": "2",
+            "Player": "zzn00974057",
+            "Personal clan rating": "861",
+            "Activity": "2497",
+            "Role": "Private",
+            "Date of entry": "05.08.2020"
+          },
+          {
+            "num.": "3",
+            "Player": "CptWildBillKalso",
+            "Personal clan rating": "629",
+            "Activity": "3598",
+            "Role": "Private",
+            "Date of entry": "01.01.2022"
+          },
+          {
+            "num.": "4",
+            "Player": "Recon0302",
+            "Personal clan rating": "1371",
+            "Activity": "427",
+            "Role": "Private",
+            "Date of entry": "21.01.2023"
+          },
+          {
+            "num.": "5",
+            "Player": "Mindbird",
+            "Personal clan rating": "1558",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "04.05.2023"
+          },
+          {
+            "num.": "6",
+            "Player": "UltimateKamikazE",
+            "Personal clan rating": "0",
+            "Activity": "295",
+            "Role": "Private",
+            "Date of entry": "14.07.2023"
+          },
+          {
+            "num.": "7",
+            "Player": "Raptuss_90@psn",
+            "Personal clan rating": "529",
+            "Activity": "3098",
+            "Role": "Private",
+            "Date of entry": "29.08.2023"
+          },
+          {
+            "num.": "8",
+            "Player": "Kenamondo15",
+            "Personal clan rating": "280",
+            "Activity": "411",
+            "Role": "Private",
+            "Date of entry": "13.12.2023"
+          },
+          {
+            "num.": "9",
+            "Player": "PhoenixSpecOps",
+            "Personal clan rating": "1466",
+            "Activity": "2380",
+            "Role": "Private",
+            "Date of entry": "03.02.2024"
+          },
+          {
+            "num.": "10",
+            "Player": "R2Y2_KeiunСock",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "09.03.2024"
+          },
+          {
+            "num.": "11",
+            "Player": "Anime Dog",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "13.04.2024"
+          },
+          {
+            "num.": "12",
+            "Player": "DarkSoulViper",
+            "Personal clan rating": "1679",
+            "Activity": "964",
+            "Role": "Commander",
+            "Date of entry": "30.04.2024"
+          },
+          {
+            "num.": "13",
+            "Player": "8beasty",
+            "Personal clan rating": "1558",
+            "Activity": "3960",
+            "Role": "Sergeant",
+            "Date of entry": "01.05.2024"
+          },
+          {
+            "num.": "14",
+            "Player": "Shaak__Ti",
+            "Personal clan rating": "218",
+            "Activity": "1358",
+            "Role": "Private",
+            "Date of entry": "01.05.2024"
+          },
+          {
+            "num.": "15",
+            "Player": "Silent_Wings_223",
+            "Personal clan rating": "1579",
+            "Activity": "2880",
+            "Role": "Private",
+            "Date of entry": "01.05.2024"
+          },
+          {
+            "num.": "16",
+            "Player": "TheJoyKiller",
+            "Personal clan rating": "216",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "02.05.2024"
+          },
+          {
+            "num.": "17",
+            "Player": "Tigor_goes_RAWR",
+            "Personal clan rating": "686",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "02.05.2024"
+          },
+          {
+            "num.": "18",
+            "Player": "GREGallOVER",
+            "Personal clan rating": "999",
+            "Activity": "3949",
+            "Role": "Private",
+            "Date of entry": "02.05.2024"
+          },
+          {
+            "num.": "19",
+            "Player": "B_1ank",
+            "Personal clan rating": "156",
+            "Activity": "629",
+            "Role": "Private",
+            "Date of entry": "05.05.2024"
+          },
+          {
+            "num.": "20",
+            "Player": "youssef_18",
+            "Personal clan rating": "1527",
+            "Activity": "3897",
+            "Role": "Sergeant",
+            "Date of entry": "02.06.2024"
+          },
+          {
+            "num.": "21",
+            "Player": "AnnoyingAnimegrl",
+            "Personal clan rating": "1496",
+            "Activity": "3286",
+            "Role": "Private",
+            "Date of entry": "03.06.2024"
+          },
+          {
+            "num.": "22",
+            "Player": "DavideTheSniper",
+            "Personal clan rating": "1541",
+            "Activity": "3890",
+            "Role": "Private",
+            "Date of entry": "22.06.2024"
+          },
+          {
+            "num.": "23",
+            "Player": "ap__12",
+            "Personal clan rating": "761",
+            "Activity": "2880",
+            "Role": "Private",
+            "Date of entry": "28.06.2024"
+          },
+          {
+            "num.": "24",
+            "Player": "David6549",
+            "Personal clan rating": "1469",
+            "Activity": "3371",
+            "Role": "Private",
+            "Date of entry": "08.08.2024"
+          },
+          {
+            "num.": "25",
+            "Player": "That_Nightmare",
+            "Personal clan rating": "370",
+            "Activity": "534",
+            "Role": "Private",
+            "Date of entry": "29.08.2024"
+          },
+          {
+            "num.": "26",
+            "Player": "LarssonTv",
+            "Personal clan rating": "1391",
+            "Activity": "3192",
+            "Role": "Private",
+            "Date of entry": "03.09.2024"
+          },
+          {
+            "num.": "27",
+            "Player": "Rules_of_Nature",
+            "Personal clan rating": "810",
+            "Activity": "3725",
+            "Role": "Private",
+            "Date of entry": "04.09.2024"
+          },
+          {
+            "num.": "28",
+            "Player": "JetGoGaming",
+            "Personal clan rating": "1460",
+            "Activity": "2677",
+            "Role": "Officer",
+            "Date of entry": "06.10.2024"
+          },
+          {
+            "num.": "29",
+            "Player": "Zerialkiller",
+            "Personal clan rating": "1333",
+            "Activity": "2979",
+            "Role": "Private",
+            "Date of entry": "17.10.2024"
+          },
+          {
+            "num.": "30",
+            "Player": "Slackening",
+            "Personal clan rating": "1075",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "29.10.2024"
+          },
+          {
+            "num.": "31",
+            "Player": "thunderbolt747",
+            "Personal clan rating": "1541",
+            "Activity": "3663",
+            "Role": "Private",
+            "Date of entry": "01.11.2024"
+          },
+          {
+            "num.": "32",
+            "Player": "Doge71217",
+            "Personal clan rating": "1542",
+            "Activity": "3960",
+            "Role": "Officer",
+            "Date of entry": "09.11.2024"
+          },
+          {
+            "num.": "33",
+            "Player": "K0stA",
+            "Personal clan rating": "1484",
+            "Activity": "2609",
+            "Role": "Private",
+            "Date of entry": "18.11.2024"
+          },
+          {
+            "num.": "34",
+            "Player": "Awaken-unc@psn",
+            "Personal clan rating": "690",
+            "Activity": "3256",
+            "Role": "Private",
+            "Date of entry": "22.11.2024"
+          },
+          {
+            "num.": "35",
+            "Player": "Krectzar",
+            "Personal clan rating": "1646",
+            "Activity": "1339",
+            "Role": "Private",
+            "Date of entry": "31.12.2024"
+          },
+          {
+            "num.": "36",
+            "Player": "Ehno",
+            "Personal clan rating": "1665",
+            "Activity": "3344",
+            "Role": "Private",
+            "Date of entry": "01.01.2025"
+          },
+          {
+            "num.": "37",
+            "Player": "Pinguin_Slifer",
+            "Personal clan rating": "1141",
+            "Activity": "2227",
+            "Role": "Private",
+            "Date of entry": "03.01.2025"
+          },
+          {
+            "num.": "38",
+            "Player": "GermanySufers",
+            "Personal clan rating": "1611",
+            "Activity": "3260",
+            "Role": "Private",
+            "Date of entry": "07.01.2025"
+          },
+          {
+            "num.": "39",
+            "Player": "BigSausage420",
+            "Personal clan rating": "890",
+            "Activity": "720",
+            "Role": "Private",
+            "Date of entry": "07.01.2025"
+          },
+          {
+            "num.": "40",
+            "Player": "HummelTHEONLYONE",
+            "Personal clan rating": "1317",
+            "Activity": "2933",
+            "Role": "Private",
+            "Date of entry": "08.01.2025"
+          },
+          {
+            "num.": "41",
+            "Player": "Patma",
+            "Personal clan rating": "1462",
+            "Activity": "3363",
+            "Role": "Private",
+            "Date of entry": "11.01.2025"
+          },
+          {
+            "num.": "42",
+            "Player": "XxDevilShark69xX",
+            "Personal clan rating": "1115",
+            "Activity": "326",
+            "Role": "Private",
+            "Date of entry": "12.02.2025"
+          },
+          {
+            "num.": "43",
+            "Player": "Yeetling4334",
+            "Personal clan rating": "315",
+            "Activity": "2127",
+            "Role": "Private",
+            "Date of entry": "01.03.2025"
+          },
+          {
+            "num.": "44",
+            "Player": "chunky_peanut_bu",
+            "Personal clan rating": "213",
+            "Activity": "1275",
+            "Role": "Private",
+            "Date of entry": "01.03.2025"
+          },
+          {
+            "num.": "45",
+            "Player": "waht_de_hec",
+            "Personal clan rating": "1557",
+            "Activity": "3137",
+            "Role": "Private",
+            "Date of entry": "01.03.2025"
+          },
+          {
+            "num.": "46",
+            "Player": "MrJ3lly",
+            "Personal clan rating": "1636",
+            "Activity": "3412",
+            "Role": "Deputy",
+            "Date of entry": "01.03.2025"
+          },
+          {
+            "num.": "47",
+            "Player": "JackAPoo12",
+            "Personal clan rating": "1168",
+            "Activity": "1881",
+            "Role": "Private",
+            "Date of entry": "01.03.2025"
+          },
+          {
+            "num.": "48",
+            "Player": "Raptoid22",
+            "Personal clan rating": "1424",
+            "Activity": "1678",
+            "Role": "Private",
+            "Date of entry": "02.03.2025"
+          },
+          {
+            "num.": "49",
+            "Player": "Tsukuyomi7459@live",
+            "Personal clan rating": "1580",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "06.03.2025"
+          },
+          {
+            "num.": "50",
+            "Player": "xZenxx",
+            "Personal clan rating": "1536",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "24.03.2025"
+          },
+          {
+            "num.": "51",
+            "Player": "xXTripplJoocieXx",
+            "Personal clan rating": "1609",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "24.03.2025"
+          },
+          {
+            "num.": "52",
+            "Player": "Vorlienth",
+            "Personal clan rating": "1415",
+            "Activity": "1799",
+            "Role": "Private",
+            "Date of entry": "24.03.2025"
+          },
+          {
+            "num.": "53",
+            "Player": "TheTardinator",
+            "Personal clan rating": "1524",
+            "Activity": "2716",
+            "Role": "Private",
+            "Date of entry": "24.03.2025"
+          },
+          {
+            "num.": "54",
+            "Player": "Renegade_64152",
+            "Personal clan rating": "1513",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "30.03.2025"
+          },
+          {
+            "num.": "55",
+            "Player": "MrSpinkleswirth",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "30.03.2025"
+          },
+          {
+            "num.": "56",
+            "Player": "Evir_",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "31.03.2025"
+          },
+          {
+            "num.": "57",
+            "Player": "MRCRAYON131@psn",
+            "Personal clan rating": "1123",
+            "Activity": "3050",
+            "Role": "Private",
+            "Date of entry": "01.04.2025"
+          },
+          {
+            "num.": "58",
+            "Player": "grizzlypear",
+            "Personal clan rating": "1521",
+            "Activity": "3760",
+            "Role": "Private",
+            "Date of entry": "03.04.2025"
+          },
+          {
+            "num.": "59",
+            "Player": "AshPred",
+            "Personal clan rating": "1510",
+            "Activity": "3065",
+            "Role": "Private",
+            "Date of entry": "09.04.2025"
+          },
+          {
+            "num.": "60",
+            "Player": "Pvt_TopCat",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "16.04.2025"
+          },
+          {
+            "num.": "61",
+            "Player": "_S1NISTER_",
+            "Personal clan rating": "981",
+            "Activity": "3376",
+            "Role": "Private",
+            "Date of entry": "22.04.2025"
+          },
+          {
+            "num.": "62",
+            "Player": "OneFreshG",
+            "Personal clan rating": "0",
+            "Activity": "627",
+            "Role": "Private",
+            "Date of entry": "24.04.2025"
+          },
+          {
+            "num.": "63",
+            "Player": "TEXTF1",
+            "Personal clan rating": "1095",
+            "Activity": "826",
+            "Role": "Private",
+            "Date of entry": "25.04.2025"
+          },
+          {
+            "num.": "64",
+            "Player": "CommandCream@live",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "29.04.2025"
+          },
+          {
+            "num.": "65",
+            "Player": "RokesDrift",
+            "Personal clan rating": "1555",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "01.05.2025"
+          },
+          {
+            "num.": "66",
+            "Player": "Ghost-0f-Harambe",
+            "Personal clan rating": "1445",
+            "Activity": "3341",
+            "Role": "Private",
+            "Date of entry": "02.05.2025"
+          },
+          {
+            "num.": "67",
+            "Player": "NikoNiko69",
+            "Personal clan rating": "964",
+            "Activity": "1409",
+            "Role": "Private",
+            "Date of entry": "03.05.2025"
+          },
+          {
+            "num.": "68",
+            "Player": "Skizofrenia",
+            "Personal clan rating": "1514",
+            "Activity": "3845",
+            "Role": "Private",
+            "Date of entry": "06.05.2025"
+          },
+          {
+            "num.": "69",
+            "Player": "-grim-",
+            "Personal clan rating": "1579",
+            "Activity": "2160",
+            "Role": "Private",
+            "Date of entry": "07.05.2025"
+          },
+          {
+            "num.": "70",
+            "Player": "H3nry207",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "10.05.2025"
+          },
+          {
+            "num.": "71",
+            "Player": "-Alcatraz-",
+            "Personal clan rating": "0",
+            "Activity": "1148",
+            "Role": "Private",
+            "Date of entry": "11.05.2025"
+          },
+          {
+            "num.": "72",
+            "Player": "THC_funny@psn",
+            "Personal clan rating": "739",
+            "Activity": "279",
+            "Role": "Private",
+            "Date of entry": "14.05.2025"
+          },
+          {
+            "num.": "73",
+            "Player": "QUADRAXIz",
+            "Personal clan rating": "1564",
+            "Activity": "1822",
+            "Role": "Private",
+            "Date of entry": "15.05.2025"
+          },
+          {
+            "num.": "74",
+            "Player": "MrJ311y",
+            "Personal clan rating": "1515",
+            "Activity": "1288",
+            "Role": "Private",
+            "Date of entry": "15.05.2025"
+          },
+          {
+            "num.": "75",
+            "Player": "UeleX",
+            "Personal clan rating": "1173",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "19.05.2025"
+          },
+          {
+            "num.": "76",
+            "Player": "HighCaliber420",
+            "Personal clan rating": "1244",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "23.05.2025"
+          },
+          {
+            "num.": "77",
+            "Player": "Gunsnipe",
+            "Personal clan rating": "1505",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "31.05.2025"
+          },
+          {
+            "num.": "78",
+            "Player": "Capt_Mann",
+            "Personal clan rating": "1527",
+            "Activity": "3900",
+            "Role": "Private",
+            "Date of entry": "03.06.2025"
+          },
+          {
+            "num.": "79",
+            "Player": "KillyMcPhilly",
+            "Personal clan rating": "1483",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "03.06.2025"
+          },
+          {
+            "num.": "80",
+            "Player": "Gufisz",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "07.06.2025"
+          },
+          {
+            "num.": "81",
+            "Player": "GGGFunk",
+            "Personal clan rating": "1556",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "10.06.2025"
+          },
+          {
+            "num.": "82",
+            "Player": "Lord_of_the_Void",
+            "Personal clan rating": "1535",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "29.06.2025"
+          },
+          {
+            "num.": "83",
+            "Player": "Brav0_07",
+            "Personal clan rating": "1519",
+            "Activity": "3428",
+            "Role": "Private",
+            "Date of entry": "01.07.2025"
+          },
+          {
+            "num.": "84",
+            "Player": "Alosh_IRAQ",
+            "Personal clan rating": "1034",
+            "Activity": "1626",
+            "Role": "Private",
+            "Date of entry": "02.07.2025"
+          },
+          {
+            "num.": "85",
+            "Player": "Venom_71",
+            "Personal clan rating": "1496",
+            "Activity": "3606",
+            "Role": "Private",
+            "Date of entry": "03.07.2025"
+          },
+          {
+            "num.": "86",
+            "Player": "DragonDaan",
+            "Personal clan rating": "1489",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "87",
+            "Player": "GeneralMcDweeb",
+            "Personal clan rating": "1276",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "88",
+            "Player": "coota0",
+            "Personal clan rating": "124",
+            "Activity": "359",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "89",
+            "Player": "TankerMarcos",
+            "Personal clan rating": "1561",
+            "Activity": "3569",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "90",
+            "Player": "CombatPersonal",
+            "Personal clan rating": "749",
+            "Activity": "1080",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "91",
+            "Player": "ThatPieceOfGold",
+            "Personal clan rating": "1196",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "92",
+            "Player": "501clones",
+            "Personal clan rating": "1517",
+            "Activity": "3871",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "93",
+            "Player": "D1sappo1ntment",
+            "Personal clan rating": "1467",
+            "Activity": "1620",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "94",
+            "Player": "TheLifeguard ヅ",
+            "Personal clan rating": "706",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "95",
+            "Player": "Igoryst",
+            "Personal clan rating": "1496",
+            "Activity": "2160",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "96",
+            "Player": "ImApril",
+            "Personal clan rating": "1141",
+            "Activity": "2604",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "97",
+            "Player": "Reeaal1@live",
+            "Personal clan rating": "1566",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "98",
+            "Player": "Niqo2007",
+            "Personal clan rating": "1137",
+            "Activity": "1839",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "99",
+            "Player": "At335",
+            "Personal clan rating": "1282",
+            "Activity": "2677",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "100",
+            "Player": "Schmansen_97@psn",
+            "Personal clan rating": "0",
+            "Activity": "1572",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "101",
+            "Player": "I died to a bomb_",
+            "Personal clan rating": "1531",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "102",
+            "Player": "BloodSyn",
+            "Personal clan rating": "1565",
+            "Activity": "2943",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "103",
+            "Player": "Clineluck",
+            "Personal clan rating": "556",
+            "Activity": "3600",
+            "Role": "Private",
+            "Date of entry": "04.07.2025"
+          },
+          {
+            "num.": "104",
+            "Player": "Zee_Awppenheimer",
+            "Personal clan rating": "1541",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "05.07.2025"
+          },
+          {
+            "num.": "105",
+            "Player": "Twist3dRaptur3",
+            "Personal clan rating": "1408",
+            "Activity": "3960",
+            "Role": "Private",
+            "Date of entry": "05.07.2025"
+          },
+          {
+            "num.": "106",
+            "Player": "WarThunderEnjoye",
+            "Personal clan rating": "866",
+            "Activity": "147",
+            "Role": "Private",
+            "Date of entry": "05.07.2025"
+          },
+          {
+            "num.": "107",
+            "Player": "ПроектЛайка",
+            "Personal clan rating": "930",
+            "Activity": "720",
+            "Role": "Private",
+            "Date of entry": "06.07.2025"
+          },
+          {
+            "num.": "108",
+            "Player": "Hxngmxn",
+            "Personal clan rating": "1599",
+            "Activity": "1800",
+            "Role": "Private",
+            "Date of entry": "06.07.2025"
+          },
+          {
+            "num.": "109",
+            "Player": "Fantazitron",
+            "Personal clan rating": "1041",
+            "Activity": "2479",
+            "Role": "Private",
+            "Date of entry": "09.07.2025"
+          },
+          {
+            "num.": "110",
+            "Player": "litledre@psn",
+            "Personal clan rating": "0",
+            "Activity": "1560",
+            "Role": "Private",
+            "Date of entry": "09.07.2025"
+          },
+          {
+            "num.": "111",
+            "Player": "TooMuchFELIX",
+            "Personal clan rating": "1649",
+            "Activity": "3399",
+            "Role": "Sergeant",
+            "Date of entry": "13.07.2025"
+          },
+          {
+            "num.": "112",
+            "Player": "Arctic561",
+            "Personal clan rating": "931",
+            "Activity": "3240",
+            "Role": "Private",
+            "Date of entry": "13.07.2025"
+          },
+          {
+            "num.": "113",
+            "Player": "MadDog0042@psn",
+            "Personal clan rating": "0",
+            "Activity": "360",
+            "Role": "Private",
+            "Date of entry": "24.07.2025"
+          },
+          {
+            "num.": "114",
+            "Player": "Kingamer75@live",
+            "Personal clan rating": "1533",
+            "Activity": "2160",
+            "Role": "Private",
+            "Date of entry": "24.07.2025"
+          },
+          {
+            "num.": "115",
+            "Player": "TheRoop",
+            "Personal clan rating": "0",
+            "Activity": "1839",
+            "Role": "Private",
+            "Date of entry": "26.07.2025"
+          },
+          {
+            "num.": "116",
+            "Player": "LarsenJaJa",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "27.07.2025"
+          },
+          {
+            "num.": "117",
+            "Player": "--Tyr--",
+            "Personal clan rating": "931",
+            "Activity": "1499",
+            "Role": "Private",
+            "Date of entry": "28.07.2025"
+          },
+          {
+            "num.": "118",
+            "Player": "MetaGamer YT",
+            "Personal clan rating": "534",
+            "Activity": "1440",
+            "Role": "Private",
+            "Date of entry": "31.07.2025"
+          },
+          {
+            "num.": "119",
+            "Player": "Goldenspark334",
+            "Personal clan rating": "813",
+            "Activity": "1080",
+            "Role": "Private",
+            "Date of entry": "03.08.2025"
+          },
+          {
+            "num.": "120",
+            "Player": "GrandShogun",
+            "Personal clan rating": "0",
+            "Activity": "720",
+            "Role": "Private",
+            "Date of entry": "04.08.2025"
+          },
+          {
+            "num.": "121",
+            "Player": "PonaS_TadauskaS",
+            "Personal clan rating": "90",
+            "Activity": "360",
+            "Role": "Private",
+            "Date of entry": "09.08.2025"
+          },
+          {
+            "num.": "122",
+            "Player": "Tankgame532",
+            "Personal clan rating": "0",
+            "Activity": "0",
+            "Role": "Private",
+            "Date of entry": "09.08.2025"
+          },
+          {
+            "num.": "123",
+            "Player": "genetic_soldier_",
+            "Personal clan rating": "89",
+            "Activity": "211",
+            "Role": "Private",
+            "Date of entry": "10.08.2025"
+          }
+        ]
+      }
+    }
+  ]
+}
