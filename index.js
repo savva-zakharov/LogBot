@@ -78,15 +78,44 @@ async function main() {
     }
   };
 
-  // 6. Start the browser scraper
-  try {
-    await scraper.startScraper(callbacks);
-  } catch (error) {
-    console.error('❌ Scraper failed to start:', error);
-    process.exit(1);
+  // 6. Start the browser scraper (non-fatal if telemetry is unavailable)
+  let scraperBrowser = null;
+  let scraperRunning = false;
+  let retryTimer = null;
+
+  async function tryStartScraper() {
+    if (scraperRunning) return; // prevent concurrent starts
+    try {
+      const browser = await scraper.startScraper(callbacks);
+      scraperBrowser = browser;
+      scraperRunning = true;
+      console.log('✅ Scraper started.');
+      // If the browser disconnects (e.g., telemetry page closes), allow retry
+      try {
+        browser.on('disconnected', () => {
+          console.warn('⚠️ Scraper browser disconnected. Will retry in 60s.');
+          scraperRunning = false;
+        });
+      } catch (_) {}
+    } catch (error) {
+      // Known transient error when WT telemetry not available
+      if (error && (error.message === 'TelemetryUnavailable' || error.message === 'BrowserExecutableNotFound')) {
+        console.warn('ℹ️ Scraper not started:', error.message, '- will retry in 60s.');
+      } else {
+        console.error('⚠️ Scraper failed to start:', error && (error.stack || error.message) || error);
+      }
+    }
   }
 
-  console.log('✅ Application started successfully.');
+  // Immediate attempt, then retry every 60 seconds if not running
+  await tryStartScraper();
+  retryTimer = setInterval(() => {
+    if (!scraperRunning) {
+      tryStartScraper();
+    }
+  }, 60_000);
+
+  console.log('✅ Application started successfully (server/discord online). Scraper will start when telemetry is available.');
 }
 
 main();

@@ -18,6 +18,7 @@ async function runSetupWizard() {
   // Start with current settings as defaults if available
   const current = loadSettings();
   const cfgPath = path.join(process.cwd(), 'settings.json');
+  const envPath = path.join(process.cwd(), 'settings.env');
   const hasSettingsFile = fs.existsSync(cfgPath);
 
   const rl = readline.createInterface({
@@ -38,7 +39,9 @@ async function runSetupWizard() {
     const wsPort = coerceNumber(wsPortAns, current.wsPort || 3001);
 
     const discordBotToken = (await ask(rl, `Discord Bot Token (leave empty to skip) [${current.discordBotToken ? '*****' : ''}]: `)).trim() || current.discordBotToken || '';
-    const discordChannel = (await ask(rl, `Discord Channel (e.g., #general) [${current.discordChannel || '#general'}]: `)).trim() || current.discordChannel || '#general';
+    const discordChannel = (await ask(rl, `Discord Channel (ID, name, or guildId/channelId) [${current.discordChannel || '#general'}]: `)).trim() || current.discordChannel || '#general';
+    const clientId = (await ask(rl, `Discord Application Client ID (optional) [${current.clientId || ''}]: `)).trim() || current.clientId || '';
+    const guildId = (await ask(rl, `Default Discord Guild ID (optional) [${current.guildId || ''}]: `)).trim() || current.guildId || '';
 
     // Determine previous single-value defaults for user and squad
     const currentPlayers = current.players && typeof current.players === 'object' ? current.players : {};
@@ -66,12 +69,27 @@ async function runSetupWizard() {
         : { bg: '#0F3011', fg: '#9CCC65' };
     }
 
-    const cfg = { telemetryUrl, players, squadrons, discordBotToken, discordChannel, port, wsPort };
+    // Persist players/squadrons (non-secrets) in settings.json
+    const jsonCfg = { players, squadrons };
+    fs.writeFileSync(cfgPath, JSON.stringify(jsonCfg, null, 2), 'utf8');
+    console.log(`\n✅ Settings (players/squadrons) saved to ${cfgPath}`);
 
-    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
-    console.log(`\n✅ Settings saved to ${cfgPath}`);
-
-    return cfg;
+    // Persist secrets and ports in settings.env
+    const envLines = [
+      `# LogBot settings (secrets and ports)`,
+      `TELEMETRY_URL=${telemetryUrl}`,
+      `PORT=${port}`,
+      `WS_PORT=${wsPort}`,
+      `DISCORD_BOT_TOKEN=${discordBotToken}`,
+      `DISCORD_CHANNEL=${discordChannel}`,
+      `CLIENT_ID=${clientId}`,
+      `GUILD_ID=${guildId}`,
+      ''
+    ];
+    fs.writeFileSync(envPath, envLines.join('\n'), 'utf8');
+    console.log(`✅ Secrets and ports saved to ${envPath}`);
+    // Return merged view (as loadSettings would)
+    return { ...current, ...jsonCfg, telemetryUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId };
   } finally {
     rl.close();
   }

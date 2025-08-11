@@ -10,7 +10,7 @@ async function startScraper(callbacks) {
   if (!executablePath) {
     console.error('❌ Could not find Chrome/Edge executable.');
     console.error('   Install Google Chrome or Microsoft Edge, or set PUPPETEER_EXECUTABLE_PATH to the browser executable.');
-    process.exit(1);
+    throw new Error('BrowserExecutableNotFound');
   }
 
   const browser = await puppeteer.launch({
@@ -28,8 +28,8 @@ async function startScraper(callbacks) {
   } catch (err) {
     console.error(`❌ Cannot connect to the service at ${telemetryUrl}.`);
     console.error(`   Make sure War Thunder is running and the telemetry service is enabled.`);
-    await browser.close();
-    process.exit(1);
+    try { await browser.close(); } catch (_) {}
+    throw new Error('TelemetryUnavailable');
   }
 
   // Expose a function from Node to the browser

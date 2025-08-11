@@ -19,6 +19,7 @@ yarn-error.log*
 # Setttings
 settings.json
 highlights.json
+settings.env
 
 # Env/config
 settings.env

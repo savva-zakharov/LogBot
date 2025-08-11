@@ -11,7 +11,7 @@ const OUTPUT_ORDER = [
   'Fighter',
   'Attacker',
   'Bomber',
-  'Helicopter',
+  'Heli',
   'SPAA'
 ];
 
@@ -24,15 +24,17 @@ const CATEGORY_TO_OUTPUT = {
   'Fighter': 'Fighter',
   'Attacker': 'Attacker',
   'Bomber': 'Bomber',
-  'Helicopter': 'Helicopter',
+  'Helicopter': 'Heli',
   'SPAA': 'SPAA',
 };
 
-// Settings loader: reads settings.json and provides defaults
+// Settings loader: reads settings.json and settings.env, with env taking precedence
 function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', port: 3000, wsPort: 3001 };
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001 };
   try {
     const cwd = process.cwd();
+    const envPath = path.join(cwd, 'settings.env');
+    const envMap = loadEnvFile(envPath);
     const candidates = [
       path.join(cwd, 'settings.json'),
       path.join(cwd, 'highlights.json'), // fallback for legacy name
@@ -44,18 +46,65 @@ function loadSettings() {
     const raw = fs.readFileSync(fileToRead, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
-      return {
+      const base = {
         players: parsed.players || {},
         squadrons: parsed.squadrons || {},
         telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
         discordBotToken: typeof parsed.discordBotToken === 'string' ? parsed.discordBotToken : defaults.discordBotToken,
         discordChannel: typeof parsed.discordChannel === 'string' ? parsed.discordChannel : defaults.discordChannel,
+        clientId: typeof parsed.clientId === 'string' ? parsed.clientId : defaults.clientId,
+        guildId: typeof parsed.guildId === 'string' ? parsed.guildId : defaults.guildId,
         port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
         wsPort: (typeof parsed.wsPort === 'number' && Number.isFinite(parsed.wsPort)) ? parsed.wsPort : defaults.wsPort,
+      };
+      // Override with settings.env values if present, then process.env
+      const envOverrides = {
+        telemetryUrl: envMap.TELEMETRY_URL || process.env.TELEMETRY_URL,
+        discordBotToken: envMap.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN,
+        discordChannel: envMap.DISCORD_CHANNEL || process.env.DISCORD_CHANNEL,
+        clientId: envMap.CLIENT_ID || process.env.CLIENT_ID,
+        guildId: envMap.GUILD_ID || process.env.GUILD_ID,
+        port: parsePort(envMap.PORT || process.env.PORT),
+        wsPort: parsePort(envMap.WS_PORT || process.env.WS_PORT),
+      };
+      return {
+        players: base.players,
+        squadrons: base.squadrons,
+        telemetryUrl: envOverrides.telemetryUrl || base.telemetryUrl || defaults.telemetryUrl,
+        discordBotToken: (envOverrides.discordBotToken !== undefined ? envOverrides.discordBotToken : base.discordBotToken) || defaults.discordBotToken,
+        discordChannel: envOverrides.discordChannel || base.discordChannel || defaults.discordChannel,
+        clientId: (envOverrides.clientId !== undefined ? envOverrides.clientId : base.clientId) || defaults.clientId,
+        guildId: (envOverrides.guildId !== undefined ? envOverrides.guildId : base.guildId) || defaults.guildId,
+        port: Number.isFinite(envOverrides.port) ? envOverrides.port : base.port,
+        wsPort: Number.isFinite(envOverrides.wsPort) ? envOverrides.wsPort : base.wsPort,
       };
     }
   } catch (_) {}
   return defaults;
+}
+
+function parsePort(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n < 65536 ? n : NaN;
+}
+
+function loadEnvFile(filePath) {
+  const map = {};
+  try {
+    if (!fs.existsSync(filePath)) return map;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    raw.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) return;
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim();
+      // Remove optional surrounding quotes
+      map[key] = val.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+    });
+  } catch (_) {}
+  return map;
 }
 
 // Ensure an external settings.json exists in the writable working directory.
@@ -64,13 +113,9 @@ function ensureExternalSettings() {
     const cfgPath = path.join(process.cwd(), 'settings.json');
     if (!fs.existsSync(cfgPath)) {
       const defaults = {
-        telemetryUrl: 'http://localhost:8111',
+        // Keep only non-secret structures here; use settings.env for credentials and ports
         players: {},
         squadrons: {},
-        discordBotToken: "",
-        discordChannel: "#general",
-        port: 3000,
-        wsPort: 3001
       };
       fs.writeFileSync(cfgPath, JSON.stringify(defaults, null, 2), 'utf8');
       console.log(`⚙️ Created default settings at ${cfgPath}`);
