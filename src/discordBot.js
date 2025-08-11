@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js
 const fs = require('fs');
 const path = require('path');
 const state = require('./state');
+const { loadSettings } = require('./config');
 
 let client = null;
 let targetChannel = null;
@@ -12,6 +13,8 @@ let desiredGuildId = null; // Optional guild to scope operations
 let appClientId = null; // Optional application client id
 // Loaded command modules keyed by command name
 const commands = new Map();
+// Track per-game summary message IDs so we can edit instead of posting new
+const summaryMessages = new Map(); // key: gameId (Number), value: messageId (String)
 
 function stripHash(name) {
   if (!name) return '';
@@ -234,10 +237,22 @@ function formatSummary(gameId) {
   const lines = [];
   lines.push(`Game ${gameId} summary:`);
   const summaries = state.getSquadronSummaries(gameId) || [];
+  // Exclude only the FIRST configured squadron from settings.json
+  let excludeSquadrons = new Set();
+  try {
+    const settings = loadSettings();
+    const keys = Object.keys(settings.squadrons || {});
+    const first = keys.length ? String(keys[0]) : '';
+    const cleanedFirst = first ? first.replace(/[^A-Za-z0-9]/g, '') : '';
+    if (cleanedFirst) excludeSquadrons = new Set([cleanedFirst]);
+  } catch (_) {}
   if (!summaries.length) {
     lines.push('(no entries)');
   } else {
-    summaries.filter(s => s.game === Number(gameId)).forEach(s => lines.push(s.line));
+    summaries
+      .filter(s => s.game === Number(gameId))
+      .filter(s => !excludeSquadrons.has(s.squadron))
+      .forEach(s => lines.push(s.line));
   }
   const content = lines.join('\n');
   // Split into blocks where EACH block is wrapped in ``` to ensure proper formatting per message
@@ -269,24 +284,70 @@ function formatSummary(gameId) {
   return blocks;
 }
 
+// Build a single text block for editing an existing message
+function formatSummaryText(gameId) {
+  const lines = [];
+  lines.push(`Game ${gameId} summary:`);
+  const summaries = state.getSquadronSummaries(gameId) || [];
+  // Exclude only the FIRST configured squadron from settings.json
+  let excludeSquadrons = new Set();
+  try {
+    const settings = loadSettings();
+    const keys = Object.keys(settings.squadrons || {});
+    const first = keys.length ? String(keys[0]) : '';
+    const cleanedFirst = first ? first.replace(/[^A-Za-z0-9]/g, '') : '';
+    if (cleanedFirst) excludeSquadrons = new Set([cleanedFirst]);
+  } catch (_) {}
+  if (!summaries.length) {
+    lines.push('(no entries)');
+  } else {
+    summaries
+      .filter(s => s.game === Number(gameId))
+      .filter(s => !excludeSquadrons.has(s.squadron))
+      .forEach(s => lines.push(s.line));
+  }
+  let content = lines.join('\n');
+  const wrapperOverhead = 8; // length of "```\n" + "\n```"
+  const maxLen = 2000 - wrapperOverhead;
+  if (content.length > maxLen) {
+    // Keep tail (most recent updates)
+    content = content.slice(content.length - maxLen);
+    const cutIdx = content.indexOf('\n');
+    if (cutIdx > 0) content = content.slice(cutIdx + 1);
+  }
+  return '```\n' + content + '\n```';
+}
+
+// Post or update a single message per game id
 async function postGameSummary(gameId) {
   if (!client) return;
   if (!ready) {
-    // Wait a bit and try again
-    try { await new Promise(r => setTimeout(r, 1000)); } catch(_){}
+    try { await new Promise(r => setTimeout(r, 500)); } catch (_) {}
   }
   if (!targetChannel) {
-    try { targetChannel = await resolveChannel(); } catch(_){}
+    try { targetChannel = await resolveChannel(); } catch (_) {}
   }
   if (!targetChannel) {
     console.warn('⚠️ Discord: No target channel resolved; skipping post.');
     return;
   }
   try {
-    const blocks = formatSummary(gameId);
-    for (const b of blocks) {
-      await targetChannel.send({ content: b });
+    const text = formatSummaryText(gameId);
+    const key = Number(gameId);
+    const existingId = summaryMessages.get(key);
+    if (existingId) {
+      try {
+        const msg = await targetChannel.messages.fetch(existingId);
+        if (msg) {
+          await msg.edit({ content: text });
+          return;
+        }
+      } catch (_) {
+        // If edit fails, fall through to sending a new message
+      }
     }
+    const sent = await targetChannel.send({ content: text });
+    summaryMessages.set(key, sent.id);
   } catch (e) {
     console.error('❌ Discord: Failed to post summary:', e && e.message ? e.message : e);
   }

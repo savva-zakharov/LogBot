@@ -7,6 +7,7 @@ const state = require('./src/state');
 const server = require('./src/server');
 const scraper = require('./src/scraper');
 const { runSetupWizard } = require('./src/setup');
+const { startSquadronTracker } = require('./src/squadronTracker');
 
 // Global safety nets
 process.on('uncaughtException', (err) => {
@@ -82,6 +83,7 @@ async function main() {
   let scraperBrowser = null;
   let scraperRunning = false;
   let retryTimer = null;
+  let squadronTracker = null;
 
   async function tryStartScraper() {
     if (scraperRunning) return; // prevent concurrent starts
@@ -114,6 +116,17 @@ async function main() {
       tryStartScraper();
     }
   }, 60_000);
+
+  // Start squadron tracker (non-fatal if not configured)
+  try {
+    const tracker = await startSquadronTracker();
+    if (tracker && tracker.enabled) {
+      squadronTracker = tracker;
+      console.log('✅ Squadron tracker started.');
+    }
+  } catch (e) {
+    console.warn('⚠️ Squadron tracker not started:', e && e.message ? e.message : e);
+  }
 
   console.log('✅ Application started successfully (server/discord online). Scraper will start when telemetry is available.');
 }

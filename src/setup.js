@@ -31,6 +31,7 @@ async function runSetupWizard() {
 
   try {
     const telemetryUrl = (await ask(rl, `Telemetry URL [${current.telemetryUrl || 'http://localhost:8111'}]: `)).trim() || current.telemetryUrl || 'http://localhost:8111';
+    const squadronPageUrl = (await ask(rl, `War Thunder Squadron Page URL (optional) [${current.squadronPageUrl || ''}]: `)).trim() || current.squadronPageUrl || '';
 
     const portAns = (await ask(rl, `HTTP Port [${current.port || 3000}]: `)).trim();
     const port = coerceNumber(portAns, current.port || 3000);
@@ -78,6 +79,7 @@ async function runSetupWizard() {
     const envLines = [
       `# LogBot settings (secrets and ports)`,
       `TELEMETRY_URL=${telemetryUrl}`,
+      `SQUADRON_PAGE_URL=${squadronPageUrl}`,
       `PORT=${port}`,
       `WS_PORT=${wsPort}`,
       `DISCORD_BOT_TOKEN=${discordBotToken}`,
@@ -89,7 +91,7 @@ async function runSetupWizard() {
     fs.writeFileSync(envPath, envLines.join('\n'), 'utf8');
     console.log(`✅ Secrets and ports saved to ${envPath}`);
     // Return merged view (as loadSettings would)
-    return { ...current, ...jsonCfg, telemetryUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId };
+    return { ...current, ...jsonCfg, telemetryUrl, squadronPageUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId };
   } finally {
     rl.close();
   }
