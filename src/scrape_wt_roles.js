@@ -14,7 +14,8 @@ const ROLES = {
   bomber: 'Bomber',
 };
 
-const COMPREHENSIVE_FILE = path.join(__dirname, 'comprehensive_vehicle_classifications.json');
+// Corrected path to be relative to the project root
+const COMPREHENSIVE_FILE = path.join(__dirname, '../comprehensive_vehicle_classifications.json');
 
 function fetchUrl(url, depth = 0) {
   return new Promise((resolve, reject) => {
@@ -60,7 +61,7 @@ function htmlDecode(s) {
 function parseUnitsFromRolePage(html) {
   const units = new Set();
   // Find anchors that go to /unit/...
-  const re = /<a\b[^>]*href=\"(\/unit\/[^\"]+)\"[^>]*>([\s\S]*?)<\/a>/gi;
+  const re = /<a\b[^>]*href="(\/unit\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m = re.exec(html))) {
     const text = stripTags(m[2]);
