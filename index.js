@@ -1,10 +1,11 @@
 // index.js
 const path = require('path');
 const fs = require('fs');
-const { ensureExternalSettings } = require('./src/config');
+const { ensureExternalSettings, loadSettings } = require('./src/config');
 const { loadVehicleClassifications: loadVC } = require('./src/classifier');
 const state = require('./src/state');
 const server = require('./src/server');
+const discord = require('./src/discordBot');
 const scraper = require('./src/scraper');
 const { runSetupWizard } = require('./src/setup');
 const { startSquadronTracker } = require('./src/squadronTracker');
@@ -23,6 +24,10 @@ async function main() {
   // 1. Initial configuration setup / interactive wizard
   const argv = process.argv.slice(2);
   const forceSetup = argv.includes('-setup') || argv.includes('--setup');
+  const disableWTScrape = argv.includes('--nowtscrape');
+  const disableWebServer = argv.includes('--nowebserver');
+  const disableDiscordBot = argv.includes('--nodiscordbot');
+  const disableWebScrape = argv.includes('--nowebscrape');
   const cfgPath = path.join(process.cwd(), 'settings.json');
   const cfgMissing = !fs.existsSync(cfgPath);
   if (forceSetup || cfgMissing) {
@@ -50,8 +55,12 @@ async function main() {
   // 3. Initialize application state (rotates old logs, creates new file)
   state.loadAndPrepareInitialState();
 
-  // 4. Start the web and WebSocket server
-  server.startServer();
+  // 4. Start the web and WebSocket server (unless disabled)
+  if (disableWebServer) {
+    console.log('ℹ️ Web server disabled for this session (--nowebserver).');
+  } else {
+    server.startServer();
+  }
 
   // 5. Define callbacks to connect modules
   const callbacks = {
@@ -79,7 +88,20 @@ async function main() {
     }
   };
 
-  // 6. Start the browser scraper (non-fatal if telemetry is unavailable)
+  // 6. Start Discord bot (unless disabled)
+  try {
+    if (disableDiscordBot) {
+      console.log('ℹ️ Discord bot disabled for this session (--nodiscordbot).');
+    } else {
+      const settings = loadSettings();
+      await discord.init(settings);
+      console.log('✅ Discord bot initialized.');
+    }
+  } catch (e) {
+    console.warn('⚠️ Discord bot failed to initialize:', e && e.message ? e.message : e);
+  }
+
+  // 7. Start the browser scraper (non-fatal if telemetry is unavailable)
   let scraperBrowser = null;
   let scraperRunning = false;
   let retryTimer = null;
@@ -109,26 +131,34 @@ async function main() {
     }
   }
 
-  // Immediate attempt, then retry every 60 seconds if not running
-  await tryStartScraper();
-  retryTimer = setInterval(() => {
-    if (!scraperRunning) {
-      tryStartScraper();
-    }
-  }, 60_000);
-
-  // Start squadron tracker (non-fatal if not configured)
-  try {
-    const tracker = await startSquadronTracker();
-    if (tracker && tracker.enabled) {
-      squadronTracker = tracker;
-      console.log('✅ Squadron tracker started.');
-    }
-  } catch (e) {
-    console.warn('⚠️ Squadron tracker not started:', e && e.message ? e.message : e);
+  // Immediate attempt, then retry every 60 seconds if not running (unless disabled via --nowtscrape)
+  if (disableWTScrape) {
+    console.log('ℹ️ Telemetry scraper disabled for this session (--nowtscrape).');
+  } else {
+    await tryStartScraper();
+    retryTimer = setInterval(() => {
+      if (!scraperRunning) {
+        tryStartScraper();
+      }
+    }, 60_000);
   }
 
-  console.log('✅ Application started successfully (server/discord online). Scraper will start when telemetry is available.');
+  // Start squadron tracker (non-fatal if not configured) unless disabled
+  if (disableWebScrape) {
+    console.log('ℹ️ Squadron web scraper disabled for this session (--nowebscrape).');
+  } else {
+    try {
+      const tracker = await startSquadronTracker();
+      if (tracker && tracker.enabled) {
+        squadronTracker = tracker;
+        console.log('✅ Squadron tracker started.');
+      }
+    } catch (e) {
+      console.warn('⚠️ Squadron tracker not started:', e && e.message ? e.message : e);
+    }
+  }
+
+  console.log('✅ Application started successfully. Scraper will start when telemetry is available.');
 }
 
 main();

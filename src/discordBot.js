@@ -1,5 +1,5 @@
 // src/discordBot.js
-const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const state = require('./state');
@@ -147,7 +147,15 @@ async function init(settings) {
       await cmd.execute(interaction);
     } catch (e) {
       console.warn('⚠️ Discord: interaction error:', e && e.message ? e.message : e);
-      try { if (interaction.isRepliable()) await interaction.reply({ content: 'There was an error executing that command.', ephemeral: true }); } catch (_) {}
+      try {
+        if (!interaction.isRepliable()) return;
+        const payload = { content: 'There was an error executing that command.', flags: MessageFlags.Ephemeral };
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(payload);
+        } else {
+          await interaction.reply(payload);
+        }
+      } catch (_) {}
     }
   });
 

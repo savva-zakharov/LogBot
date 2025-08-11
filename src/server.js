@@ -113,10 +113,6 @@ function startServer() {
     console.log('📡 WebSocket client connected');
   });
   console.log(`📡 WebSocket server running on port ${wsPort}`);
-
-  // Initialize Discord bot (non-blocking)
-  const settings = loadSettings();
-  try { discord.init(settings); } catch (e) { console.warn('⚠️ Discord init failed:', e && e.message ? e.message : e); }
   
   return { server, wss };
 }
