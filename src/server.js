@@ -5,6 +5,7 @@ const path = require('path');
 const WebSocket = require('ws');
 const state = require('./state');
 const { loadSettings } = require('./config');
+const discord = require('./discordBot');
 
 let wss;
 
@@ -19,6 +20,7 @@ function broadcast(data) {
 }
 
 function startServer() {
+  const { port, wsPort } = loadSettings();
   const server = http.createServer((req, res) => {
     try {
         const url = new URL(req.url, `http://${req.headers.host}`);
@@ -57,8 +59,11 @@ function startServer() {
             if (!gameParam || gameParam === 'current' || gameParam === 'all') {
                 gameParam = String(state.getCurrentGame());
             }
-            const result = state.recordResult(parseInt(gameParam, 10), type);
+            const numericGame = parseInt(gameParam, 10);
+            const result = state.recordResult(numericGame, type);
             broadcast({ type: 'update', message: `Result recorded for game ${gameParam}` });
+            // Attempt to post to Discord
+            try { discord.postGameSummary(numericGame); } catch (_) {}
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result));
         } else if (pathname === '/') {
@@ -99,15 +104,19 @@ function startServer() {
     }
   });
 
-  server.listen(3000, () => {
-    console.log('🌐 Web interface available at http://localhost:3000');
+  server.listen(port, () => {
+    console.log(`🌐 Web interface available at http://localhost:${port}`);
   });
 
-  wss = new WebSocket.Server({ port: 3001 });
+  wss = new WebSocket.Server({ port: wsPort });
   wss.on('connection', () => {
     console.log('📡 WebSocket client connected');
   });
-  console.log('📡 WebSocket server running on port 3001');
+  console.log(`📡 WebSocket server running on port ${wsPort}`);
+
+  // Initialize Discord bot (non-blocking)
+  const settings = loadSettings();
+  try { discord.init(settings); } catch (e) { console.warn('⚠️ Discord init failed:', e && e.message ? e.message : e); }
   
   return { server, wss };
 }

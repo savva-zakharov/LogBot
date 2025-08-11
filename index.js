@@ -1,10 +1,12 @@
 // index.js
 const path = require('path');
+const fs = require('fs');
 const { ensureExternalSettings } = require('./src/config');
 const { loadVehicleClassifications: loadVC } = require('./src/classifier');
 const state = require('./src/state');
 const server = require('./src/server');
 const scraper = require('./src/scraper');
+const { runSetupWizard } = require('./src/setup');
 
 // Global safety nets
 process.on('uncaughtException', (err) => {
@@ -17,8 +19,22 @@ process.on('unhandledRejection', (reason) => {
 async function main() {
   console.log('🚀 Starting War Thunder Log Monitor...');
 
-  // 1. Initial configuration setup
-  ensureExternalSettings();
+  // 1. Initial configuration setup / interactive wizard
+  const argv = process.argv.slice(2);
+  const forceSetup = argv.includes('-setup') || argv.includes('--setup');
+  const cfgPath = path.join(process.cwd(), 'settings.json');
+  const cfgMissing = !fs.existsSync(cfgPath);
+  if (forceSetup || cfgMissing) {
+    try {
+      await runSetupWizard();
+    } catch (e) {
+      console.error('❌ Setup wizard failed:', e && e.message ? e.message : e);
+      // As a fallback, ensure defaults exist so the app can still run
+      ensureExternalSettings();
+    }
+  } else {
+    ensureExternalSettings();
+  }
 
   // 2. Load vehicle classifications from the external file
   try {

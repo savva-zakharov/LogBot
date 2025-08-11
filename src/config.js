@@ -30,7 +30,7 @@ const CATEGORY_TO_OUTPUT = {
 
 // Settings loader: reads settings.json and provides defaults
 function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111' };
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', port: 3000, wsPort: 3001 };
   try {
     const cwd = process.cwd();
     const candidates = [
@@ -48,6 +48,10 @@ function loadSettings() {
         players: parsed.players || {},
         squadrons: parsed.squadrons || {},
         telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
+        discordBotToken: typeof parsed.discordBotToken === 'string' ? parsed.discordBotToken : defaults.discordBotToken,
+        discordChannel: typeof parsed.discordChannel === 'string' ? parsed.discordChannel : defaults.discordChannel,
+        port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
+        wsPort: (typeof parsed.wsPort === 'number' && Number.isFinite(parsed.wsPort)) ? parsed.wsPort : defaults.wsPort,
       };
     }
   } catch (_) {}
@@ -62,7 +66,11 @@ function ensureExternalSettings() {
       const defaults = {
         telemetryUrl: 'http://localhost:8111',
         players: {},
-        squadrons: {}
+        squadrons: {},
+        discordBotToken: "",
+        discordChannel: "#general",
+        port: 3000,
+        wsPort: 3001
       };
       fs.writeFileSync(cfgPath, JSON.stringify(defaults, null, 2), 'utf8');
       console.log(`⚙️ Created default settings at ${cfgPath}`);

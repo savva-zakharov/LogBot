@@ -1,10 +1,23 @@
 {
   "telemetryUrl": "http://localhost:8111",
   "players": {
-    "Mindbird": { "bg": "#48430E", "fg": "#FFB74D" }
+    "Mindbird": {
+      "bg": "#48430E",
+      "fg": "#FFB74D"
+    }
   },
   "squadrons": {
-    "NONE": { "bg": "#2E2E2E", "fg": "#cccccc" },
-    "xTHCx": { "bg": "#0F3011", "fg": "#9CCC65" }
-  }
+    "NONE": {
+      "bg": "#2E2E2E",
+      "fg": "#cccccc"
+    },
+    "xTHCx": {
+      "bg": "#0F3011",
+      "fg": "#9CCC65"
+    }
+  },
+  "discordBotToken": "MTQwMzQ4NDg5MzQxMzExODAwMg.G6s_yO.1484hpIW7WlEjrLYsrvybAkZv1LkEHE5aP55WI",
+  "discordChannel": "702978305741291584",
+  "port": 3000,
+  "wsPort": 3001
 }
