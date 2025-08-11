@@ -47,7 +47,14 @@ function parseLogLine(line) {
   );
 
   const tryParse = (seg) => {
-    const norm = String(seg).replace(/^\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*[-–—: ]?\\s*/, '');
+    const norm = String(seg)
+      // Replace HUD separator glyphs with spaces
+      .replace(/╖/g, ' ')
+      // Strip leading timestamp (hh:mm[:ss]) and common delimiters
+      .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–—: ]?\s*/, '')
+      // Collapse excessive whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
     let m = norm.match(reBracketed);
     if (m) {
       const sqClean = (m.groups.sq || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 5);

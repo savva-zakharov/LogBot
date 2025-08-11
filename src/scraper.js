@@ -62,6 +62,7 @@ async function startScraper(callbacks) {
     let lastText = '';
     let lastHudTsSec = null;
     let lastResetAnchor = null;
+    const seenLines = new Set(); // Prevent duplicate processing
 
     function tsToSeconds(tsStr) {
       if (!tsStr) return 0;
@@ -71,16 +72,30 @@ async function startScraper(callbacks) {
       return 0;
     }
 
+    // Initialize seen set with current content to avoid replaying whole buffer
+    try {
+      const initial = (target.innerText || '').trim().split(/\r?\n/).filter(Boolean);
+      initial.forEach(l => seenLines.add(l));
+      lastText = initial.join('\n');
+    } catch (_) {}
+
     const observer = new MutationObserver(() => {
       const newText = target.innerText.trim();
       if (newText && newText !== lastText) {
-        const oldLines = lastText.split('\n');
-        const newLines = newText.split('\n');
-        const addedLines = newLines.slice(oldLines.length);
+        const newLines = newText.split(/\r?\n/);
         lastText = newText;
 
-        addedLines.forEach(line => {
-          if (!line.trim()) return;
+        newLines.forEach(line => {
+          if (!line || !line.trim()) return;
+          if (seenLines.has(line)) return; // skip duplicates
+          seenLines.add(line);
+          // Cap set size to avoid unbounded growth
+          if (seenLines.size > 1000) {
+            // Simple reset strategy keeps recent lines
+            const recent = newLines.slice(-200);
+            seenLines.clear();
+            recent.forEach(l => seenLines.add(l));
+          }
 
           // Check for HUD time reset to detect a new game
           const mTs = line.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?)/);

@@ -86,6 +86,7 @@ function recordEntry(entry) {
     if (!state.data[gameKey][squadron]) state.data[gameKey][squadron] = {};
     if (!state.data[gameKey][squadron][player]) state.data[gameKey][squadron][player] = {};
 
+    let created = false;
     if (!state.data[gameKey][squadron][player][vehicle]) {
       state.data[gameKey][squadron][player][vehicle] = {
         status: 'active',
@@ -94,20 +95,27 @@ function recordEntry(entry) {
         classification: classifyVehicleLenient(vehicle, state.vehicleToCategory, { minScore: 4 })
       };
       console.log(`💾 New unique entry saved - Game: ${game}, Squadron: ${squadron}, Player: ${player}, Vehicle: ${vehicle}`);
+      created = true;
     }
 
     const vehicleRef = state.data[gameKey][squadron][player][vehicle];
     if (!vehicleRef.classification) {
         vehicleRef.classification = classifyVehicleLenient(vehicle, state.vehicleToCategory, { minScore: 4 });
     }
+    let statusChanged = false;
     if (status === 'destroyed' && vehicleRef.status !== 'destroyed') {
         vehicleRef.status = 'destroyed';
         vehicleRef.destroyedAt = new Date().toISOString();
         console.log(`💥 Vehicle destroyed - Game: ${game}, Squadron: ${squadron}, Player: ${player}, Vehicle: ${vehicle}`);
+        statusChanged = true;
     }
 
-    persistState();
-    return vehicleRef;
+    if (created || statusChanged) {
+      persistState();
+      return vehicleRef;
+    }
+    // No material change; avoid duplicate notifications
+    return null;
   } catch (error) {
     console.error(`❌ Error recording entry:`, error);
   }
