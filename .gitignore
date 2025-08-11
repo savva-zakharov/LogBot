@@ -16,6 +16,10 @@ yarn-debug.log*
 yarn-error.log*
 *.bak.json
 
+# Setttings
+settings.json
+highlights.json
+
 # Env/config
 .env
 .env.*
