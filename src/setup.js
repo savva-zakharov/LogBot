@@ -43,6 +43,7 @@ async function runSetupWizard() {
     const discordChannel = (await ask(rl, `Discord Channel (ID, name, or guildId/channelId) [${current.discordChannel || '#general'}]: `)).trim() || current.discordChannel || '#general';
     const clientId = (await ask(rl, `Discord Application Client ID (optional) [${current.clientId || ''}]: `)).trim() || current.clientId || '';
     const guildId = (await ask(rl, `Default Discord Guild ID (optional) [${current.guildId || ''}]: `)).trim() || current.guildId || '';
+    const waitingVoiceChannel = (await ask(rl, `Waiting Voice Channel ID (optional) [${current.waitingVoiceChannel || process.env.WAITING_VOICE_CHANNEL || ''}]: `)).trim() || current.waitingVoiceChannel || process.env.WAITING_VOICE_CHANNEL || '';
 
     // Determine previous single-value defaults for user and squad
     const currentPlayers = current.players && typeof current.players === 'object' ? current.players : {};
@@ -86,12 +87,13 @@ async function runSetupWizard() {
       `DISCORD_CHANNEL=${discordChannel}`,
       `CLIENT_ID=${clientId}`,
       `GUILD_ID=${guildId}`,
+      `WAITING_VOICE_CHANNEL=${waitingVoiceChannel}`,
       ''
     ];
     fs.writeFileSync(envPath, envLines.join('\n'), 'utf8');
     console.log(`✅ Secrets and ports saved to ${envPath}`);
     // Return merged view (as loadSettings would)
-    return { ...current, ...jsonCfg, telemetryUrl, squadronPageUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId };
+    return { ...current, ...jsonCfg, telemetryUrl, squadronPageUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId, waitingVoiceChannel };
   } finally {
     rl.close();
   }

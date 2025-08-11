@@ -24,6 +24,8 @@ settings.env
 
 # Env/config
 settings.env
+settings.env.bak
+*.bak
 *.env
 .env
 .env.*

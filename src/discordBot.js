@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const state = require('./state');
 const { loadSettings } = require('./config');
+const waitingTracker = require('./waitingTracker');
 
 let client = null;
 let targetChannel = null;
@@ -23,6 +24,47 @@ function stripHash(name) {
 
 function isSnowflake(str) {
   return typeof str === 'string' && /^\d{10,}$/.test(str);
+}
+
+async function resolveVoiceChannelId(raw) {
+  if (!client || !raw) return null;
+  const val = String(raw).trim();
+  // Supports guildId/channelId
+  if (/^\d{10,}\/\d{10,}$/.test(val)) {
+    const [gId, cId] = val.split('/');
+    try {
+      const guild = await client.guilds.fetch(gId);
+      if (guild) {
+        const ch = await client.channels.fetch(cId);
+        if (ch && ch.type === ChannelType.GuildVoice && ch.guild && ch.guild.id === guild.id) return ch.id;
+      }
+    } catch (_) {}
+  }
+  // Direct ID
+  if (isSnowflake(val)) {
+    try { const ch = await client.channels.fetch(val); if (ch && ch.type === ChannelType.GuildVoice) return ch.id; } catch (_) {}
+  }
+  // Name search within desired guild if set
+  try {
+    const name = val.toLowerCase();
+    if (desiredGuildId && isSnowflake(desiredGuildId)) {
+      try {
+        const guild = await client.guilds.fetch(desiredGuildId);
+        if (guild) {
+          await guild.channels.fetch();
+          const found = guild.channels.cache.find(c => c && c.type === ChannelType.GuildVoice && c.name.toLowerCase() === name);
+          if (found) return found.id;
+        }
+      } catch (_) {}
+    }
+    // Otherwise search across guilds
+    for (const [, guild] of client.guilds.cache) {
+      await guild.channels.fetch();
+      const found = guild.channels.cache.find(c => c && c.type === ChannelType.GuildVoice && c.name.toLowerCase() === name);
+      if (found) return found.id;
+    }
+  } catch (_) {}
+  return null;
 }
 
 function loadCommands() {
@@ -131,6 +173,8 @@ async function init(settings) {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildVoiceStates,
     ],
     partials: [Partials.Channel]
   });
@@ -162,6 +206,21 @@ async function init(settings) {
   client.once('ready', async () => {
     ready = true;
     try { await client.guilds.fetch(); } catch (_) {}
+    // Start waiting tracker if configured
+    try {
+      const settings = loadSettings();
+      const waitChanRaw = settings.waitingVoiceChannel || settings.waitingVoiceChannelId || process.env.WAITING_VOICE_CHANNEL || null;
+      if (waitChanRaw) {
+        const resolvedId = await resolveVoiceChannelId(waitChanRaw);
+        if (resolvedId) {
+          waitingTracker.init(client, resolvedId);
+        } else {
+          console.log(`ℹ️ Discord: waitingVoiceChannel '${waitChanRaw}' could not be resolved to a voice channel ID; /waiting will show empty list.`);
+        }
+      } else {
+        console.log('ℹ️ Discord: waitingVoiceChannel not configured; /waiting will show empty list.');
+      }
+    } catch (e) { console.warn('⚠️ WaitingTracker init failed:', e && e.message ? e.message : e); }
     // Register loaded slash commands; scope to desired guild if provided
     try {
       const commandDefs = [...commands.values()].map(c => ({ name: c.data.name, description: c.data.description || 'No description' }));

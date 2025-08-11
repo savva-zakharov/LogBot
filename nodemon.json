@@ -1,4 +1,11 @@
 {
-  "watch": ["index.js"],
-  "ext": "js"
+  "watch": [
+    "index.js",
+    "src",
+    "settings.env",
+    "settings.json",
+    "restart.flag"
+  ],
+  "ext": "js json env",
+  "exec": "node index.js"
 }
