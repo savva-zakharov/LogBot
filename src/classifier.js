@@ -46,7 +46,8 @@ function loadVehicleClassifications() {
   let vehicleToCategory = {};
   let vehicleClassifications = {};
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'comprehensive_vehicle_classifications.json'), 'utf8'));
+    // Corrected path to be relative to the project root
+    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, '../comprehensive_vehicle_classifications.json'), 'utf8'));
     const isNewFormat = raw && Object.values(raw)[0] && typeof Object.values(raw)[0] === 'string';
     if (isNewFormat) {
       // Normalize categories to Title Case for UI/OUTPUT_ORDER compatibility
