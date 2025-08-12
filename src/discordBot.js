@@ -1,7 +1,35 @@
-// src/discordBot.js
-const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
+// --- Events logging (mirror all Discord posts) ---
 const fs = require('fs');
 const path = require('path');
+function ensureEventsFile() {
+  const file = path.join(process.cwd(), 'squadron_events.json');
+  if (!fs.existsSync(file)) {
+    try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+  } else {
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.events)) {
+        fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8');
+      }
+    } catch (_) {
+      try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+    }
+  }
+  return file;
+}
+function appendEvent(message, meta = {}) {
+  try {
+    const file = ensureEventsFile();
+    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(obj.events)) obj.events = [];
+    obj.events.push({ ts: new Date().toISOString(), message, ...meta });
+    fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (_) {}
+}
+
+// src/discordBot.js
+const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const state = require('./state');
 const { loadSettings } = require('./config');
 const waitingTracker = require('./waitingTracker');
@@ -392,15 +420,43 @@ function formatSummaryText(gameId) {
 }
 
 // Post or update a single message per game id
-async function postGameSummary(gameId) {
-  if (!client) return;
+async function ensureTargetChannel() {
+  if (!client) return null;
   if (!ready) {
-    try { await new Promise(r => setTimeout(r, 500)); } catch (_) {}
+    try { await new Promise(r => setTimeout(r, 200)); } catch (_) {}
   }
   if (!targetChannel) {
     try { targetChannel = await resolveChannel(); } catch (_) {}
   }
-  if (!targetChannel) {
+  return targetChannel;
+}
+
+async function sendMessage(content) {
+  const ch = await ensureTargetChannel();
+  if (!ch) {
+    console.warn('⚠️ Discord: sendMessage called but no target channel resolved.');
+    return null;
+  }
+  try {
+    let text = String(content == null ? '' : content);
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('```')) {
+      text = '```\n' + text + '\n```';
+    }
+    const sent = await ch.send({ content: text, allowedMentions: { parse: [] } });
+    try { appendEvent(text, { source: 'discordBot', channelId: ch.id }); } catch (_) {}
+    return sent;
+  } catch (e) {
+    console.warn('⚠️ Discord: failed to send message:', e && e.message ? e.message : e);
+    try { appendEvent(String(content == null ? '' : content), { source: 'discordBot', note: 'send failed' }); } catch (_) {}
+    return null;
+  }
+}
+
+async function postGameSummary(gameId) {
+  if (!client) return;
+  const ch = await ensureTargetChannel();
+  if (!ch) {
     console.warn('⚠️ Discord: No target channel resolved; skipping post.');
     return;
   }
@@ -410,7 +466,7 @@ async function postGameSummary(gameId) {
     const existingId = summaryMessages.get(key);
     if (existingId) {
       try {
-        const msg = await targetChannel.messages.fetch(existingId);
+        const msg = await ch.messages.fetch(existingId);
         if (msg) {
           await msg.edit({ content: text });
           return;
@@ -419,11 +475,11 @@ async function postGameSummary(gameId) {
         // If edit fails, fall through to sending a new message
       }
     }
-    const sent = await targetChannel.send({ content: text });
+    const sent = await ch.send({ content: text });
     summaryMessages.set(key, sent.id);
   } catch (e) {
     console.error('❌ Discord: Failed to post summary:', e && e.message ? e.message : e);
   }
 }
 
-module.exports = { init, postGameSummary };
+module.exports = { init, postGameSummary, sendMessage };

@@ -74,7 +74,29 @@ async function runSetupWizard() {
     // Persist players/squadrons (non-secrets) in settings.json
     const jsonCfg = { players, squadrons };
     fs.writeFileSync(cfgPath, JSON.stringify(jsonCfg, null, 2), 'utf8');
-    console.log(`\n✅ Settings (players/squadrons) saved to ${cfgPath}`);
+    console.log(`\n✅ Settings saved to ${cfgPath} (players, squadrons)`);
+
+    // Create a plaintext template for /sqbbr if missing
+    try {
+      const txtPath = path.join(process.cwd(), 'sqbbr.txt');
+      if (!fs.existsSync(txtPath)) {
+        const template = (typeof current.sqbbr === 'string' && current.sqbbr.trim().length)
+          ? String(current.sqbbr)
+          : [
+              'This is your SQBBR message file (sqbbr.txt).',
+              'Edit this file to change the response of the /sqbbr command.',
+              '',
+              'Example:',
+              'Hello pilots,',
+              'This is the squadron briefing.',
+              '- Be on time',
+              '- Bring your best vehicles',
+              'GL & HF!',
+            ].join('\n');
+        fs.writeFileSync(txtPath, template + (template.endsWith('\n') ? '' : '\n'), 'utf8');
+        console.log(`✅ Created ${txtPath}`);
+      }
+    } catch (_) {}
 
     // Persist secrets and ports in settings.env
     const envLines = [

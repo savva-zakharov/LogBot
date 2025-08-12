@@ -4,6 +4,64 @@ const path = require('path');
 const puppeteer = require('puppeteer-core');
 const { resolveChromiumExecutable, loadSettings } = require('./config');
 
+// Lazy accessor to avoid circular dependency at module load
+function getDiscordSend() {
+  try {
+    const mod = require('./discordBot');
+    return typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
+  } catch (_) { return null; }
+}
+
+// --- Events logging (mirror Discord messages) ---
+function ensureEventsFile() {
+  const file = path.join(process.cwd(), 'squadron_events.json');
+  if (!fs.existsSync(file)) {
+    try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+  } else {
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.events)) {
+        fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8');
+      }
+    } catch (_) {
+      try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+    }
+  }
+  return file;
+}
+
+function appendEvent(message, meta = {}) {
+  try {
+    const file = ensureEventsFile();
+    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(obj.events)) obj.events = [];
+    obj.events.push({ ts: new Date().toISOString(), message, ...meta });
+    fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (_) {}
+}
+
+// Remove noisy columns from rows and headers
+function pruneSnapshot(snapshot) {
+  const dropCols = new Set(['num.', 'Activity']);
+  const safe = JSON.parse(JSON.stringify(snapshot || {}));
+  if (safe && safe.data) {
+    if (Array.isArray(safe.data.headers)) {
+      safe.data.headers = safe.data.headers.filter(h => !dropCols.has(h));
+    }
+    if (Array.isArray(safe.data.rows)) {
+      safe.data.rows = safe.data.rows.map(r => {
+        const obj = {};
+        Object.keys(r || {}).forEach(k => {
+          if (!dropCols.has(k)) obj[k] = r[k];
+        });
+        return obj;
+      });
+    }
+  }
+  return safe;
+}
+
 function ensureParsedDataFile() {
   const file = path.join(process.cwd(), 'squadron_data.json');
   if (!fs.existsSync(file)) {
@@ -63,10 +121,37 @@ function appendSnapshot(file, snapshot) {
   try {
     const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!Array.isArray(obj.squadronSnapshots)) obj.squadronSnapshots = [];
-    obj.squadronSnapshots.push(snapshot);
+    const pruned = pruneSnapshot(snapshot);
+    // Overwrite last snapshot if same calendar day, else append
+    const toDateKey = (ts) => {
+      try { const d = new Date(ts); return `${d.getUTCFullYear()}-${(d.getUTCMonth()+1).toString().padStart(2,'0')}-${d.getUTCDate().toString().padStart(2,'0')}`; } catch (_) { return null; }
+    };
+    const toUtcMinutes = (ts) => {
+      try { const d = new Date(ts); return d.getUTCHours() * 60 + d.getUTCMinutes(); } catch (_) { return null; }
+    };
+    const CUTOFF_MIN = 23 * 60 + 30; // 23:30 UTC
+    const last = obj.squadronSnapshots.length ? obj.squadronSnapshots[obj.squadronSnapshots.length - 1] : null;
+    const lastKey = last ? toDateKey(last.ts) : null;
+    const curKey = toDateKey(pruned.ts);
+    if (last && lastKey && curKey && lastKey === curKey) {
+      const lastMin = toUtcMinutes(last.ts);
+      const curMin = toUtcMinutes(pruned.ts);
+      // Before cutoff: always overwrite today's snapshot
+      if (curMin != null && curMin < CUTOFF_MIN) {
+        obj.squadronSnapshots[obj.squadronSnapshots.length - 1] = pruned;
+      } else if (curMin != null) {
+        // At or after cutoff: only overwrite once if previous was before cutoff; otherwise lock (do nothing)
+        if (lastMin == null || lastMin < CUTOFF_MIN) {
+          obj.squadronSnapshots[obj.squadronSnapshots.length - 1] = pruned;
+        } // else: keep the existing post-cutoff snapshot
+      }
+    } else {
+      obj.squadronSnapshots.push(pruned);
+    }
     fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
   } catch (_) {
-    fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [snapshot] }, null, 2), 'utf8');
+    const pruned = pruneSnapshot(snapshot);
+    fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [pruned] }, null, 2), 'utf8');
   }
 }
 
@@ -220,6 +305,7 @@ async function startSquadronTracker() {
 
   const dataFile = ensureParsedDataFile();
   let lastKey = null;
+  let lastSnapshot = null;
 
   async function captureOnce() {
     try {
@@ -234,7 +320,10 @@ async function startSquadronTracker() {
     }
     const totalPoints = await extractTotalPoints(page);
     const totalPointsCalulated = calculateManualPoints(data.rows || []);
-    const snapshot = { ts: new Date().toISOString(), url: squadronPageUrl, totalPoints, totalPointsCalulated, data };
+    const effectiveTotal = (typeof totalPoints === 'number' && Number.isFinite(totalPoints))
+      ? totalPoints
+      : (typeof totalPointsCalulated === 'number' && Number.isFinite(totalPointsCalulated) ? totalPointsCalulated : null);
+    const snapshot = { ts: new Date().toISOString(), url: squadronPageUrl, totalPoints: effectiveTotal, totalPointsCalulated, data };
     if (!snapshot.data || !snapshot.data.rows || snapshot.data.rows.length === 0) {
       // Persist a debug snapshot (HTML + screenshot) to help diagnose selector issues
       try {
@@ -250,13 +339,107 @@ async function startSquadronTracker() {
     if (lastKey === null) {
       // Initialize from existing file
       const last = readLastSnapshot(dataFile);
-      if (last) lastKey = simplifyForComparison(last);
+      if (last) {
+        lastKey = simplifyForComparison(last);
+        lastSnapshot = last;
+      }
     }
     if (key !== lastKey) {
+      // Compute diff versus previous snapshot, if available
+      try {
+        const prev = lastSnapshot || readLastSnapshot(dataFile);
+        const msgLines = [];
+        msgLines.push(`📊 Squadron tracker update (${new Date().toLocaleString()})`);
+
+        // Total points change (site-reported and calculated)
+        const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
+        const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
+        if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
+          const delta = newTotal - prevTotal;
+          msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${delta >= 0 ? '+' : ''}${delta})`);
+        }
+        // Calculated points messaging removed; calculated points are only used as fallback for totalPoints
+
+        // Row-level changes: added/removed players
+        const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
+        const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
+        const keyName = (r) => String(r['Player'] || r['player'] || '').trim();
+        const mkIndex = (rows) => {
+          const m = new Map();
+          rows.forEach(r => { const k = keyName(r); if (k) m.set(k, r); });
+          return m;
+        };
+        const prevMap = mkIndex(prevRows);
+        const currMap = mkIndex(currRows);
+        const removed = [];
+        const added = [];
+        prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
+        currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
+
+        // Helpers for monospace alignment
+        const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
+        const safeRole = (r) => (r['Role'] || r['role'] || '').toString();
+        const safeRating = (r) => (String((r['Personal clan rating'] || r['rating'] || '')).replace(/\s+/g, ''));
+        const padRight = (s, n) => s.length >= n ? s.slice(0, n) : (s + ' '.repeat(n - s.length));
+        const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
+
+        const buildLines = (list, symbol) => {
+          const shown = list.slice(0, 10);
+          const maxNameLen = Math.max(0, ...shown.map(r => safeName(r).length));
+          const maxRatingLen = Math.max(0, ...shown.map(r => safeRating(r).length));
+          return shown.map(r => {
+            const nameP = padRight(safeName(r), Math.min(maxNameLen, 30));
+            const ratingP = padLeft(safeRating(r) || '0', Math.min(Math.max(maxRatingLen, 1), 5));
+            const role = safeRole(r) || 'Member';
+            return `   ${symbol} ${nameP} (${ratingP}, ${role})`;
+          });
+        };
+
+        if (removed.length) {
+          msgLines.push(`• Departures (${removed.length}):`);
+          buildLines(removed, '-').forEach(line => msgLines.push(line));
+          if (removed.length > 10) msgLines.push(`   …and ${removed.length - 10} more`);
+        }
+        if (added.length) {
+          msgLines.push(`• New members (${added.length}):`);
+          buildLines(added, '+').forEach(line => msgLines.push(line));
+          if (added.length > 10) msgLines.push(`   …and ${added.length - 10} more`);
+        }
+
+        const composed = msgLines.join('\n');
+        console.log(composed);
+        const send = getDiscordSend();
+        if (send) {
+          try { await send(composed); appendEvent(composed, { source: 'squadronTracker' }); } catch (_) { try { appendEvent(composed, { source: 'squadronTracker', note: 'send failed' }); } catch (_) {} }
+        }
+      } catch (e) {
+        console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);
+      }
+
       appendSnapshot(dataFile, snapshot);
       lastKey = key;
+      lastSnapshot = pruneSnapshot(snapshot);
       console.log('📈 Squadron tracker: change detected and recorded.');
     } else {
+      // Even if no change, ensure one final snapshot at/after 23:30 UTC
+      try {
+        const cutoffMin = 23 * 60 + 30;
+        const now = new Date();
+        const curMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+        const last = readLastSnapshot(dataFile);
+        const sameDay = (d1, d2) => d1 && d2 && d1.getUTCFullYear() === d2.getUTCFullYear() && d1.getUTCMonth() === d2.getUTCMonth() && d1.getUTCDate() === d2.getUTCDate();
+        if (last && sameDay(new Date(last.ts), now)) {
+          const lastDate = new Date(last.ts);
+          const lastMin = lastDate.getUTCHours() * 60 + lastDate.getUTCMinutes();
+          // If it's past cutoff, and we haven't saved a post-cutoff snapshot today, do it now
+          if (curMin >= cutoffMin && (isNaN(lastMin) || lastMin < cutoffMin)) {
+            appendSnapshot(dataFile, snapshot);
+            lastKey = simplifyForComparison(snapshot);
+            lastSnapshot = pruneSnapshot(snapshot);
+            console.log('🕧 Squadron tracker: daily cutoff snapshot saved.');
+          }
+        }
+      } catch (_) {}
       console.log('ℹ️ Squadron tracker: no change.');
     }
   }

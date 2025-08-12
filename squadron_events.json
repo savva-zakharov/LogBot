@@ -1,0 +1,48 @@
+{
+  "events": [
+    {
+      "ts": "2025-08-12T20:22:56.924Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 21:22:56)\n```",
+      "source": "discordBot",
+      "channelId": "1404584822776660033"
+    },
+    {
+      "ts": "2025-08-12T20:22:56.925Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 21:22:56)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T20:24:56.229Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 21:24:55)\n```",
+      "source": "discordBot",
+      "channelId": "1404584822776660033"
+    },
+    {
+      "ts": "2025-08-12T20:24:56.230Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 21:24:55)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T20:26:50.023Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 21:26:48)\n• Total points: 37513 → 37576 (+63)\n```",
+      "source": "discordBot",
+      "channelId": "1404584822776660033"
+    },
+    {
+      "ts": "2025-08-12T20:26:50.024Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 21:26:48)\n• Total points: 37513 → 37576 (+63)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T20:32:32.752Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 21:32:31)\n```",
+      "source": "discordBot",
+      "channelId": "1404584822776660033"
+    },
+    {
+      "ts": "2025-08-12T20:32:32.753Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 21:32:31)",
+      "source": "squadronTracker"
+    }
+  ]
+}
