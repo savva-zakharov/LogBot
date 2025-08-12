@@ -111,6 +111,15 @@ function loadCommands() {
           console.warn(`⚠️ Skipping command '${file}': missing data.name or execute()`);
           continue;
         }
+        // Basic validation and helpful warnings
+        const name = String(mod.data.name);
+        const desc = String(mod.data.description || '');
+        if (desc.length > 100) {
+          console.warn(`⚠️ Command '${name}' description is ${desc.length} chars (>100). Discord will reject it.`);
+        }
+        if (!/^[\w-]{1,32}$/.test(name)) {
+          console.warn(`⚠️ Command name '${name}' may be invalid. Must match ^[\\w-]{1,32}$.`);
+        }
         commands.set(mod.data.name, mod);
       } catch (e) {
         console.warn(`⚠️ Failed to load command '${file}':`, e && e.message ? e.message : e);
@@ -257,17 +266,27 @@ async function init(settings) {
     } catch (e) { console.warn('⚠️ WaitingTracker init failed:', e && e.message ? e.message : e); }
     // Register loaded slash commands; scope to desired guild if provided
     try {
-      const commandDefs = [...commands.values()].map(c => ({ name: c.data.name, description: c.data.description || 'No description' }));
+      const commandDefs = [...commands.values()].map(c => ({
+        name: c.data.name,
+        description: c.data.description || 'No description',
+        options: Array.isArray(c.data.options) ? c.data.options : undefined,
+      }));
       if (desiredGuildId && isSnowflake(desiredGuildId)) {
         try {
           const guild = await client.guilds.fetch(desiredGuildId);
           if (guild) {
-            for (const def of commandDefs) { try { await guild.commands.create(def); } catch (_) {} }
+            for (const def of commandDefs) {
+              try { await guild.commands.create(def); }
+              catch (e) { console.warn(`⚠️ Failed to register /${def.name} in guild ${guild.id}:`, e && e.message ? e.message : e); }
+            }
           }
         } catch (_) {}
       } else {
         for (const [, guild] of client.guilds.cache) {
-          for (const def of commandDefs) { try { await guild.commands.create(def); } catch (_) {} }
+          for (const def of commandDefs) {
+            try { await guild.commands.create(def); }
+            catch (e) { console.warn(`⚠️ Failed to register /${def.name} in guild ${guild.id}:`, e && e.message ? e.message : e); }
+          }
         }
       }
       if (commandDefs.length) console.log(`✅ Registered ${commandDefs.length} command(s)`);
@@ -277,7 +296,7 @@ async function init(settings) {
       console.log(`🤖 Discord bot ready. Posting to ${targetChannel.name} (${targetChannel.id})`);
       // Send a hello message on startup to verify connectivity
       try {
-        await targetChannel.send({ content: '```\nHello world from LogBot!\n```' });
+        await targetChannel.send({ content: '```\nLogBot started!\n```' });
       } catch (e) {
         console.warn('⚠️ Discord: Failed to send hello message:', e && e.message ? e.message : e);
       }

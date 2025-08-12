@@ -122,7 +122,23 @@ module.exports = {
     // Sort by waiting longest first
     out.sort((a, b) => b.seconds - a.seconds);
 
-    const lines = out.map((x, i) => `${String(i + 1).padStart(2, ' ')}. ${x.name} — ${formatDuration(x.seconds)} — ${x.rating}`);
+    // Align columns: prefix (rank + name), duration, rating
+    const rankWidth = String(out.length).length;
+    const prefixes = out.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
+    const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
+    const durations = out.map(x => formatDuration(x.seconds));
+    const maxDur = durations.reduce((m, s) => Math.max(m, s.length), 0);
+    const ratingStrs = out.map(x => String(x.rating));
+    const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
+
+    const lines = out.map((x, i) => {
+      const prefix = prefixes[i];
+      const dur = durations[i];
+      const gap1 = ' '.repeat(maxPrefix - prefix.length);
+      const durPad = ' '.repeat(maxDur - dur.length);
+      const rating = String(x.rating).padStart(ratingWidth, ' ');
+      return `${prefix}${gap1} — ${durPad}${dur} — ${rating}`;
+    });
     const header = 'Waiting in voice channel:';
     const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
     await interaction.reply({ content });

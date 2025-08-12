@@ -1,10 +1,10 @@
 {
   "squadronSnapshots": [
     {
-      "ts": "2025-08-12T20:32:31.424Z",
+      "ts": "2025-08-12T22:00:31.867Z",
       "url": "https://warthunder.com/en/community/claninfo/Try%20Hard%20Coalition",
-      "totalPoints": 37576,
-      "totalPointsCalulated": 37578,
+      "totalPoints": 37541,
+      "totalPointsCalulated": 37543,
       "data": {
         "headers": [
           "Player",
@@ -117,7 +117,7 @@
           },
           {
             "Player": "GREGallOVER",
-            "Personal clan rating": "1255",
+            "Personal clan rating": "1266",
             "Role": "Private",
             "Date of entry": "02.05.2024"
           },
@@ -153,7 +153,7 @@
           },
           {
             "Player": "David6549",
-            "Personal clan rating": "1469",
+            "Personal clan rating": "1443",
             "Role": "Private",
             "Date of entry": "08.08.2024"
           },
@@ -165,7 +165,7 @@
           },
           {
             "Player": "LarssonTv",
-            "Personal clan rating": "1391",
+            "Personal clan rating": "1385",
             "Role": "Private",
             "Date of entry": "03.09.2024"
           },
@@ -195,19 +195,19 @@
           },
           {
             "Player": "thunderbolt747",
-            "Personal clan rating": "1541",
+            "Personal clan rating": "1495",
             "Role": "Private",
             "Date of entry": "01.11.2024"
           },
           {
             "Player": "Doge71217",
-            "Personal clan rating": "1532",
+            "Personal clan rating": "1489",
             "Role": "clan/officer",
             "Date of entry": "09.11.2024"
           },
           {
             "Player": "K0stA",
-            "Personal clan rating": "1484",
+            "Personal clan rating": "1464",
             "Role": "Private",
             "Date of entry": "18.11.2024"
           },
@@ -441,7 +441,7 @@
           },
           {
             "Player": "THC_funny@psn",
-            "Personal clan rating": "739",
+            "Personal clan rating": "800",
             "Role": "Private",
             "Date of entry": "14.05.2025"
           },
@@ -471,7 +471,7 @@
           },
           {
             "Player": "Gunsnipe",
-            "Personal clan rating": "1600",
+            "Personal clan rating": "1563",
             "Role": "Private",
             "Date of entry": "31.05.2025"
           },
@@ -501,7 +501,7 @@
           },
           {
             "Player": "Lord_of_the_Void",
-            "Personal clan rating": "1607",
+            "Personal clan rating": "1543",
             "Role": "Private",
             "Date of entry": "29.06.2025"
           },
@@ -717,7 +717,7 @@
           },
           {
             "Player": "MetaGamer YT",
-            "Personal clan rating": "534",
+            "Personal clan rating": "593",
             "Role": "Private",
             "Date of entry": "31.07.2025"
           },
@@ -752,7 +752,10 @@
             "Date of entry": "10.08.2025"
           }
         ]
-      }
+      },
+      "squadronPlace": null,
+      "totalPointsAbove": null,
+      "totalPointsBelow": null
     }
   ]
 }

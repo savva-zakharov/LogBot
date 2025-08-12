@@ -106,19 +106,31 @@ function bestMatchPlayer(rows, query) {
 module.exports = {
   data: {
     name: 'points',
-    description: 'Show your squadron Personal clan rating from the latest snapshot',
+    description: 'Show a player\'s Personal clan rating (defaults to you) from the latest snapshot',
+    options: [
+      {
+        name: 'player',
+        description: 'Player name to look up (optional)',
+        type: 3, // STRING
+        required: false,
+      }
+    ],
   },
   async execute(interaction) {
     const caller = interaction.member?.nickname || interaction.user?.username || interaction.member?.user?.username || 'Unknown';
+    const queryInput = (interaction.options && typeof interaction.options.getString === 'function')
+      ? interaction.options.getString('player')
+      : null;
+    const targetName = queryInput && queryInput.trim() ? queryInput.trim() : (interaction.member?.nickname || interaction.user?.username);
     const snap = readLatestSquadronSnapshot();
     if (!snap || !snap.data || !Array.isArray(snap.data.rows) || snap.data.rows.length === 0) {
       await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
       return;
     }
 
-    const found = bestMatchPlayer(snap.data.rows, interaction.member?.nickname || interaction.user?.username);
+    const found = bestMatchPlayer(snap.data.rows, targetName);
     if (!found || !found.row) {
-      await interaction.reply({ content: `Could not find a close match for \`${caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: `Could not find a close match for \`${targetName || caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -130,7 +142,7 @@ module.exports = {
     if (typeof snap.totalPoints === 'number' || typeof snap.totalPointsCalulated === 'number') {
       const totalScraped = snap.totalPoints != null ? snap.totalPoints : 'N/A';
       const totalCalc = snap.totalPointsCalulated != null ? snap.totalPointsCalulated : 'N/A';
-      header += `\nSquadron total: ${totalScraped} (calculated: ${totalCalc})`;
+      header += `\nSquadron total: ${totalScraped}`;
     }
 
     await interaction.reply({ content: '```\n' + header + '\n```' });

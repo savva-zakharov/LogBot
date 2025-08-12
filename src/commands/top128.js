@@ -1,4 +1,4 @@
-// src/commands/top20.js
+// src/commands/top128.js
 const fs = require('fs');
 const path = require('path');
 const { MessageFlags } = require('discord.js');
@@ -20,10 +20,31 @@ function toNumber(val) {
   return cleaned ? parseInt(cleaned, 10) : 0;
 }
 
+function chunkIntoCodeBlocks(text) {
+  // Ensure we honor Discord's 2000 char limit per message
+  const wrapper = { open: '```\n', close: '\n```' };
+  const maxLen = 2000;
+  const contentMax = maxLen - (wrapper.open.length + wrapper.close.length);
+  const lines = text.split('\n');
+  const blocks = [];
+  let current = '';
+  for (const line of lines) {
+    const candidate = (current ? current + '\n' : '') + line;
+    if (candidate.length > contentMax) {
+      blocks.push(wrapper.open + current + wrapper.close);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) blocks.push(wrapper.open + current + wrapper.close);
+  return blocks;
+}
+
 module.exports = {
   data: {
-    name: 'top20',
-    description: 'Show top 20 players by Personal clan rating from the latest snapshot',
+    name: 'top128',
+    description: 'List up to 128 members by personal clan rating from the latest snapshot',
   },
   async execute(interaction) {
     const snap = readLatestSquadronSnapshot();
@@ -36,7 +57,7 @@ module.exports = {
     const rows = [...snap.data.rows]
       .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
       .sort((a, b) => b.rating - a.rating)
-      .slice(0, 20);
+      .slice(0, 128);
 
     if (!rows.length) {
       await interaction.reply({ content: 'Could not find any players with a Personal clan rating.', flags: MessageFlags.Ephemeral });
@@ -44,22 +65,30 @@ module.exports = {
     }
 
     // Align columns: make ratings line up
-    const rankWidth = String(rows.length).length; // width for rank index
+    const rankWidth = String(rows.length).length; // width for rank index (up to 3)
     const prefixes = rows.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
     const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
     const ratingStrs = rows.map(x => String(x.rating));
     const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
 
-    const lines = rows.map((x, i) => {
+    const lines = [];
+    const header = 'Top 128 by Personal clan rating:';
+    lines.push(header, '');
+    rows.forEach((x, i) => {
       const prefix = prefixes[i];
       const gap = ' '.repeat(maxPrefix - prefix.length);
       const rating = String(x.rating).padStart(ratingWidth, ' ');
-      return `${prefix}${gap} — ${rating}`;
+      lines.push(`${prefix}${gap} — ${rating}`);
     });
 
-    const header = 'Top 20 by Personal clan rating:';
-
-    const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
-    await interaction.reply({ content });
+    const blocks = chunkIntoCodeBlocks(lines.join('\n'));
+    if (blocks.length === 1) {
+      await interaction.reply({ content: blocks[0] });
+    } else {
+      await interaction.reply({ content: blocks[0] });
+      for (let i = 1; i < blocks.length; i++) {
+        await interaction.followUp({ content: blocks[i] });
+      }
+    }
   }
 };

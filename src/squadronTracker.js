@@ -12,6 +12,142 @@ function getDiscordSend() {
   } catch (_) { return null; }
 }
 
+// Try to infer squadron tag from the current squadron page (from header/title)
+async function extractSquadronTagFromPage(page) {
+  try {
+    const raw = await page.evaluate(() => {
+      const pieces = [];
+      const sel = [
+        'h1',
+        '.squadrons__title',
+        '.squadrons-members__title',
+        '.squadrons__header',
+        'title'
+      ];
+      for (const s of sel) {
+        const el = document.querySelector(s);
+        if (el && el.textContent) pieces.push(el.textContent.trim());
+      }
+      return pieces.join(' | ');
+    });
+    const text = String(raw || '');
+    // Look for a tag-like token (letters/numbers) possibly wrapped by symbols
+    // Example: "╖xTHCx╖ Try Hard Coalition" -> xTHCx
+    const tokens = text.split(/\s+/);
+    for (const t of tokens) {
+      const mid = t.replace(/[^A-Za-z0-9]/g, '');
+      if (mid.length >= 2 && mid.length <= 8) {
+        return mid; // plausible tag
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
+// Read leaderboard rows from the canonical table if present
+async function parseLeaderboardPage(page) {
+  return await page.evaluate(() => {
+    const out = [];
+    const push = (rank, text, href) => out.push({ rank, text, href });
+    const table = document.querySelector('table.leaderboards');
+    if (table) {
+      const trs = Array.from(table.querySelectorAll('tbody tr'));
+      for (const tr of trs) {
+        const tds = Array.from(tr.querySelectorAll('td'));
+        if (tds.length >= 2) {
+          const rankStr = (tds[0].innerText || '').trim();
+          const nameCell = tds[1];
+          const tagText = (nameCell.innerText || '').trim();
+          const a = nameCell.querySelector('a[href]');
+          const href = a && a.getAttribute('href');
+          const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
+          if (Number.isFinite(r) && tagText) push(r, tagText, href || null);
+        }
+      }
+      return out;
+    }
+    // Minimal generic fallback: any table rows on the page
+    const trs = Array.from(document.querySelectorAll('tr'));
+    for (const tr of trs) {
+      const tds = Array.from(tr.querySelectorAll('td'));
+      if (tds.length >= 2) {
+        const rankStr = (tds[0].innerText || '').trim();
+        const nameCell = tds[1];
+        const tagText = (nameCell.innerText || '').trim();
+        const a = nameCell.querySelector('a[href]');
+        const href = a && a.getAttribute('href');
+        const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
+        if (Number.isFinite(r) && tagText) push(r, tagText, href || null);
+      }
+    }
+    return out;
+  });
+}
+
+// Try to locate our squadron in the War Thunder clans leaderboard and collect rank and neighbor links
+async function findOnLeaderboard(browser, tag) {
+  const base = 'https://warthunder.com/en/community/clansleaderboard';
+  // Try both normal and hist type, multiple pages
+  const maxPages = 25;
+  let lbPage = null;
+  try {
+    lbPage = await browser.newPage();
+    for (let p = 1; p <= maxPages; p++) {
+      // Build candidate URLs for this page index
+      const candidates = [];
+      if (p === 1) {
+        candidates.push(base, `${base}/?type=hist`);
+      } else {
+        candidates.push(`${base}/page/${p}/`, `${base}/page/${p}/?type=hist`);
+      }
+      for (const url of candidates) {
+        try {
+          await lbPage.goto(url, { waitUntil: 'networkidle0', timeout: 45000 });
+          // Prefer waiting for the specific leaderboard table if present
+          try { await lbPage.waitForSelector('table.leaderboards', { timeout: 3000 }); } catch (_) {}
+        } catch (_) { continue; }
+        // Extract rows: rank, tag text, optional href
+        try {
+          const rows = await parseLeaderboardPage(lbPage);
+          // Normalize and search for tag
+          const norm = (s) => String(s || '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+          const needle = norm(tag);
+          if (!needle) continue;
+          rows.sort((a, b) => a.rank - b.rank);
+          const idx = rows.findIndex(r => norm(r.text).includes(needle));
+          if (idx !== -1) {
+            const found = rows[idx];
+            const above = idx > 0 ? rows[idx - 1] : null;
+            const below = idx + 1 < rows.length ? rows[idx + 1] : null;
+            return { page: p, url, found, above, below };
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {
+    // ignore
+  } finally {
+    try { if (lbPage) await lbPage.close(); } catch (_) {}
+  }
+  return null;
+}
+
+async function extractPointsFromSquadLink(browser, href) {
+  if (!href) return null;
+  try {
+    const abs = href.startsWith('http') ? href : ('https://warthunder.com' + (href.startsWith('/') ? '' : '/') + href);
+    const p = await browser.newPage();
+    try {
+      await p.goto(abs, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      // Use the same extractor as for the main squad page
+      const total = await extractTotalPoints(p);
+      return (typeof total === 'number' && Number.isFinite(total)) ? total : null;
+    } finally {
+      try { await p.close(); } catch (_) {}
+    }
+  } catch (_) { return null; }
+}
+
 // --- Events logging (mirror Discord messages) ---
 function ensureEventsFile() {
   const file = path.join(process.cwd(), 'squadron_events.json');
@@ -323,7 +459,55 @@ async function startSquadronTracker() {
     const effectiveTotal = (typeof totalPoints === 'number' && Number.isFinite(totalPoints))
       ? totalPoints
       : (typeof totalPointsCalulated === 'number' && Number.isFinite(totalPointsCalulated) ? totalPointsCalulated : null);
-    const snapshot = { ts: new Date().toISOString(), url: squadronPageUrl, totalPoints: effectiveTotal, totalPointsCalulated, data };
+    // Leaderboard scrape to find our rank and neighbor points
+    let squadronPlace = null;
+    let totalPointsAbove = null;
+    let totalPointsBelow = null;
+    try {
+      const settings = loadSettings();
+      const keys = Object.keys(settings.squadrons || {});
+      let primaryTag = keys.length ? keys[0] : '';
+      if (!primaryTag) {
+        // Fallback: attempt to extract from the current page content
+        primaryTag = await extractSquadronTagFromPage(page);
+      }
+      if (primaryTag) {
+        const res = await findOnLeaderboard(browser, primaryTag);
+        if (res && res.found) {
+          squadronPlace = res.found.rank || null;
+          // Try to follow links for neighbors; if missing, attempt to parse numeric from row text
+          if (res.above) {
+            totalPointsAbove = await extractPointsFromSquadLink(browser, res.above.href);
+            if (totalPointsAbove == null) {
+              // Fallback: parse first number-like token from the row text (supports K/M suffix)
+              const m = String(res.above.text || '').replace(/[,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
+              if (m) {
+                const s = m[1];
+                const k = /k$/i.test(s); const mm = /m$/i.test(s);
+                let n = parseFloat(s.replace(/[KkMm]/g, ''));
+                if (Number.isFinite(n)) totalPointsAbove = Math.round(mm ? n * 1_000_000 : (k ? n * 1_000 : n));
+              }
+            }
+          }
+          if (res.below) {
+            totalPointsBelow = await extractPointsFromSquadLink(browser, res.below.href);
+            if (totalPointsBelow == null) {
+              const m = String(res.below.text || '').replace(/[,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
+              if (m) {
+                const s = m[1];
+                const k = /k$/i.test(s); const mm = /m$/i.test(s);
+                let n = parseFloat(s.replace(/[KkMm]/g, ''));
+                if (Number.isFinite(n)) totalPointsBelow = Math.round(mm ? n * 1_000_000 : (k ? n * 1_000 : n));
+              }
+            }
+          }
+        } else {
+          console.log(`[leaderboard] Tag "${primaryTag}" not found on leaderboard pages scanned.`);
+        }
+      }
+    } catch (_) {}
+
+    const snapshot = { ts: new Date().toISOString(), url: squadronPageUrl, totalPoints: effectiveTotal, totalPointsCalulated, data, squadronPlace, totalPointsAbove, totalPointsBelow };
     if (!snapshot.data || !snapshot.data.rows || snapshot.data.rows.length === 0) {
       // Persist a debug snapshot (HTML + screenshot) to help diagnose selector issues
       try {
