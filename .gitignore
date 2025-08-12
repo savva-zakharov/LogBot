@@ -16,6 +16,8 @@ yarn-debug.log*
 yarn-error.log*
 *.bak.json
 *data.json
+squadron_events.json
+squadron_data.json
 
 # Setttings
 settings.json
