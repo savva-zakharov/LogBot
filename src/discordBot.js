@@ -36,13 +36,16 @@ async function resolveVoiceChannelId(raw) {
       const guild = await client.guilds.fetch(gId);
       if (guild) {
         const ch = await client.channels.fetch(cId);
-        if (ch && ch.type === ChannelType.GuildVoice && ch.guild && ch.guild.id === guild.id) return ch.id;
+        if (ch && (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice) && ch.guild && ch.guild.id === guild.id) return ch.id;
       }
     } catch (_) {}
   }
   // Direct ID
   if (isSnowflake(val)) {
-    try { const ch = await client.channels.fetch(val); if (ch && ch.type === ChannelType.GuildVoice) return ch.id; } catch (_) {}
+    try {
+      const ch = await client.channels.fetch(val);
+      if (ch && (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice)) return ch.id;
+    } catch (_) {}
   }
   // Name search within desired guild if set
   try {
@@ -52,7 +55,7 @@ async function resolveVoiceChannelId(raw) {
         const guild = await client.guilds.fetch(desiredGuildId);
         if (guild) {
           await guild.channels.fetch();
-          const found = guild.channels.cache.find(c => c && c.type === ChannelType.GuildVoice && c.name.toLowerCase() === name);
+          const found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice) && c.name.toLowerCase() === name);
           if (found) return found.id;
         }
       } catch (_) {}
@@ -60,7 +63,7 @@ async function resolveVoiceChannelId(raw) {
     // Otherwise search across guilds
     for (const [, guild] of client.guilds.cache) {
       await guild.channels.fetch();
-      const found = guild.channels.cache.find(c => c && c.type === ChannelType.GuildVoice && c.name.toLowerCase() === name);
+      const found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice) && c.name.toLowerCase() === name);
       if (found) return found.id;
     }
   } catch (_) {}
@@ -213,7 +216,10 @@ async function init(settings) {
       if (waitChanRaw) {
         const resolvedId = await resolveVoiceChannelId(waitChanRaw);
         if (resolvedId) {
-          waitingTracker.init(client, resolvedId);
+          let chName = resolvedId;
+          try { const chObj = await client.channels.fetch(resolvedId); if (chObj) chName = `${chObj.name} (${chObj.id})`; } catch (_) {}
+          console.log(`ℹ️ WaitingTracker: initializing for voice channel ${chName}`);
+          waitingTracker.init(client, resolvedId, { debug: true });
         } else {
           console.log(`ℹ️ Discord: waitingVoiceChannel '${waitChanRaw}' could not be resolved to a voice channel ID; /waiting will show empty list.`);
         }

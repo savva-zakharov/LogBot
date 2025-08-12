@@ -30,7 +30,7 @@ const CATEGORY_TO_OUTPUT = {
 
 // Settings loader: reads settings.json and settings.env, with env taking precedence
 function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '' };
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '' };
   try {
     const cwd = process.cwd();
     const envPath = path.join(cwd, 'settings.env');
@@ -57,6 +57,8 @@ function loadSettings() {
         port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
         wsPort: (typeof parsed.wsPort === 'number' && Number.isFinite(parsed.wsPort)) ? parsed.wsPort : defaults.wsPort,
         squadronPageUrl: typeof parsed.squadronPageUrl === 'string' ? parsed.squadronPageUrl : defaults.squadronPageUrl,
+        waitingVoiceChannel: typeof parsed.waitingVoiceChannel === 'string' ? parsed.waitingVoiceChannel
+          : (typeof parsed.waitingVoiceChannelId === 'string' ? parsed.waitingVoiceChannelId : defaults.waitingVoiceChannel),
       };
       // Override with settings.env values if present, then process.env
       const envOverrides = {
@@ -68,6 +70,7 @@ function loadSettings() {
         port: parsePort(envMap.PORT || process.env.PORT),
         wsPort: parsePort(envMap.WS_PORT || process.env.WS_PORT),
         squadronPageUrl: envMap.SQUADRON_PAGE_URL || process.env.SQUADRON_PAGE_URL,
+        waitingVoiceChannel: envMap.WAITING_VOICE_CHANNEL || process.env.WAITING_VOICE_CHANNEL,
       };
       return {
         players: base.players,
@@ -80,6 +83,7 @@ function loadSettings() {
         port: Number.isFinite(envOverrides.port) ? envOverrides.port : base.port,
         wsPort: Number.isFinite(envOverrides.wsPort) ? envOverrides.wsPort : base.wsPort,
         squadronPageUrl: envOverrides.squadronPageUrl || base.squadronPageUrl || defaults.squadronPageUrl,
+        waitingVoiceChannel: (envOverrides.waitingVoiceChannel !== undefined ? envOverrides.waitingVoiceChannel : base.waitingVoiceChannel) || defaults.waitingVoiceChannel,
       };
     }
   } catch (_) {}
