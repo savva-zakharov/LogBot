@@ -21,6 +21,7 @@ yarn-error.log*
 settings.json
 highlights.json
 settings.env
+sqbbr.txt
 
 # Env/config
 settings.env
