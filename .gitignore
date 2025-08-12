@@ -18,6 +18,8 @@ yarn-error.log*
 *data.json
 squadron_events.json
 squadron_data.json
+sqbr.txt
+
 
 # Setttings
 settings.json
