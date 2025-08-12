@@ -241,6 +241,56 @@
       "ts": "2025-08-12T22:42:52.198Z",
       "message": "📊 Squadron tracker update (12/8/2025, 23:42:51)",
       "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T23:14:48.563Z",
+      "message": "```\n📊 Squadron tracker update (13/8/2025, 00:14:48)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T23:14:48.564Z",
+      "message": "📊 Squadron tracker update (13/8/2025, 00:14:48)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T23:15:24.917Z",
+      "message": "```\n📊 Squadron tracker update (13/8/2025, 00:15:24)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T23:15:24.918Z",
+      "message": "📊 Squadron tracker update (13/8/2025, 00:15:24)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T23:19:17.490Z",
+      "message": "```\n📊 Squadron tracker update (13/8/2025, 00:19:17)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T23:19:50.770Z",
+      "message": "```\n📊 Squadron tracker update (13/8/2025, 00:19:50)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T23:19:50.771Z",
+      "message": "📊 Squadron tracker update (13/8/2025, 00:19:50)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T23:20:12.862Z",
+      "message": "```\n📊 Squadron tracker update (13/8/2025, 00:20:12)\n• Departures (123):\n   - SzKevin2_HUN     (1554, Member)\n   - zzn00974057      ( 861, Member)\n   - CptWildBillKalso ( 629, Member)\n   - Recon0302        (1619, Member)\n   - Mindbird         (1558, Member)\n   - UltimateKamikazE (   0, Member)\n   - Raptuss_90@psn   ( 529, Member)\n   - Kenamondo15      ( 498, Member)\n   - PhoenixSpecOps   (1466, Member)\n   - R2Y2_KeiunСock   (   0, Member)\n   …and 113 more\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T23:20:12.863Z",
+      "message": "📊 Squadron tracker update (13/8/2025, 00:20:12)\n• Departures (123):\n   - SzKevin2_HUN     (1554, Member)\n   - zzn00974057      ( 861, Member)\n   - CptWildBillKalso ( 629, Member)\n   - Recon0302        (1619, Member)\n   - Mindbird         (1558, Member)\n   - UltimateKamikazE (   0, Member)\n   - Raptuss_90@psn   ( 529, Member)\n   - Kenamondo15      ( 498, Member)\n   - PhoenixSpecOps   (1466, Member)\n   - R2Y2_KeiunСock   (   0, Member)\n   …and 113 more",
+      "source": "squadronTracker"
     }
   ]
 }

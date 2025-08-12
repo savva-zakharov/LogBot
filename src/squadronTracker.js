@@ -2,8 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const puppeteer = require('puppeteer-core');
-const { resolveChromiumExecutable, loadSettings } = require('./config');
+const cheerio = require('cheerio');
+const { loadSettings } = require('./config');
 
 // Lazy accessor to avoid circular dependency at module load
 function getDiscordSend() {
@@ -31,6 +31,90 @@ function fetchJson(url, timeoutMs = 15000) {
     req.on('error', () => resolve(null));
     req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
   });
+}
+
+// Simple text fetcher (for HTML)
+function fetchText(url, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    const req = https.get(url, res => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return resolve(null);
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
+  });
+}
+
+// Parse squadron page HTML using cheerio (no JS execution)
+function parseSquadronWithCheerio(html) {
+  try {
+    const $ = cheerio.load(html);
+    // Prefer semantic table if present
+    const tableContainer = $('div.squadrons-members__table');
+    if (tableContainer.length) {
+      const table = tableContainer.find('table');
+      if (table.length) {
+        const headers = [];
+        table.find('thead th').each((_, th) => headers.push($(th).text().trim()));
+        const rows = [];
+        table.find('tbody tr').each((_, tr) => {
+          const obj = {};
+          $(tr).children().each((i, td) => {
+            const key = headers[i] || `col_${i}`;
+            obj[key] = $(td).text().trim();
+          });
+          if (Object.keys(obj).length) rows.push(obj);
+        });
+        if (rows.length) return { headers, rows };
+      }
+    }
+
+    // Fallback: parse grid items in the profile body
+    const container = $('div.squadrons-profile__body.squadrons-members');
+    const items = container.find('div.squadrons-members__grid-item');
+    const rows = [];
+    let counter = 0;
+    let name = null;
+    let points = null;
+    items.each((_, el) => {
+      const text = $(el).text();
+      if (counter === 7) {
+        const a = $(el).find('a[href*="userinfo/?nick="]');
+        if (a.length) {
+          const href = a.attr('href') || '';
+          name = href.replace(/.*nick=/, '').trim();
+        }
+      } else if (counter === 8) {
+        const raw = text.replace(/\s+/g, '');
+        points = (/^\d+$/.test(raw) ? raw : raw.replace(/\D/g, '')) || '0';
+      } else if (counter === 12) {
+        if (name && points) {
+          rows.push({
+            'num.': String(rows.length + 1),
+            'Player': name,
+            'Personal clan rating': points,
+          });
+        }
+        // Reset for next entry per observed pattern
+        counter = 6;
+        name = null; points = null;
+      }
+      counter += 1;
+    });
+    // Flush last pending
+    if (name && points) {
+      rows.push({ 'num.': String(rows.length + 1), 'Player': name, 'Personal clan rating': points });
+    }
+    return { headers: ['num.', 'Player', 'Personal clan rating', 'Activity', 'Role', 'Date of entry'], rows };
+  } catch (_) {
+    return { headers: [], rows: [] };
+  }
 }
 
 function toNum(val) {
@@ -482,136 +566,43 @@ async function startSquadronTracker() {
     return { enabled: false };
   }
 
-  const execPath = resolveChromiumExecutable();
-  if (!execPath) {
-    console.warn('⚠️ Squadron tracker: no browser executable found.');
-    return { enabled: false };
-  }
-
-  const browser = await puppeteer.launch({ headless: true, executablePath: execPath });
-  const page = await browser.newPage();
-  try {
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-  } catch (_) {}
-  try { await page.setViewport({ width: 1366, height: 900, deviceScaleFactor: 1 }); } catch (_) {}
-  await page.goto(squadronPageUrl, { waitUntil: 'networkidle2' });
-  try { await page.waitForSelector('div.squadrons-members__table', { timeout: 15000 }); } catch (_) {}
-  // Attempt to scroll to bottom to trigger lazy content
-  try {
-    await page.evaluate(async () => {
-      await new Promise(resolve => {
-        let total = 0;
-        const step = () => {
-          const { scrollTop, scrollHeight, clientHeight } = document.scrollingElement || document.documentElement;
-          const atBottom = scrollTop + clientHeight >= scrollHeight - 5;
-          if (atBottom || total > 10) return resolve();
-          window.scrollBy(0, Math.max(200, Math.floor(clientHeight / 2)));
-          total++;
-          setTimeout(step, 200);
-        };
-        step();
-      });
-    });
-  } catch (_) {}
-
   const dataFile = ensureParsedDataFile();
   let lastKey = null;
   let lastSnapshot = null;
 
   async function captureOnce() {
-    try {
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      try { await page.waitForSelector('div.squadrons-members__table', { timeout: 15000 }); } catch (_) {}
-    } catch (_) {}
-    let data = { headers: [], rows: [] };
-    try {
-      data = await scrapeTable(page);
-    } catch (e) {
-      console.warn('⚠️ Squadron tracker: scrape failed:', e && e.message ? e.message : e);
-    }
-    // Compute total points from page (with fallback to manual calculation)
-    const totalPoints = await extractTotalPoints(page);
-    const totalPointsCalulated = calculateManualPoints(data.rows || []);
-    const effectiveTotal = (typeof totalPoints === 'number' && Number.isFinite(totalPoints))
-      ? totalPoints
-      : (typeof totalPointsCalulated === 'number' && Number.isFinite(totalPointsCalulated) ? totalPointsCalulated : null);
-
-    // Determine primary squadron tag
+    // Determine primary squadron tag (from settings or fallback parsing if needed)
     let primaryTag = '';
     try {
       const settings = loadSettings();
       const keys = Object.keys(settings.squadrons || {});
       primaryTag = keys.length ? keys[0] : '';
     } catch (_) {}
-    if (!primaryTag) {
-      // Fallback: attempt to extract from the current page content
-      try { primaryTag = await extractSquadronTagFromPage(page); } catch (_) {}
-    }
 
-    // Initialize leaderboard context
+    // Initialize leaderboard context (API-first)
     let squadronPlace = null;
     let totalPointsAbove = null;
     let totalPointsBelow = null;
+    let apiPoints = null;
 
     if (primaryTag) {
-      // Try API first
       const api = await findOnLeaderboardViaApi(primaryTag);
       if (api) {
         squadronPlace = api.squadronPlace;
         totalPointsAbove = api.totalPointsAbove;
         totalPointsBelow = api.totalPointsBelow;
+        apiPoints = api.found && typeof api.found.points === 'number' ? api.found.points : null;
       } else {
-        // Fallback to HTML scraping if API failed or tag not found
-        const res = await findOnLeaderboard(browser, primaryTag);
-        if (res && res.found) {
-          squadronPlace = res.found.rank || null;
-          // Try to follow links for neighbors; if missing, attempt to parse numeric from row text
-          if (res.above) {
-            totalPointsAbove = await extractPointsFromSquadLink(browser, res.above.href);
-            if (totalPointsAbove == null) {
-              const m = String(res.above.text || '').replace(/[\,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
-              if (m) {
-                const s = m[1];
-                const k = /k$/i.test(s); const mm = /m$/i.test(s);
-                let n = parseFloat(s.replace(/[KkMm]/g, ''));
-                if (Number.isFinite(n)) totalPointsAbove = Math.round(mm ? n * 1_000_000 : (k ? n * 1_000 : n));
-              }
-            }
-          }
-          if (res.below) {
-            totalPointsBelow = await extractPointsFromSquadLink(browser, res.below.href);
-            if (totalPointsBelow == null) {
-              const m = String(res.below.text || '').replace(/[\,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
-              if (m) {
-                const s = m[1];
-                const k = /k$/i.test(s); const mm = /m$/i.test(s);
-                let n = parseFloat(s.replace(/[KkMm]/g, ''));
-                if (Number.isFinite(n)) totalPointsBelow = Math.round(mm ? n * 1_000_000 : (k ? n * 1_000 : n));
-              }
-            }
-          }
-        } else {
-          console.log(`[leaderboard] Tag "${primaryTag}" not found on leaderboard pages scanned.`);
-        }
+        console.log(`[leaderboard] API lookup failed or tag not found for "${primaryTag}".`);
       }
     }
 
-    // If no rows were parsed, save HTML and screenshot for debugging
-    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      try {
-        const html = await page.content();
-        fs.writeFileSync(path.join(process.cwd(), 'debug_squadron.html'), html, 'utf8');
-      } catch (_) {}
-      try {
-        await page.screenshot({ path: path.join(process.cwd(), 'debug_squadron.png'), fullPage: true });
-      } catch (_) {}
-      console.warn('ℹ️ Squadron tracker: no rows parsed. Saved debug_squadron.html/png for inspection.');
-    }
+    const effectiveTotal = (typeof apiPoints === 'number' && Number.isFinite(apiPoints)) ? apiPoints : null;
 
-    // Build snapshot for change detection and persistence
-    const snapshot = {
+    // Prepare minimal snapshot (no members yet)
+    let snapshot = {
       ts: Date.now(),
-      data,
+      data: { headers: [], rows: [] },
       totalPoints: effectiveTotal,
       squadronPlace,
       totalPointsAbove,
@@ -631,17 +622,31 @@ async function startSquadronTracker() {
       // Compute diff versus previous snapshot, if available
       try {
         const prev = lastSnapshot || readLastSnapshot(dataFile);
+        const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
+        const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
+
+        // Only when points changed: fetch and include members via HTML parsing
+        if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
+          try {
+            const raw = await fetchText(squadronPageUrl);
+            if (raw) {
+              const parsed = parseSquadronWithCheerio(raw);
+              if (parsed && Array.isArray(parsed.rows)) {
+                snapshot.data = parsed;
+              }
+            }
+          } catch (_) {}
+        }
+
         const msgLines = [];
         msgLines.push(`📊 Squadron tracker update (${new Date().toLocaleString()})`);
 
         // Total points change (site-reported and calculated)
-        const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
-        const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
         if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
           const delta = newTotal - prevTotal;
           msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${delta >= 0 ? '+' : ''}${delta})`);
         }
-        // Calculated points messaging removed; calculated points are only used as fallback for totalPoints
+        // Only include member add/remove sections if we captured member rows this cycle
 
         // Row-level changes: added/removed players
         const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
@@ -733,8 +738,7 @@ async function startSquadronTracker() {
   // Expose a stop handle
   return {
     enabled: true,
-    browser,
-    stop: async () => { try { clearInterval(interval); await browser.close(); } catch (_) {} }
+    stop: async () => { try { clearInterval(interval); } catch (_) {} }
   };
 }
 
