@@ -1,10 +1,7 @@
 {
   "squadronSnapshots": [
     {
-      "ts": "2025-08-12T22:00:31.867Z",
-      "url": "https://warthunder.com/en/community/claninfo/Try%20Hard%20Coalition",
-      "totalPoints": 37541,
-      "totalPointsCalulated": 37543,
+      "ts": 1755038571757,
       "data": {
         "headers": [
           "Player",
@@ -753,9 +750,10 @@
           }
         ]
       },
-      "squadronPlace": null,
-      "totalPointsAbove": null,
-      "totalPointsBelow": null
+      "totalPoints": 37541,
+      "squadronPlace": 23,
+      "totalPointsAbove": 37619,
+      "totalPointsBelow": 37480
     }
   ]
 }

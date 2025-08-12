@@ -1,6 +1,7 @@
 // src/squadronTracker.js
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const puppeteer = require('puppeteer-core');
 const { resolveChromiumExecutable, loadSettings } = require('./config');
 
@@ -10,6 +11,80 @@ function getDiscordSend() {
     const mod = require('./discordBot');
     return typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
   } catch (_) { return null; }
+}
+
+// --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
+function fetchJson(url, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, res => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return resolve(null);
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
+  });
+}
+
+function toNum(val) {
+  const cleaned = String(val ?? '').replace(/[^0-9]/g, '');
+  return cleaned ? parseInt(cleaned, 10) : 0;
+}
+
+async function findOnLeaderboardViaApi(tag) {
+  try {
+    const needle = String(tag || '').trim().toLowerCase();
+    if (!needle) return null;
+    const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
+    let page = 1;
+    const MAX_PAGES = 100; // sensible cap
+    while (page <= MAX_PAGES) {
+      const json = await fetchJson(makeUrl(page));
+      if (!json || json.status !== 'ok') break;
+      const arr = Array.isArray(json.data) ? json.data : [];
+      if (!arr.length) break;
+      const idx = arr.findIndex(e => String(e.tagl || '').toLowerCase() === needle);
+      if (idx !== -1) {
+        const cur = arr[idx];
+        const found = {
+          rank: cur.pos || null,
+          points: toNum(cur?.astat?.dr_era5_hist),
+        };
+        // neighbors on same page
+        const aboveEntry = idx > 0 ? arr[idx - 1] : null;
+        const belowEntry = idx + 1 < arr.length ? arr[idx + 1] : null;
+        let abovePoints = aboveEntry ? toNum(aboveEntry?.astat?.dr_era5_hist) : null;
+        let belowPoints = belowEntry ? toNum(belowEntry?.astat?.dr_era5_hist) : null;
+        // cross-page neighbors if needed
+        if (!aboveEntry && page > 1) {
+          const prev = await fetchJson(makeUrl(page - 1));
+          const prevArr = prev && prev.status === 'ok' && Array.isArray(prev.data) ? prev.data : [];
+          if (prevArr.length) abovePoints = toNum(prevArr[prevArr.length - 1]?.astat?.dr_era5_hist);
+        }
+        if (!belowEntry && arr.length > 0) {
+          const next = await fetchJson(makeUrl(page + 1));
+          const nextArr = next && next.status === 'ok' && Array.isArray(next.data) ? next.data : [];
+          if (nextArr.length) belowPoints = toNum(nextArr[0]?.astat?.dr_era5_hist);
+        }
+        return {
+          page,
+          found,
+          squadronPlace: found.rank || null,
+          totalPointsAbove: Number.isFinite(abovePoints) ? abovePoints : null,
+          totalPointsBelow: Number.isFinite(belowPoints) ? belowPoints : null,
+        };
+      }
+      page++;
+    }
+  } catch (_) {}
+  return null;
 }
 
 // Try to infer squadron tag from the current squadron page (from header/title)
@@ -454,24 +529,39 @@ async function startSquadronTracker() {
     } catch (e) {
       console.warn('⚠️ Squadron tracker: scrape failed:', e && e.message ? e.message : e);
     }
+    // Compute total points from page (with fallback to manual calculation)
     const totalPoints = await extractTotalPoints(page);
     const totalPointsCalulated = calculateManualPoints(data.rows || []);
     const effectiveTotal = (typeof totalPoints === 'number' && Number.isFinite(totalPoints))
       ? totalPoints
       : (typeof totalPointsCalulated === 'number' && Number.isFinite(totalPointsCalulated) ? totalPointsCalulated : null);
-    // Leaderboard scrape to find our rank and neighbor points
-    let squadronPlace = null;
-    let totalPointsAbove = null;
-    let totalPointsBelow = null;
+
+    // Determine primary squadron tag
+    let primaryTag = '';
     try {
       const settings = loadSettings();
       const keys = Object.keys(settings.squadrons || {});
-      let primaryTag = keys.length ? keys[0] : '';
-      if (!primaryTag) {
-        // Fallback: attempt to extract from the current page content
-        primaryTag = await extractSquadronTagFromPage(page);
-      }
-      if (primaryTag) {
+      primaryTag = keys.length ? keys[0] : '';
+    } catch (_) {}
+    if (!primaryTag) {
+      // Fallback: attempt to extract from the current page content
+      try { primaryTag = await extractSquadronTagFromPage(page); } catch (_) {}
+    }
+
+    // Initialize leaderboard context
+    let squadronPlace = null;
+    let totalPointsAbove = null;
+    let totalPointsBelow = null;
+
+    if (primaryTag) {
+      // Try API first
+      const api = await findOnLeaderboardViaApi(primaryTag);
+      if (api) {
+        squadronPlace = api.squadronPlace;
+        totalPointsAbove = api.totalPointsAbove;
+        totalPointsBelow = api.totalPointsBelow;
+      } else {
+        // Fallback to HTML scraping if API failed or tag not found
         const res = await findOnLeaderboard(browser, primaryTag);
         if (res && res.found) {
           squadronPlace = res.found.rank || null;
@@ -479,8 +569,7 @@ async function startSquadronTracker() {
           if (res.above) {
             totalPointsAbove = await extractPointsFromSquadLink(browser, res.above.href);
             if (totalPointsAbove == null) {
-              // Fallback: parse first number-like token from the row text (supports K/M suffix)
-              const m = String(res.above.text || '').replace(/[,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
+              const m = String(res.above.text || '').replace(/[\,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
               if (m) {
                 const s = m[1];
                 const k = /k$/i.test(s); const mm = /m$/i.test(s);
@@ -492,7 +581,7 @@ async function startSquadronTracker() {
           if (res.below) {
             totalPointsBelow = await extractPointsFromSquadLink(browser, res.below.href);
             if (totalPointsBelow == null) {
-              const m = String(res.below.text || '').replace(/[,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
+              const m = String(res.below.text || '').replace(/[\,\s]/g, '').match(/(\d{1,3}(?:\.\d+)?[KkMm]?)/);
               if (m) {
                 const s = m[1];
                 const k = /k$/i.test(s); const mm = /m$/i.test(s);
@@ -505,11 +594,10 @@ async function startSquadronTracker() {
           console.log(`[leaderboard] Tag "${primaryTag}" not found on leaderboard pages scanned.`);
         }
       }
-    } catch (_) {}
+    }
 
-    const snapshot = { ts: new Date().toISOString(), url: squadronPageUrl, totalPoints: effectiveTotal, totalPointsCalulated, data, squadronPlace, totalPointsAbove, totalPointsBelow };
-    if (!snapshot.data || !snapshot.data.rows || snapshot.data.rows.length === 0) {
-      // Persist a debug snapshot (HTML + screenshot) to help diagnose selector issues
+    // If no rows were parsed, save HTML and screenshot for debugging
+    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
       try {
         const html = await page.content();
         fs.writeFileSync(path.join(process.cwd(), 'debug_squadron.html'), html, 'utf8');
@@ -519,6 +607,17 @@ async function startSquadronTracker() {
       } catch (_) {}
       console.warn('ℹ️ Squadron tracker: no rows parsed. Saved debug_squadron.html/png for inspection.');
     }
+
+    // Build snapshot for change detection and persistence
+    const snapshot = {
+      ts: Date.now(),
+      data,
+      totalPoints: effectiveTotal,
+      squadronPlace,
+      totalPointsAbove,
+      totalPointsBelow,
+    };
+
     const key = simplifyForComparison(snapshot);
     if (lastKey === null) {
       // Initialize from existing file

@@ -219,6 +219,28 @@
       "ts": "2025-08-12T22:00:32.208Z",
       "message": "📊 Squadron tracker update (12/8/2025, 23:00:31)\n• Total points: 37563 → 37541 (-22)",
       "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T22:39:21.883Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 23:39:21)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T22:39:21.884Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 23:39:21)",
+      "source": "squadronTracker"
+    },
+    {
+      "ts": "2025-08-12T22:42:52.197Z",
+      "message": "```\n📊 Squadron tracker update (12/8/2025, 23:42:51)\n```",
+      "source": "discordBot",
+      "channelId": "1404932173395656744"
+    },
+    {
+      "ts": "2025-08-12T22:42:52.198Z",
+      "message": "📊 Squadron tracker update (12/8/2025, 23:42:51)",
+      "source": "squadronTracker"
     }
   ]
 }
