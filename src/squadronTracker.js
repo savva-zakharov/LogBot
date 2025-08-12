@@ -36,17 +36,29 @@ function fetchJson(url, timeoutMs = 15000) {
 // Simple text fetcher (for HTML)
 function fetchText(url, timeoutMs = 15000) {
   return new Promise((resolve) => {
-    const req = https.get(url, res => {
+    const options = new URL(url);
+    options.method = 'GET';
+    options.headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive',
+    };
+    const req = https.get(options, res => {
       if (res.statusCode !== 200) {
+        console.warn(`⚠️ fetchText: non-200 (${res.statusCode}) for ${url}`);
         res.resume();
         return resolve(null);
       }
       let data = '';
       res.setEncoding('utf8');
       res.on('data', chunk => { data += chunk; });
-      res.on('end', () => resolve(data));
+      res.on('end', () => {
+        console.log(`ℹ️ fetchText: received ${data.length} chars from ${url}`);
+        resolve(data);
+      });
     });
-    req.on('error', () => resolve(null));
+    req.on('error', (e) => { console.warn(`⚠️ fetchText error for ${url}:`, e && e.message ? e.message : e); resolve(null); });
     req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
   });
 }
@@ -71,48 +83,71 @@ function parseSquadronWithCheerio(html) {
           });
           if (Object.keys(obj).length) rows.push(obj);
         });
+        console.log(`ℹ️ Cheerio: table detected. headers=${headers.length}, rows=${rows.length}`);
         if (rows.length) return { headers, rows };
       }
     }
 
-    // Fallback: parse grid items in the profile body
+    // Fallback: parse grid items in the profile body using 6-item grouping per member
     const container = $('div.squadrons-profile__body.squadrons-members');
     const items = container.find('div.squadrons-members__grid-item');
+    const nodes = Array.from(items);
+    console.log(`ℹ️ Cheerio: grid container found=${container.length > 0}, grid-items=${nodes.length}`);
     const rows = [];
-    let counter = 0;
-    let name = null;
-    let points = null;
-    items.each((_, el) => {
-      const text = $(el).text();
-      if (counter === 7) {
-        const a = $(el).find('a[href*="userinfo/?nick="]');
-        if (a.length) {
-          const href = a.attr('href') || '';
-          name = href.replace(/.*nick=/, '').trim();
-        }
-      } else if (counter === 8) {
-        const raw = text.replace(/\s+/g, '');
-        points = (/^\d+$/.test(raw) ? raw : raw.replace(/\D/g, '')) || '0';
-      } else if (counter === 12) {
-        if (name && points) {
-          rows.push({
-            'num.': String(rows.length + 1),
-            'Player': name,
-            'Personal clan rating': points,
-          });
-        }
-        // Reset for next entry per observed pattern
-        counter = 6;
-        name = null; points = null;
+    const take = (el) => ($(el).text() || '').trim();
+    const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
+    let start = 0;
+    if (nodes.length >= 6) {
+      const headers = [0,1,2,3,4,5].map(i => norm(take(nodes[i])));
+      const expected = ['num.','player','personalclanrating','activity','role','dateofentry'].map(x => norm(x));
+      const isHeader = headers.every((v, idx) => v === expected[idx]);
+      if (isHeader) {
+        start = 6;
+        console.log('ℹ️ Cheerio: header row detected and skipped');
+      } else {
+        console.log('ℹ️ Cheerio: header row NOT detected');
       }
-      counter += 1;
-    });
-    // Flush last pending
-    if (name && points) {
-      rows.push({ 'num.': String(rows.length + 1), 'Player': name, 'Personal clan rating': points });
     }
+    for (let i = start; i + 5 < nodes.length; i += 6) {
+      const numRaw = take(nodes[i]);
+      const nameEl = $(nodes[i + 1]);
+      const link = nameEl.find('a[href*="userinfo/?nick="]');
+      let player = '';
+      if (link.length) {
+        player = (link.text() || '').trim();
+        if (!player) {
+          const href = link.attr('href') || '';
+          player = href.replace(/.*nick=/, '').trim();
+        }
+      } else {
+        player = take(nodes[i + 1]);
+      }
+      const ratingRaw = take(nodes[i + 2]);
+      const activityRaw = take(nodes[i + 3]);
+      const roleRaw = take(nodes[i + 4]);
+      const dateRaw = take(nodes[i + 5]);
+
+      const num = numRaw.replace(/\D+/g, '') || String(rows.length + 1);
+      const rating = ratingRaw.replace(/\D+/g, '') || '0';
+      const activity = activityRaw.replace(/\D+/g, '') || activityRaw || '';
+      const role = roleRaw || '';
+      const date = dateRaw || '';
+
+      if (player) {
+        rows.push({
+          'num.': num,
+          'Player': player,
+          'Personal clan rating': rating,
+          'Activity': activity,
+          'Role': role,
+          'Date of entry': date,
+        });
+      }
+    }
+    console.log(`ℹ️ Cheerio: parsed member rows=${rows.length}`);
     return { headers: ['num.', 'Player', 'Personal clan rating', 'Activity', 'Role', 'Date of entry'], rows };
   } catch (_) {
+    console.warn('⚠️ Cheerio: parse error');
     return { headers: [], rows: [] };
   }
 }
@@ -592,6 +627,7 @@ async function startSquadronTracker() {
         totalPointsAbove = api.totalPointsAbove;
         totalPointsBelow = api.totalPointsBelow;
         apiPoints = api.found && typeof api.found.points === 'number' ? api.found.points : null;
+        console.log(`ℹ️ API: place=${squadronPlace}, points=${apiPoints}, above=${totalPointsAbove}, below=${totalPointsBelow}`);
       } else {
         console.log(`[leaderboard] API lookup failed or tag not found for "${primaryTag}".`);
       }
@@ -622,6 +658,25 @@ async function startSquadronTracker() {
       // Compute diff versus previous snapshot, if available
       try {
         const prev = lastSnapshot || readLastSnapshot(dataFile);
+        const isFirstRun = !prev;
+        if (isFirstRun) {
+          // On startup, always fetch members for a baseline snapshot
+          try {
+            const raw0 = await fetchText(squadronPageUrl);
+            if (raw0) {
+              console.log(`ℹ️ Startup members HTML length=${raw0.length}`);
+              const parsed0 = parseSquadronWithCheerio(raw0);
+              if (parsed0 && Array.isArray(parsed0.rows)) {
+                snapshot.data = parsed0;
+                snapshot.membersCaptured = true;
+                console.log(`ℹ️ Startup parsed member rows=${parsed0.rows.length}`);
+                if (!parsed0.rows.length) {
+                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw0, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html (startup)'); } catch (_) {}
+                }
+              }
+            }
+          } catch (_) {}
+        }
         const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
         const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
 
@@ -630,9 +685,15 @@ async function startSquadronTracker() {
           try {
             const raw = await fetchText(squadronPageUrl);
             if (raw) {
+              console.log(`ℹ️ Members HTML length=${raw.length}`);
               const parsed = parseSquadronWithCheerio(raw);
               if (parsed && Array.isArray(parsed.rows)) {
                 snapshot.data = parsed;
+                snapshot.membersCaptured = true;
+                console.log(`ℹ️ Members parsed rows=${parsed.rows.length}`);
+                if (!parsed.rows.length) {
+                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html'); } catch (_) {}
+                }
               }
             }
           } catch (_) {}
@@ -649,49 +710,51 @@ async function startSquadronTracker() {
         // Only include member add/remove sections if we captured member rows this cycle
 
         // Row-level changes: added/removed players
-        const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
-        const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
-        const keyName = (r) => String(r['Player'] || r['player'] || '').trim();
-        const mkIndex = (rows) => {
-          const m = new Map();
-          rows.forEach(r => { const k = keyName(r); if (k) m.set(k, r); });
-          return m;
-        };
-        const prevMap = mkIndex(prevRows);
-        const currMap = mkIndex(currRows);
-        const removed = [];
-        const added = [];
-        prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
-        currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
+        if (snapshot.membersCaptured && prev) {
+          const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
+          const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
+          const keyName = (r) => String(r['Player'] || r['player'] || '').trim();
+          const mkIndex = (rows) => {
+            const m = new Map();
+            rows.forEach(r => { const k = keyName(r); if (k) m.set(k, r); });
+            return m;
+          };
+          const prevMap = mkIndex(prevRows);
+          const currMap = mkIndex(currRows);
+          const removed = [];
+          const added = [];
+          prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
+          currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
 
-        // Helpers for monospace alignment
-        const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
-        const safeRole = (r) => (r['Role'] || r['role'] || '').toString();
-        const safeRating = (r) => (String((r['Personal clan rating'] || r['rating'] || '')).replace(/\s+/g, ''));
-        const padRight = (s, n) => s.length >= n ? s.slice(0, n) : (s + ' '.repeat(n - s.length));
-        const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
+          // Helpers for monospace alignment
+          const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
+          const safeRole = (r) => (r['Role'] || r['role'] || '').toString();
+          const safeRating = (r) => (String((r['Personal clan rating'] || r['rating'] || '')).replace(/\s+/g, ''));
+          const padRight = (s, n) => s.length >= n ? s.slice(0, n) : (s + ' '.repeat(n - s.length));
+          const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
 
-        const buildLines = (list, symbol) => {
-          const shown = list.slice(0, 10);
-          const maxNameLen = Math.max(0, ...shown.map(r => safeName(r).length));
-          const maxRatingLen = Math.max(0, ...shown.map(r => safeRating(r).length));
-          return shown.map(r => {
-            const nameP = padRight(safeName(r), Math.min(maxNameLen, 30));
-            const ratingP = padLeft(safeRating(r) || '0', Math.min(Math.max(maxRatingLen, 1), 5));
-            const role = safeRole(r) || 'Member';
-            return `   ${symbol} ${nameP} (${ratingP}, ${role})`;
-          });
-        };
+          const buildLines = (list, symbol) => {
+            const shown = list.slice(0, 10);
+            const maxNameLen = Math.max(0, ...shown.map(r => safeName(r).length));
+            const maxRatingLen = Math.max(0, ...shown.map(r => safeRating(r).length));
+            return shown.map(r => {
+              const nameP = padRight(safeName(r), Math.min(maxNameLen, 30));
+              const ratingP = padLeft(safeRating(r) || '0', Math.min(Math.max(maxRatingLen, 1), 5));
+              const role = safeRole(r) || 'Member';
+              return `   ${symbol} ${nameP} (${ratingP}, ${role})`;
+            });
+          };
 
-        if (removed.length) {
-          msgLines.push(`• Departures (${removed.length}):`);
-          buildLines(removed, '-').forEach(line => msgLines.push(line));
-          if (removed.length > 10) msgLines.push(`   …and ${removed.length - 10} more`);
-        }
-        if (added.length) {
-          msgLines.push(`• New members (${added.length}):`);
-          buildLines(added, '+').forEach(line => msgLines.push(line));
-          if (added.length > 10) msgLines.push(`   …and ${added.length - 10} more`);
+          if (removed.length) {
+            msgLines.push(`• Departures (${removed.length}):`);
+            buildLines(removed, '-').forEach(line => msgLines.push(line));
+            if (removed.length > 10) msgLines.push(`   …and ${removed.length - 10} more`);
+          }
+          if (added.length) {
+            msgLines.push(`• New members (${added.length}):`);
+            buildLines(added, '+').forEach(line => msgLines.push(line));
+            if (added.length > 10) msgLines.push(`   …and ${added.length - 10} more`);
+          }
         }
 
         const composed = msgLines.join('\n');
