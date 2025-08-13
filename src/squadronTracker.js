@@ -4,6 +4,11 @@ const path = require('path');
 const https = require('https');
 const cheerio = require('cheerio');
 const { loadSettings } = require('./config');
+const squadAPI = require('./squadronAPI');
+const squadHTML = require('./squadronHTML');
+const squadPup = require('./squadronPuppeteer');
+const squadPupCore = require('./squadronPuppeteerCore');
+const { normalizeTag, toNum } = require('./squadronUtils');
 
 // Lazy accessor to avoid circular dependency at module load
 function getDiscordSend() {
@@ -11,6 +16,233 @@ function getDiscordSend() {
     const mod = require('./discordBot');
     return typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
   } catch (_) { return null; }
+}
+
+// Unified squadron members parsing using HTML -> Puppeteer -> Puppeteer-core
+async function parseSquadronMembersUnified(url) {
+  const parseOptions = {
+    tableSelector: 'div.squadrons-members__table table',
+    headerSelector: 'thead th',
+    rowSelector: 'tbody tr',
+    cellSelector: 'td',
+  };
+  // Normalize parsed objects to ensure standard keys: 'Player' and 'Personal clan rating'
+  const normalizeMembers = (tableObj) => {
+    try {
+      const headers = Array.isArray(tableObj.headers) ? tableObj.headers : [];
+      const rows = Array.isArray(tableObj.rows) ? tableObj.rows : [];
+      const hdrLower = headers.map(h => String(h || '').trim().toLowerCase());
+      // Heuristics to find rating column
+      const isMostlyNumeric = (arr) => {
+        if (!arr.length) return false;
+        const numish = arr.filter(v => /\d/.test(String(v || ''))).length;
+        return numish / arr.length >= 0.7;
+      };
+      let ratingKey = null;
+      // 1) Exact/loose matches
+      const candidates = ['personal clan rating', 'rating', 'личный рейтинг клана', 'личный рейтинг'];
+      for (const c of candidates) {
+        const idx = hdrLower.indexOf(c);
+        if (idx !== -1) { ratingKey = headers[idx]; break; }
+      }
+      // 2) Any header containing 'rating'
+      if (!ratingKey) {
+        const idx = hdrLower.findIndex(h => h.includes('rating'));
+        if (idx !== -1) ratingKey = headers[idx];
+      }
+      // 3) Fallback: pick the column index that is mostly numeric across rows
+      if (!ratingKey && headers.length) {
+        const colCount = headers.length;
+        let bestIdx = -1, bestScore = -1;
+        for (let i = 0; i < colCount; i++) {
+          const colVals = rows.map(r => (r[headers[i]] ?? r[`col_${i}`] ?? '')).map(x => String(x));
+          const score = colVals.length ? colVals.filter(v => /\d/.test(v)).length / colVals.length : 0;
+          if (score > bestScore) { bestScore = score; bestIdx = i; }
+        }
+        if (bestIdx !== -1 && bestScore >= 0.6) ratingKey = headers[bestIdx];
+      }
+
+      // Find Player column
+      let playerKey = null;
+      const playerCandidates = ['player', 'игрок', 'name', 'nickname'];
+      for (const c of playerCandidates) {
+        const idx = hdrLower.indexOf(c);
+        if (idx !== -1) { playerKey = headers[idx]; break; }
+      }
+      if (!playerKey && headers.length) {
+        // Choose the column with the least digits occurrence as "name" heuristic
+        let bestIdx = -1, bestScore = Infinity;
+        for (let i = 0; i < headers.length; i++) {
+          const colVals = rows.map(r => (r[headers[i]] ?? r[`col_${i}`] ?? '')).map(x => String(x));
+          const digitCount = colVals.reduce((acc, v) => acc + (/[0-9]/.test(v) ? 1 : 0), 0);
+          if (digitCount < bestScore) { bestScore = digitCount; bestIdx = i; }
+        }
+        if (bestIdx !== -1) playerKey = headers[bestIdx];
+      }
+
+      const normalizedRows = rows.map((r) => {
+        const obj = { ...r };
+        if (ratingKey && obj['Personal clan rating'] == null) obj['Personal clan rating'] = String(r[ratingKey] ?? '').replace(/\s+/g, '');
+        if (playerKey && obj['Player'] == null) obj['Player'] = String(r[playerKey] ?? '').trim();
+        return obj;
+      });
+
+      const haveRatings = normalizedRows.filter(r => /\d/.test(String(r['Personal clan rating'] || ''))).length;
+      if (ratingKey) {
+        console.log(`ℹ️ Members normalize: rating column='${ratingKey}' mapped to 'Personal clan rating' (${haveRatings}/${normalizedRows.length} numeric).`);
+      } else {
+        console.warn('⚠️ Members normalize: rating column not detected. Manual points may be unavailable.');
+      }
+      if (playerKey) {
+        console.log(`ℹ️ Members normalize: player column='${playerKey}' mapped to 'Player'.`);
+      }
+
+      // Ensure headers include canonical names
+      const newHeadersSet = new Set(headers);
+      if (!newHeadersSet.has('Personal clan rating')) newHeadersSet.add('Personal clan rating');
+      if (!newHeadersSet.has('Player')) newHeadersSet.add('Player');
+      const newHeaders = Array.from(newHeadersSet);
+      return { headers: newHeaders, rows: normalizedRows };
+    } catch (_) {
+      return tableObj;
+    }
+  };
+  const toObjects = (headers, rows) => {
+    const hdrs = Array.isArray(headers) ? headers.map(h => String(h || '').trim()) : [];
+    const objs = [];
+    for (const r of rows || []) {
+      const cells = Array.isArray(r.cells) ? r.cells : [];
+      const obj = {};
+      for (let i = 0; i < cells.length; i++) {
+        const key = hdrs[i] || `col_${i}`;
+        obj[key] = String(cells[i] ?? '').trim();
+      }
+      if (Object.keys(obj).length) objs.push(obj);
+    }
+    return { headers: hdrs, rows: objs };
+  };
+
+  // 1) HTML
+  try {
+    console.log('🔎 Members unified: trying HTML parsing...');
+    const h = await squadHTML.parseSquadronPage(url, parseOptions);
+    if (h && h.ok && h.rows && h.rows.length) {
+      console.log(`✅ Members unified: HTML succeeded with ${h.rows.length} rows.`);
+      const out = toObjects(h.headers, h.rows);
+      const norm = normalizeMembers(out);
+      norm.source = 'html';
+      return norm;
+    }
+    if (h && h.blocked) { console.warn('⛔ Members unified: HTML indicates 403/blocked, escalating to Puppeteer.'); }
+  } catch (e) { try { console.warn('⚠️ Unified: HTML members parse failed:', e.message || e); } catch (_) {} }
+
+  // 2) Puppeteer
+  try {
+    console.log('🔎 Members unified: trying Puppeteer parsing...');
+    const p = await squadPup.parseSquadronPage(url, parseOptions);
+    if (p && p.ok && p.rows && p.rows.length) {
+      console.log(`✅ Members unified: Puppeteer succeeded with ${p.rows.length} rows.`);
+      const out = toObjects(p.headers, p.rows);
+      const norm = normalizeMembers(out);
+      norm.source = 'puppeteer';
+      return norm;
+    }
+  } catch (e) { try { console.warn('⚠️ Unified: Puppeteer members parse failed:', e.message || e); } catch (_) {} }
+
+  // 3) Puppeteer-core
+  try {
+    console.log('🔎 Members unified: trying Puppeteer-core parsing...');
+    const pc = await squadPupCore.parseSquadronPage(url, parseOptions);
+    if (pc && pc.ok && pc.rows && pc.rows.length) {
+      console.log(`✅ Members unified: Puppeteer-core succeeded with ${pc.rows.length} rows.`);
+      const out = toObjects(pc.headers, pc.rows);
+      const norm = normalizeMembers(out);
+      norm.source = 'puppeteer-core';
+      return norm;
+    }
+  } catch (e) { try { console.warn('⚠️ Unified: Puppeteer-core members parse failed:', e.message || e); } catch (_) {} }
+  console.warn('❌ Members unified: all methods failed to produce rows.');
+  return { headers: [], rows: [], source: 'none' };
+}
+
+// Unified leaderboard search orchestration: API -> HTML -> Puppeteer -> Puppeteer-core
+async function findOnLeaderboardUnified(tag) {
+  const parseOptions = {
+    tableSelector: 'table.leaderboards',
+    headerSelector: 'thead th',
+    rowSelector: 'tbody tr',
+    cellSelector: 'td',
+  };
+  // 1) API
+  try {
+    console.log('🔎 Unified leaderboard: trying API...');
+    const api = await squadAPI.searchLeaderboard(tag, {});
+    if (api && api.ok && typeof api.matchIndex === 'number') {
+      const r = api.rows[api.matchIndex] || {};
+      const cells = r.cells || [];
+      const place = Number.parseInt((cells[0] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const points = Number.parseInt((cells[2] || '').replace(/[^0-9]/g, ''), 10) || null;
+      // Neighbors on the same page (best-effort)
+      const rows = api.rows || [];
+      const above = rows.slice(0, api.matchIndex).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      const below = rows.slice(api.matchIndex+1).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      console.log(`✅ Unified leaderboard: API matched. place=${place}, points=${points}`);
+      return { source: 'api', squadronPlace: place, totalPointsAbove: above, totalPointsBelow: below, found: { points } };
+    }
+    console.log('➡️ Unified leaderboard: API did not match. Falling back to HTML...');
+  } catch (e) { try { console.warn('⚠️ Unified: API step failed:', e.message || e); } catch (_) {} }
+  // 2) HTML
+  try {
+    console.log('🔎 Unified leaderboard: trying HTML...');
+    const html = await squadHTML.searchLeaderboard(tag, { parseOptions });
+    if (html && html.ok && typeof html.matchIndex === 'number') {
+      const r = html.rows[html.matchIndex] || {};
+      const cells = r.cells || [];
+      const place = Number.parseInt((cells[0] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const points = Number.parseInt((cells[2] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const rows = html.rows || [];
+      const above = rows.slice(0, html.matchIndex).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      const below = rows.slice(html.matchIndex+1).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      console.log(`✅ Unified leaderboard: HTML matched. place=${place}, points=${points}`);
+      return { source: 'html', squadronPlace: place, totalPointsAbove: above, totalPointsBelow: below, found: { points } };
+    }
+    if (html && html.blocked) console.warn('⛔ Unified leaderboard: HTML indicates 403/blocked. Escalating to Puppeteer.');
+    else console.log('➡️ Unified leaderboard: HTML did not match. Falling back to Puppeteer...');
+  } catch (e) { try { console.warn('⚠️ Unified: HTML step failed:', e.message || e); } catch (_) {} }
+  // 3) Puppeteer
+  try {
+    console.log('🔎 Unified leaderboard: trying Puppeteer...');
+    const pup = await squadPup.searchLeaderboard(tag, { parseOptions });
+    if (pup && pup.ok && typeof pup.matchIndex === 'number') {
+      const r = pup.rows[pup.matchIndex] || {};
+      const cells = r.cells || [];
+      const place = Number.parseInt((cells[0] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const points = Number.parseInt((cells[2] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const rows = pup.rows || [];
+      const above = rows.slice(0, pup.matchIndex).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      const below = rows.slice(pup.matchIndex+1).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      console.log(`✅ Unified leaderboard: Puppeteer matched. place=${place}, points=${points}`);
+      return { source: 'puppeteer', squadronPlace: place, totalPointsAbove: above, totalPointsBelow: below, found: { points } };
+    }
+    console.log('➡️ Unified leaderboard: Puppeteer did not match. Falling back to Puppeteer-core...');
+  } catch (e) { try { console.warn('⚠️ Unified: Puppeteer step failed:', e.message || e); } catch (_) {} }
+  // 4) Puppeteer-core
+  try {
+    console.log('🔎 Unified leaderboard: trying Puppeteer-core...');
+    const pupc = await squadPupCore.searchLeaderboard(tag, { parseOptions });
+    if (pupc && pupc.ok && typeof pupc.matchIndex === 'number') {
+      const r = pupc.rows[pupc.matchIndex] || {};
+      const cells = r.cells || [];
+      const place = Number.parseInt((cells[0] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const points = Number.parseInt((cells[2] || '').replace(/[^0-9]/g, ''), 10) || null;
+      const rows = pupc.rows || [];
+      const above = rows.slice(0, pupc.matchIndex).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      const below = rows.slice(pupc.matchIndex+1).reduce((acc, x) => acc + (Number.parseInt(((x.cells||[])[2]||'').replace(/[^0-9]/g,''),10)||0), 0);
+      console.log(`✅ Unified leaderboard: Puppeteer-core matched. place=${place}, points=${points}`);
+      return { source: 'puppeteer-core', squadronPlace: place, totalPointsAbove: above, totalPointsBelow: below, found: { points } };
+    }
+  } catch (e) { try { console.warn('⚠️ Unified: Puppeteer-core step failed:', e.message || e); } catch (_) {} }
+  return null;
 }
 
 // --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
@@ -30,6 +262,34 @@ function fetchJson(url, timeoutMs = 15000) {
     });
     req.on('error', () => resolve(null));
     req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
+  });
+}
+
+// Variant that returns both status and body to allow 403 handling
+function fetchTextWithStatus(url, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    const options = new URL(url);
+    options.method = 'GET';
+    options.headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive',
+    };
+    const req = https.get(options, res => {
+      const status = res.statusCode || 0;
+      if (status !== 200) {
+        // Drain body and return status without content
+        res.resume();
+        return resolve({ status, body: null });
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ status, body: data }));
+    });
+    req.on('error', () => resolve({ status: 0, body: null }));
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve({ status: 0, body: null }); });
   });
 }
 
@@ -152,23 +412,236 @@ function parseSquadronWithCheerio(html) {
   }
 }
 
-function toNum(val) {
-  const cleaned = String(val ?? '').replace(/[^0-9]/g, '');
-  return cleaned ? parseInt(cleaned, 10) : 0;
+// use toNum from squadronUtils
+
+// --- HTML-based leaderboard scraping (fallback when JSON API breaks) ---
+
+function parseLeaderboardListing(html) {
+  try {
+    const $ = cheerio.load(html);
+    let rows = [];
+    const table = $('table.leaderboards');
+    if (table && table.length) {
+      table.find('tbody tr').each((_, tr) => {
+        const tds = $(tr).find('td');
+        if (tds.length >= 2) {
+          const rankStr = $(tds[0]).text().trim();
+          const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
+          const nameCell = $(tds[1]);
+          const text = nameCell.text().trim();
+          const a = nameCell.find('a[href]').first();
+          const href = a.length ? a.attr('href') : null;
+          if (Number.isFinite(r) && text) rows.push({ rank: r, text, href });
+        }
+      });
+    }
+    if (!rows.length) {
+      $('tr').each((_, tr) => {
+        const tds = $(tr).find('td');
+        if (tds.length >= 2) {
+          const rankStr = $(tds[0]).text().trim();
+          const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
+          const nameCell = $(tds[1]);
+          const text = nameCell.text().trim();
+          const a = nameCell.find('a[href]').first();
+          const href = a.length ? a.attr('href') : null;
+          if (Number.isFinite(r) && text) rows.push({ rank: r, text, href });
+        }
+      });
+    }
+    rows.sort((a, b) => a.rank - b.rank);
+    return rows;
+  } catch (_) {
+    return [];
+  }
+}
+
+async function findOnLeaderboardViaHtml(tag) {
+  const base = 'https://warthunder.com/en/community/clansleaderboard';
+  const needle = normalizeTag(tag);
+  if (!needle) return null;
+  console.log(`🔎 HTML fallback: start search for tag='${tag}' (needle='${needle}')`);
+  const maxPages = 50;
+  for (let p = 1; p <= maxPages; p++) {
+    const candidates = [];
+    if (p === 1) {
+      candidates.push(base);
+    } else {
+      candidates.push(`${base}/page/${p}/`);
+    }
+    for (const url of candidates) {
+      console.log(`🌐 HTML fetch: GET ${url}`);
+      const { status, body } = await fetchTextWithStatus(url, 15000);
+      if (status === 403) {
+        console.warn(`⚠️ leaderboard(HTML): received 403 for ${url}, stopping further HTML requests and switching to Puppeteer fallback.`);
+        const puppeted = await findOnLeaderboardViaPuppeteer(tag);
+        return puppeted; // may be null if puppeteer not available
+      }
+      if (status !== 200 || !body) {
+        console.warn(`⚠️ HTML fetch: non-200 (${status}) or empty body for ${url}`);
+        continue;
+      }
+      const rows = parseLeaderboardListing(body);
+      console.log(`ℹ️ HTML parse: page=${p} rows=${rows.length}`);
+      if (!rows.length) continue;
+      const idx = rows.findIndex(r => normalizeTag(r.text).includes(needle));
+      if (idx !== -1) {
+        const found = rows[idx];
+        const above = idx > 0 ? rows[idx - 1] : null;
+        const below = idx + 1 < rows.length ? rows[idx + 1] : null;
+        console.log(`✅ HTML match: tag='${tag}' found at rank=${found.rank} on page=${p}`);
+        return {
+          page: p,
+          url,
+          found,
+          above,
+          below,
+          squadronPlace: found.rank,
+          totalPointsAbove: null,
+          totalPointsBelow: null,
+        };
+      }
+      console.log(`↩️ HTML page ${p}: not found, continue`);
+    }
+  }
+  console.log(`❌ HTML fallback: tag='${tag}' not found within ${maxPages} pages`);
+  return null;
+}
+
+// Last-resort fallback using Puppeteer to render and scrape when blocked by 403
+async function findOnLeaderboardViaPuppeteer(tag) {
+  const base = 'https://warthunder.com/en/community/clansleaderboard';
+  const needle = normalizeTag(tag);
+  if (!needle) return null;
+  let puppeteer;
+  try { puppeteer = require('puppeteer'); } catch (_) {
+    console.warn('⚠️ Puppeteer not installed; cannot perform last-resort scraping.');
+    return null;
+  }
+  let browser;
+  try {
+    console.log(`🧪 Puppeteer fallback: start search for tag='${tag}' (needle='${needle}')`);
+    browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    const maxPages = 25;
+    for (let p = 1; p <= maxPages; p++) {
+      const url = p === 1 ? base : `${base}/page/${p}/`;
+      try {
+        console.log(`🧭 Puppeteer: goto ${url}`);
+        const resp = await page.goto(url, { waitUntil: 'networkidle0', timeout: 45000 });
+        try {
+          const status = resp ? resp.status() : 'n/a';
+          const ct = resp ? (resp.headers()['content-type'] || '') : '';
+          console.log(`ℹ️ Puppeteer: response status=${status} content-type='${ct}' for ${url}`);
+          if (status === 403) {
+            console.warn(`⚠️ Puppeteer: received 403 for ${url}. Aborting further Puppeteer requests.`);
+            return null;
+          }
+        } catch (_) {}
+        try { await page.waitForSelector('table.leaderboards', { timeout: 3000 }); } catch (_) {}
+      } catch (navErr) { console.warn(`⚠️ Puppeteer: navigation failed for ${url}:`, navErr && navErr.message ? navErr.message : navErr); continue; }
+      try {
+        const rows = await parseLeaderboardPage(page);
+        const norm = (s) => String(s || '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+        console.log(`ℹ️ Puppeteer parse: page=${p} rows=${rows.length}`);
+        if (!rows.length) {
+          // Collect diagnostics to understand why rows are missing
+          try {
+            const diag = await page.evaluate(() => {
+              const q = (sel) => Array.from(document.querySelectorAll(sel)).length;
+              const first = (sel) => {
+                const el = document.querySelector(sel);
+                return el ? (el.outerHTML || el.innerHTML || '').slice(0, 500) : '';
+              };
+              const title = document.title;
+              const href = location.href;
+              const ready = document.readyState;
+              const cf = !!document.querySelector('[id*="challenge"], [class*="challenge"], #cf-challenge, .cf-challenge') || !!document.querySelector('form[action*="/cdn-cgi/challenge-platform"]');
+              const captcha = !!document.querySelector('iframe[title*="captcha" i], [id*="captcha" i], [class*="captcha" i]');
+              const tblCnt = q('table.leaderboards');
+              const trCnt = q('table.leaderboards tbody tr');
+              const anyTr = q('tr');
+              return {
+                href, title, ready, cf, captcha,
+                counts: { tblCnt, trCnt, anyTr },
+                snippet: first('table.leaderboards') || first('body')
+              };
+            });
+            console.log(`🔍 Puppeteer diag page=${p}:`, JSON.stringify(diag));
+          } catch (e) { console.warn('⚠️ Puppeteer diag failed:', e && e.message ? e.message : e); }
+        }
+        rows.sort((a, b) => a.rank - b.rank);
+        const idx = rows.findIndex(r => norm(r.text).includes(needle));
+        if (idx !== -1) {
+          const found = rows[idx];
+          const above = idx > 0 ? rows[idx - 1] : null;
+          const below = idx + 1 < rows.length ? rows[idx + 1] : null;
+          console.log(`✅ Puppeteer match: tag='${tag}' found at rank=${found.rank} on page=${p}`);
+          return { page: p, url, found, above, below, squadronPlace: found.rank, totalPointsAbove: null, totalPointsBelow: null };
+        }
+      } catch (evalErr) { console.warn(`⚠️ Puppeteer: parse/eval failed on ${url}:`, evalErr && evalErr.message ? evalErr.message : evalErr); }
+    }
+    console.log(`❌ Puppeteer fallback: tag='${tag}' not found within ${maxPages} pages`);
+  } catch (e) {
+    console.warn('⚠️ Puppeteer fallback failed:', e && e.message ? e.message : e);
+  } finally {
+    try { if (browser) await browser.close(); } catch (_) {}
+  }
+  return null;
 }
 
 async function findOnLeaderboardViaApi(tag) {
   try {
     const needle = String(tag || '').trim().toLowerCase();
     if (!needle) return null;
+    console.log(`🚀 API primary: start search for tag='${tag}' (needle='${needle}')`);
     const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
     let page = 1;
     const MAX_PAGES = 100; // sensible cap
     while (page <= MAX_PAGES) {
+      console.log(`🌐 API fetch: page=${page}`);
       const json = await fetchJson(makeUrl(page));
-      if (!json || json.status !== 'ok') break;
+      if (!json || json.status !== 'ok') {
+        console.warn(`⚠️ API error/invalid response on page=${page}. Falling back to HTML, then Puppeteer if needed.`);
+        // Fallback: site JSON may be broken; try full HTML fetch instead
+        try {
+          const htmlRes = await findOnLeaderboardViaHtml(tag);
+          if (htmlRes) {
+            return {
+              page: htmlRes.page,
+              found: htmlRes.found,
+              squadronPlace: htmlRes.squadronPlace ?? (htmlRes.found ? htmlRes.found.rank : null),
+              totalPointsAbove: htmlRes.totalPointsAbove ?? null,
+              totalPointsBelow: htmlRes.totalPointsBelow ?? null,
+            };
+          }
+          console.warn('ℹ️ HTML fallback returned null; trying Puppeteer last-resort.');
+          const pup = await findOnLeaderboardViaPuppeteer(tag);
+          if (pup) return pup;
+        } catch (e) { console.warn('⚠️ Fallback error after API failure:', e && e.message ? e.message : e); }
+        break;
+      }
       const arr = Array.isArray(json.data) ? json.data : [];
-      if (!arr.length) break;
+      if (!arr.length) {
+        console.warn(`⚠️ API empty data on page=${page}. Falling back to HTML, then Puppeteer if needed.`);
+        // Fallback: empty data; try HTML scraping
+        try {
+          const htmlRes = await findOnLeaderboardViaHtml(tag);
+          if (htmlRes) {
+            return {
+              page: htmlRes.page,
+              found: htmlRes.found,
+              squadronPlace: htmlRes.squadronPlace ?? (htmlRes.found ? htmlRes.found.rank : null),
+              totalPointsAbove: htmlRes.totalPointsAbove ?? null,
+              totalPointsBelow: htmlRes.totalPointsBelow ?? null,
+            };
+          }
+          console.warn('ℹ️ HTML fallback returned null; trying Puppeteer last-resort.');
+          const pup = await findOnLeaderboardViaPuppeteer(tag);
+          if (pup) return pup;
+        } catch (e) { console.warn('⚠️ Fallback error after empty API data:', e && e.message ? e.message : e); }
+        break;
+      }
       const idx = arr.findIndex(e => String(e.tagl || '').toLowerCase() === needle);
       if (idx !== -1) {
         const cur = arr[idx];
@@ -202,6 +675,22 @@ async function findOnLeaderboardViaApi(tag) {
       }
       page++;
     }
+    // Final fallback if loop completes without finding/returning
+    try {
+      console.log('🔁 API loop finished without match. Trying HTML fallback, then Puppeteer.');
+      const htmlRes = await findOnLeaderboardViaHtml(tag);
+      if (htmlRes) {
+        return {
+          page: htmlRes.page,
+          found: htmlRes.found,
+          squadronPlace: htmlRes.squadronPlace ?? (htmlRes.found ? htmlRes.found.rank : null),
+          totalPointsAbove: htmlRes.totalPointsAbove ?? null,
+          totalPointsBelow: htmlRes.totalPointsBelow ?? null,
+        };
+      }
+      const pup = await findOnLeaderboardViaPuppeteer(tag);
+      if (pup) return pup;
+    } catch (e) { console.warn('⚠️ Final fallback sequence failed:', e && e.message ? e.message : e); }
   } catch (_) {}
   return null;
 }
@@ -226,7 +715,6 @@ async function extractSquadronTagFromPage(page) {
     });
     const text = String(raw || '');
     // Look for a tag-like token (letters/numbers) possibly wrapped by symbols
-    // Example: "╖xTHCx╖ Try Hard Coalition" -> xTHCx
     const tokens = text.split(/\s+/);
     for (const t of tokens) {
       const mid = t.replace(/[^A-Za-z0-9]/g, '');
@@ -628,15 +1116,15 @@ async function startSquadronTracker() {
     let apiPoints = null;
 
     if (primaryTag) {
-      const api = await findOnLeaderboardViaApi(primaryTag);
-      if (api) {
-        squadronPlace = api.squadronPlace;
-        totalPointsAbove = api.totalPointsAbove;
-        totalPointsBelow = api.totalPointsBelow;
-        apiPoints = api.found && typeof api.found.points === 'number' ? api.found.points : null;
-        console.log(`ℹ️ API: place=${squadronPlace}, points=${apiPoints}, above=${totalPointsAbove}, below=${totalPointsBelow}`);
+      const uni = await findOnLeaderboardUnified(primaryTag);
+      if (uni) {
+        squadronPlace = uni.squadronPlace;
+        totalPointsAbove = uni.totalPointsAbove;
+        totalPointsBelow = uni.totalPointsBelow;
+        apiPoints = uni.found && typeof uni.found.points === 'number' ? uni.found.points : null;
+        console.log(`ℹ️ Leaderboard: source=${uni.source || 'unknown'}, place=${squadronPlace}, points=${apiPoints}, above=${totalPointsAbove}, below=${totalPointsBelow}`);
       } else {
-        console.log(`[leaderboard] API lookup failed or tag not found for "${primaryTag}".`);
+        console.log(`[leaderboard] Unified lookup failed or tag not found for "${primaryTag}".`);
       }
     }
 
@@ -665,49 +1153,32 @@ async function startSquadronTracker() {
       // Compute diff versus previous snapshot, if available
       try {
         const prev = lastSnapshot || readLastSnapshot(dataFile);
-        // On first invocation, always fetch members so we can compare against the previous record at startup
-        if (!didInitialMembersFetch) {
-          try {
-            const raw0 = await fetchText(squadronPageUrl);
-            if (raw0) {
-              console.log(`ℹ️ Startup members HTML length=${raw0.length}`);
-              const parsed0 = parseSquadronWithCheerio(raw0);
-              if (parsed0 && Array.isArray(parsed0.rows)) {
-                snapshot.data = parsed0;
-                snapshot.membersCaptured = true;
-                didInitialMembersFetch = true;
-                console.log(`ℹ️ Startup parsed member rows=${parsed0.rows.length}`);
-                if (!parsed0.rows.length) {
-                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw0, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html (startup)'); } catch (_) {}
-                }
-              }
-            }
-          } catch (_) {}
-        }
+        // Fetch squadron members on every poll using the unified parser
+        try {
+          const parsedMembers = await parseSquadronMembersUnified(squadronPageUrl);
+          if (parsedMembers && Array.isArray(parsedMembers.rows)) {
+            snapshot.data = parsedMembers;
+            snapshot.membersCaptured = true;
+            const ratingsParsed = parsedMembers.rows.filter(r => /\d/.test(String((r['Personal clan rating'] || '').toString()))).length;
+            snapshot.ratingsParsed = ratingsParsed;
+            const manual = calculateManualPoints(parsedMembers.rows);
+            snapshot.manualPoints = manual != null ? manual : null;
+            if (manual != null && (snapshot.totalPoints == null)) snapshot.totalPoints = manual;
+            console.log(`ℹ️ Members (poll) parsed rows=${parsedMembers.rows.length}, source=${parsedMembers.source || 'unknown'}`);
+            console.log(`🧮 Manual points from members: ratingsParsed=${ratingsParsed}, manualPoints=${manual != null ? manual : 'n/a'}`);
+            appendEvent({ type: 'diagnostic', scope: 'members_points', ratingsParsed, manualPoints: manual, source: parsedMembers.source || 'unknown' });
+          }
+        } catch (_) {}
         const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
         const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
 
-        // Only when points changed: fetch and include members via HTML parsing
-        if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
-          try {
-            const raw = await fetchText(squadronPageUrl);
-            if (raw) {
-              console.log(`ℹ️ Members HTML length=${raw.length}`);
-              const parsed = parseSquadronWithCheerio(raw);
-              if (parsed && Array.isArray(parsed.rows)) {
-                snapshot.data = parsed;
-                snapshot.membersCaptured = true;
-                console.log(`ℹ️ Members parsed rows=${parsed.rows.length}`);
-                if (!parsed.rows.length) {
-                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html'); } catch (_) {}
-                }
-              }
-            }
-          } catch (_) {}
-        }
+        // Members are fetched every poll above; no additional conditional fetch needed here
 
         const msgLines = [];
         msgLines.push(`📊 Squadron tracker update (${new Date().toLocaleString()})`);
+        if (snapshot && snapshot.data) {
+          msgLines.push(`• Members source: ${snapshot.data.source || 'unknown'} | ratings parsed: ${snapshot.ratingsParsed ?? 'n/a'} | manual points: ${snapshot.manualPoints ?? 'n/a'}`);
+        }
 
         // Total points change (site-reported and calculated)
         const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
