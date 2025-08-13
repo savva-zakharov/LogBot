@@ -3,6 +3,7 @@ const { loadSettings } = require('./config');
 const { parseLogLine } = require('./parser');
 const { processMissionEnd } = require('./missionEnd');
 const server = require('./server');
+const state = require('./state');
 
 async function startScraper(callbacks) {
   const { onNewLine, onGameIncrement, onEntry, onStatusChange } = callbacks;
@@ -20,8 +21,8 @@ async function startScraper(callbacks) {
     let lastDamageTime = null; // seconds
     let timer = null;
     let backoffMs = 1000;
-    let lastEvtId = 0;
-    let lastDmgId = 0;
+    // Resume from persisted cursors if available
+    let { lastEvtId, lastDmgId } = state.getTelemetryCursors();
     // Mission polling state
     const missionUrl = (() => { try { const u = new URL(hudUrl); return `${u.origin}/mission.json`; } catch { return 'http://localhost:8111/mission.json'; } })();
     let lastMissionOutcome = null; // 'success' | 'fail' | null
@@ -50,9 +51,10 @@ async function startScraper(callbacks) {
         const events = Array.isArray(data.events) ? data.events : [];
 
         // advance cursors
+        let maxEvtId = lastEvtId;
         for (const e of events) {
           const eid = typeof e.id === 'number' ? e.id : null;
-          if (eid != null && eid > lastEvtId) lastEvtId = eid;
+          if (eid != null && eid > maxEvtId) maxEvtId = eid;
         }
         let maxDmgId = lastDmgId;
         for (const d of damage) {
@@ -88,7 +90,10 @@ async function startScraper(callbacks) {
           const did = typeof d.id === 'number' ? d.id : null;
           if (did != null && did > maxDmgId) maxDmgId = did;
         }
+        lastEvtId = maxEvtId;
         lastDmgId = maxDmgId;
+        // Persist updated cursors so we can resume after restart
+        try { state.setTelemetryCursors({ lastEvtId, lastDmgId }); } catch (_) {}
 
         // success: reset backoff if it had grown
         backoffMs = 1000;
@@ -104,12 +109,23 @@ async function startScraper(callbacks) {
           if (mres.ok) {
             const mjson = await mres.json().catch(() => ({}));
             const mstatus = mjson?.status; // e.g., 'running' while in progress
-            const objectives = Array.isArray(mjson?.objectives) ? mjson.objectives : null;
+            // Normalize objectives: can be array, object map, or null
+            let objectivesRaw = mjson?.objectives;
+            let objectives = null;
+            if (Array.isArray(objectivesRaw)) objectives = objectivesRaw;
+            else if (objectivesRaw && typeof objectivesRaw === 'object') objectives = Object.values(objectivesRaw);
             let outcome = null;
             if (objectives && objectives.length) {
-              const primary = objectives.find(o => o && (o.primary === true || o.Primary === true)) || objectives[0];
-              const st = (primary && (primary.status || primary.Status)) || null; // 'success' | 'fail' | 'in_progress'
-              if (st === 'success' || st === 'fail') outcome = st;
+              const isPrimary = (o) => {
+                const p = o && (o.primary ?? o.Primary);
+                return p === true || p === 'true' || p === 1 || p === '1';
+              };
+              const getStatus = (o) => String((o && (o.status ?? o.Status)) || '').toLowerCase();
+              const primaries = objectives.filter(o => isPrimary(o));
+              const candidates = primaries.length ? primaries : objectives;
+              // Prefer explicit fail over success
+              if (candidates.some(o => getStatus(o) === 'fail' || getStatus(o) === 'failed')) outcome = 'fail';
+              else if (candidates.some(o => getStatus(o) === 'success' || getStatus(o) === 'succeeded')) outcome = 'success';
             }
             if (outcome && outcome !== lastMissionOutcome) {
               // Centralized mission processing (independent of HTTP server route)

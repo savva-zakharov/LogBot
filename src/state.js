@@ -15,37 +15,63 @@ let state = {
   vehicleToCategory: {}, // Loaded from classifier
   vehicleClassifications: {}, // Loaded from classifier
   data: {}, // In-memory representation of parsed_data.json
+  telemetry: { lastEvtId: 0, lastDmgId: 0 },
 };
 
 function loadAndPrepareInitialState() {
-  // 1. Rotate old log if it exists
+  // If existing file is fresh (<= 1 hour), load and continue; else rotate and create new
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  let loaded = false;
   try {
     if (fs.existsSync(JSON_FILE_PATH)) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const archiveDir = path.join(WRITE_BASE_DIR, 'old_logs');
-      try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
-      const backupName = `parsed_data_${timestamp}.json`;
-      const backupPath = path.join(archiveDir, backupName);
-      fs.renameSync(JSON_FILE_PATH, backupPath);
-      console.log(`💾 Previous JSON moved to old_logs: ${path.basename(backupPath)}`);
+      const stat = fs.statSync(JSON_FILE_PATH);
+      const age = Date.now() - stat.mtimeMs;
+      if (age <= ONE_HOUR_MS) {
+        // Load
+        const txt = fs.readFileSync(JSON_FILE_PATH, 'utf8');
+        const obj = JSON.parse(txt || '{}');
+        state.data = obj || {};
+        state.currentGame = obj?._gameState?.currentGame || 0;
+        state.lastGameIncrementTime = obj?._gameState?.lastGameIncrementTime || 0;
+        state.telemetry.lastEvtId = obj?._telemetry?.lastEvtId || 0;
+        state.telemetry.lastDmgId = obj?._telemetry?.lastDmgId || 0;
+        console.log('💾 Loaded existing parsed_data.json (<=1h old). Resuming session.');
+        loaded = true;
+      } else {
+        // Rotate
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const archiveDir = path.join(WRITE_BASE_DIR, 'old_logs');
+        try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
+        const backupName = `parsed_data_${timestamp}.json`;
+        const backupPath = path.join(archiveDir, backupName);
+        fs.renameSync(JSON_FILE_PATH, backupPath);
+        console.log(`💾 Previous JSON moved to old_logs: ${path.basename(backupPath)}`);
+      }
     }
   } catch (error) {
-    console.warn('⚠️ Could not rotate existing JSON to old_logs, proceeding to reset:', error.message);
+    console.warn('⚠️ Could not process existing JSON, resetting:', error.message);
     try { fs.unlinkSync(JSON_FILE_PATH); } catch (_) {}
   }
 
-  // 2. Create a fresh file with a reset state
-  const initialData = {
-    _gameState: {
-      currentGame: 0,
-      lastGameIncrementTime: 0
-    }
-  };
-  fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(initialData, null, 2), 'utf8');
-  state.data = initialData;
-  state.currentGame = 0;
-  state.lastGameIncrementTime = 0;
-  console.log('🔄 JSON file reset - starting fresh session');
+  if (!loaded) {
+    // Create a fresh file with a reset state
+    const initialData = {
+      _gameState: {
+        currentGame: 0,
+        lastGameIncrementTime: 0
+      },
+      _telemetry: {
+        lastEvtId: 0,
+        lastDmgId: 0,
+      }
+    };
+    fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(initialData, null, 2), 'utf8');
+    state.data = initialData;
+    state.currentGame = 0;
+    state.lastGameIncrementTime = 0;
+    state.telemetry = { lastEvtId: 0, lastDmgId: 0 };
+    console.log('🔄 JSON file reset - starting fresh session');
+  }
 }
 
 function persistState() {
@@ -53,6 +79,10 @@ function persistState() {
     state.data._gameState = {
       currentGame: state.currentGame,
       lastGameIncrementTime: state.lastGameIncrementTime,
+    };
+    state.data._telemetry = {
+      lastEvtId: state.telemetry.lastEvtId || 0,
+      lastDmgId: state.telemetry.lastDmgId || 0,
     };
     fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(state.data, null, 2), 'utf8');
   } catch (error) {
@@ -220,6 +250,17 @@ function getSquadronSummaries(targetGameId = null) {
     return results;
 }
 
+// --- Telemetry cursor helpers ---
+function getTelemetryCursors() {
+  return { lastEvtId: state.telemetry.lastEvtId || 0, lastDmgId: state.telemetry.lastDmgId || 0 };
+}
+
+function setTelemetryCursors({ lastEvtId, lastDmgId }) {
+  if (typeof lastEvtId === 'number' && lastEvtId >= 0) state.telemetry.lastEvtId = lastEvtId;
+  if (typeof lastDmgId === 'number' && lastDmgId >= 0) state.telemetry.lastDmgId = lastDmgId;
+  persistState();
+}
+
 
 module.exports = {
   loadAndPrepareInitialState,
@@ -231,4 +272,6 @@ module.exports = {
   getGamesList,
   getActiveVehicles,
   getSquadronSummaries,
+  getTelemetryCursors,
+  setTelemetryCursors,
 };
