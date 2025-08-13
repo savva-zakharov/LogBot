@@ -5,16 +5,33 @@ const https = require('https');
 const cheerio = require('cheerio');
 const { loadSettings } = require('./config');
 
-// Lazy accessor to avoid circular dependency at module load
+// --- Module constants ---
+const DEFAULT_TIMEOUT_MS = 15_000;
+const POLL_INTERVAL_MS = 60_000;
+const DAILY_CUTOFF_MIN = 23 * 60 + 30; // 23:30 UTC
+const HTML_REQUEST_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Connection': 'keep-alive',
+};
+
+// Lazy accessor to avoid circular dependency at module load, memoized
+let __discordSendChecked = false;
+let __discordSendFn = null;
 function getDiscordSend() {
-  try {
-    const mod = require('./discordBot');
-    return typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
-  } catch (_) { return null; }
+  if (!__discordSendChecked) {
+    __discordSendChecked = true;
+    try {
+      const mod = require('./discordBot');
+      __discordSendFn = typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
+    } catch (_) { __discordSendFn = null; }
+  }
+  return __discordSendFn;
 }
 
 // --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
-function fetchJson(url, timeoutMs = 15000) {
+function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, res => {
       if (res.statusCode !== 200) {
@@ -34,16 +51,11 @@ function fetchJson(url, timeoutMs = 15000) {
 }
 
 // Simple text fetcher (for HTML)
-function fetchText(url, timeoutMs = 15000) {
+function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const options = new URL(url);
     options.method = 'GET';
-    options.headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Connection': 'keep-alive',
-    };
+    options.headers = HTML_REQUEST_HEADERS;
     const req = https.get(options, res => {
       if (res.statusCode !== 200) {
         console.warn(`⚠️ fetchText: non-200 (${res.statusCode}) for ${url}`);
@@ -465,7 +477,7 @@ function appendSnapshot(file, snapshot) {
     const toUtcMinutes = (ts) => {
       try { const d = new Date(ts); return d.getUTCHours() * 60 + d.getUTCMinutes(); } catch (_) { return null; }
     };
-    const CUTOFF_MIN = 23 * 60 + 30; // 23:30 UTC
+    const CUTOFF_MIN = DAILY_CUTOFF_MIN; // 23:30 UTC
     const last = obj.squadronSnapshots.length ? obj.squadronSnapshots[obj.squadronSnapshots.length - 1] : null;
     const lastKey = last ? toDateKey(last.ts) : null;
     const curKey = toDateKey(pruned.ts);
@@ -816,7 +828,7 @@ async function startSquadronTracker() {
     } else {
       // Even if no change, ensure one final snapshot at/after 23:30 UTC
       try {
-        const cutoffMin = 23 * 60 + 30;
+        const cutoffMin = DAILY_CUTOFF_MIN;
         const now = new Date();
         const curMin = now.getUTCHours() * 60 + now.getUTCMinutes();
         const last = readLastSnapshot(dataFile);
@@ -838,7 +850,7 @@ async function startSquadronTracker() {
   }
 
   await captureOnce();
-  const interval = setInterval(captureOnce, 60_000);
+  const interval = setInterval(captureOnce, POLL_INTERVAL_MS);
 
   // Expose a stop handle
   return {
