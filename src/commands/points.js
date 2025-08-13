@@ -139,10 +139,8 @@ module.exports = {
     const playerName = row.Player || 'Unknown player';
 
     let header = `Player: ${playerName}\nPersonal clan rating: ${rating}`;
-    if (typeof snap.totalPoints === 'number' || typeof snap.totalPointsCalulated === 'number') {
-      const totalScraped = snap.totalPoints != null ? snap.totalPoints : 'N/A';
-      const totalCalc = snap.totalPointsCalulated != null ? snap.totalPointsCalulated : 'N/A';
-      header += `\nSquadron total: ${totalScraped}`;
+    if (typeof snap.totalPoints === 'number') {
+      header += `\nSquadron total: ${snap.totalPoints}`;
     }
 
     await interaction.reply({ content: '```\n' + header + '\n```' });

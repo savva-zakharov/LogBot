@@ -1,126 +1,156 @@
 // src/scraper.js
-const puppeteer = require('puppeteer-core');
-const { resolveChromiumExecutable, loadSettings } = require('./config');
+const { loadSettings } = require('./config');
 const { parseLogLine } = require('./parser');
+const { processMissionEnd } = require('./missionEnd');
+const server = require('./server');
 
 async function startScraper(callbacks) {
   const { onNewLine, onGameIncrement, onEntry, onStatusChange } = callbacks;
-
-  const executablePath = resolveChromiumExecutable();
-  if (!executablePath) {
-    console.error('❌ Could not find Chrome/Edge executable.');
-    console.error('   Install Google Chrome or Microsoft Edge, or set PUPPETEER_EXECUTABLE_PATH to the browser executable.');
-    throw new Error('BrowserExecutableNotFound');
-  }
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath,
-    args: ['--disable-features=SitePerProcess']
-  });
-
-  const page = await browser.newPage();
   const { telemetryUrl } = loadSettings();
 
-  try {
-    await page.goto(telemetryUrl, { waitUntil: 'domcontentloaded' });
-    console.log(`✅ Page loaded at ${telemetryUrl}. Watching for updates...`);
-  } catch (err) {
-    console.error(`❌ Cannot connect to the service at ${telemetryUrl}.`);
-    console.error(`   Make sure War Thunder is running and the telemetry service is enabled.`);
-    try { await browser.close(); } catch (_) {}
-    throw new Error('TelemetryUnavailable');
-  }
+  // HTTP polling mode; default to localhost HUD endpoint if needed
+  const useHttpHud = true;
+  const hudUrl = (typeof telemetryUrl === 'string' && /\/hudmsg\b/.test(telemetryUrl))
+    ? telemetryUrl
+    : 'http://localhost:8111/hudmsg';
 
-  // Expose a function from Node to the browser
-  await page.exposeFunction('processRawLogLine', (line) => {
-    if (onNewLine) onNewLine(line);
-    const parsedEntries = parseLogLine(line);
+  if (useHttpHud) {
+    console.log(`✅ Using HTTP polling mode for telemetry: ${hudUrl}`);
+    const seenIds = new Set();
+    let lastDamageTime = null; // seconds
+    let timer = null;
+    let backoffMs = 1000;
+    let lastEvtId = 0;
+    let lastDmgId = 0;
+    // Mission polling state
+    const missionUrl = (() => { try { const u = new URL(hudUrl); return `${u.origin}/mission.json`; } catch { return 'http://localhost:8111/mission.json'; } })();
+    let lastMissionOutcome = null; // 'success' | 'fail' | null
 
-    parsedEntries.forEach(entry => {
-        // First, always record the entity as 'active' to ensure it's in the log
-        onEntry({ ...entry, status: 'active' });
-        // If the parsed status was 'destroyed', record that change specifically
-        if (entry.status === 'destroyed') {
-            onStatusChange({ ...entry, status: 'destroyed' });
-        }
-    });
-  });
-
-  await page.exposeFunction('signalGameIncrement', () => {
-    if (onGameIncrement) onGameIncrement();
-  });
-
-  // Inject the simplified observer script into the page
-  await page.evaluate(() => {
-    const target = document.querySelector('#hud-dmg-msg-root > div:nth-child(2)');
-    if (!target) {
-      console.error('❌ Target element for logs not found on page.');
-      return;
-    }
-
-    let lastText = '';
-    let lastHudTsSec = null;
-    let lastResetAnchor = null;
-    const seenLines = new Set(); // Prevent duplicate processing
-
-    function tsToSeconds(tsStr) {
-      if (!tsStr) return 0;
-      const parts = tsStr.split(':').map(p => parseInt(p, 10));
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      return 0;
-    }
-
-    // Initialize seen set with current content to avoid replaying whole buffer
-    try {
-      const initial = (target.innerText || '').trim().split(/\r?\n/).filter(Boolean);
-      initial.forEach(l => seenLines.add(l));
-      lastText = initial.join('\n');
-    } catch (_) {}
-
-    const observer = new MutationObserver(() => {
-      const newText = target.innerText.trim();
-      if (newText && newText !== lastText) {
-        const newLines = newText.split(/\r?\n/);
-        lastText = newText;
-
-        newLines.forEach(line => {
-          if (!line || !line.trim()) return;
-          if (seenLines.has(line)) return; // skip duplicates
-          seenLines.add(line);
-          // Cap set size to avoid unbounded growth
-          if (seenLines.size > 1000) {
-            // Simple reset strategy keeps recent lines
-            const recent = newLines.slice(-200);
-            seenLines.clear();
-            recent.forEach(l => seenLines.add(l));
+    const tick = async () => {
+      try {
+        const url = new URL(hudUrl);
+        url.searchParams.set('lastEvt', String(lastEvtId));
+        url.searchParams.set('lastDmg', String(lastDmgId));
+        const res = await fetch(url.toString(), {
+          headers: {
+            'accept': '*/*',
+            'accept-language': 'en-US,en;q=0.5',
+            'x-requested-with': 'XMLHttpRequest',
+            'referer': 'http://localhost:8111/'
           }
-
-          // Check for HUD time reset to detect a new game
-          const mTs = line.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
-          if (mTs) {
-            const tsStr = mTs[1];
-            const sec = tsToSeconds(tsStr);
-            if (lastHudTsSec !== null && sec < lastHudTsSec && (lastHudTsSec - sec) >= 60) {
-              if (lastResetAnchor !== tsStr) {
-                window.signalGameIncrement();
-                lastResetAnchor = tsStr;
-              }
-            }
-            lastHudTsSec = sec;
-          }
-
-          // Send the raw line back to Node for parsing
-          window.processRawLogLine(line);
         });
+        if (res.status === 400) {
+          // Server rejected params; reset cursors and retry next tick
+          lastEvtId = 0; lastDmgId = 0;
+          throw new Error('HTTP 400');
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json().catch(() => ({}));
+        const damage = Array.isArray(data.damage) ? data.damage : [];
+        const events = Array.isArray(data.events) ? data.events : [];
+
+        // advance cursors
+        for (const e of events) {
+          const eid = typeof e.id === 'number' ? e.id : null;
+          if (eid != null && eid > lastEvtId) lastEvtId = eid;
+        }
+        let maxDmgId = lastDmgId;
+        for (const d of damage) {
+          const id = d.id ?? `${d.msg}|${d.time}`;
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
+          // cap size
+          if (seenIds.size > 2000) {
+            // naive prune: clear and re-seed last 200 by iterating tail
+            const last200 = damage.slice(-200);
+            seenIds.clear();
+            for (const x of last200) seenIds.add(x.id ?? `${x.msg}|${x.time}`);
+          }
+
+          // Game increment heuristic: time reset backwards by >= 60s
+          const t = Number.isFinite(d.time) ? d.time : null;
+          if (t != null && lastDamageTime != null && t < lastDamageTime && (lastDamageTime - t) >= 60) {
+            if (typeof onGameIncrement === 'function') onGameIncrement();
+          }
+          if (t != null) lastDamageTime = t;
+
+          const line = String(d.msg ?? '').trim();
+          if (line) {
+            if (typeof onNewLine === 'function') onNewLine(line);
+            const parsedEntries = parseLogLine(line);
+            parsedEntries.forEach(entry => {
+              if (typeof onEntry === 'function') onEntry({ ...entry, status: 'active' });
+              if (entry.status === 'destroyed' && typeof onStatusChange === 'function') {
+                onStatusChange({ ...entry, status: 'destroyed' });
+              }
+            });
+          }
+          const did = typeof d.id === 'number' ? d.id : null;
+          if (did != null && did > maxDmgId) maxDmgId = did;
+        }
+        lastDmgId = maxDmgId;
+
+        // success: reset backoff if it had grown
+        backoffMs = 1000;
+        
+        // Also check mission status to detect victory/loss
+        try {
+          const mres = await fetch(missionUrl, {
+            headers: {
+              'accept': 'application/json, text/plain, */*',
+              'referer': 'http://localhost:8111/'
+            }
+          });
+          if (mres.ok) {
+            const mjson = await mres.json().catch(() => ({}));
+            const mstatus = mjson?.status; // e.g., 'running' while in progress
+            const objectives = Array.isArray(mjson?.objectives) ? mjson.objectives : null;
+            let outcome = null;
+            if (objectives && objectives.length) {
+              const primary = objectives.find(o => o && (o.primary === true || o.Primary === true)) || objectives[0];
+              const st = (primary && (primary.status || primary.Status)) || null; // 'success' | 'fail' | 'in_progress'
+              if (st === 'success' || st === 'fail') outcome = st;
+            }
+            if (outcome && outcome !== lastMissionOutcome) {
+              // Centralized mission processing (independent of HTTP server route)
+              const type = outcome === 'success' ? 'win' : 'loss';
+              try {
+                const payload = processMissionEnd(type, 'current');
+                // Broadcast to WS clients if server is running
+                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
+              } catch (_) {
+                // Fallback: at least emit local callbacks
+                const line = outcome === 'success' ? '[Mission] Victory' : '[Mission] Defeat';
+                if (typeof onNewLine === 'function') onNewLine(line);
+                if (typeof onEntry === 'function') onEntry({ type: 'mission_result', result: outcome, status: 'final' });
+              }
+              lastMissionOutcome = outcome;
+            }
+            // Reset outcome marker when mission is running again
+            if (mstatus === 'running' && lastMissionOutcome) {
+              lastMissionOutcome = null;
+            }
+          }
+        } catch (_) { /* ignore mission fetch errors */ }
+      } catch (err) {
+        // transient failure: back off a bit, but keep polling
+        backoffMs = Math.min(backoffMs * 2, 15000);
+        console.error(`⚠️ Telemetry poll failed: ${err?.message || err}. Retrying in ${backoffMs}ms`);
+        clearInterval(timer);
+        timer = setInterval(tick, backoffMs);
       }
-    });
+    };
 
-    observer.observe(target, { childList: true, subtree: true });
-  });
+    // start polling
+    await tick();
+    timer = setInterval(tick, 1000);
 
-  return browser;
+    // Return a close-compatible object
+    return {
+      close: async () => { if (timer) clearInterval(timer); }
+    };
+  }
+  // Unreachable branch retained during transition previously has been removed with Puppeteer
 }
 
 module.exports = { startScraper };

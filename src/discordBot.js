@@ -463,11 +463,11 @@ async function sendMessage(content) {
       text = '```\n' + text + '\n```';
     }
     const sent = await ch.send({ content: text, allowedMentions: { parse: [] } });
-    try { appendEvent(text, { source: 'discordBot', channelId: ch.id }); } catch (_) {}
+    // Do not mirror raw Discord messages into squadron_events.json anymore
     return sent;
   } catch (e) {
     console.warn('⚠️ Discord: failed to send message:', e && e.message ? e.message : e);
-    try { appendEvent(String(content == null ? '' : content), { source: 'discordBot', note: 'send failed' }); } catch (_) {}
+    // Do not mirror failed message content into event log either
     return null;
   }
 }

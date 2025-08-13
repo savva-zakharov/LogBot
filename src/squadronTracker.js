@@ -361,12 +361,18 @@ function ensureEventsFile() {
   return file;
 }
 
-function appendEvent(message, meta = {}) {
+function appendEvent(messageOrEvent, meta = {}) {
   try {
     const file = ensureEventsFile();
     const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!Array.isArray(obj.events)) obj.events = [];
-    obj.events.push({ ts: new Date().toISOString(), message, ...meta });
+    let entry;
+    if (messageOrEvent && typeof messageOrEvent === 'object' && !Array.isArray(messageOrEvent)) {
+      entry = { ts: new Date().toISOString(), ...messageOrEvent };
+    } else {
+      entry = { ts: new Date().toISOString(), message: messageOrEvent, ...meta };
+    }
+    obj.events.push(entry);
     fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
   } catch (_) {}
 }
@@ -604,6 +610,7 @@ async function startSquadronTracker() {
   const dataFile = ensureParsedDataFile();
   let lastKey = null;
   let lastSnapshot = null;
+  let didInitialMembersFetch = false;
 
   async function captureOnce() {
     // Determine primary squadron tag (from settings or fallback parsing if needed)
@@ -658,9 +665,8 @@ async function startSquadronTracker() {
       // Compute diff versus previous snapshot, if available
       try {
         const prev = lastSnapshot || readLastSnapshot(dataFile);
-        const isFirstRun = !prev;
-        if (isFirstRun) {
-          // On startup, always fetch members for a baseline snapshot
+        // On first invocation, always fetch members so we can compare against the previous record at startup
+        if (!didInitialMembersFetch) {
           try {
             const raw0 = await fetchText(squadronPageUrl);
             if (raw0) {
@@ -669,6 +675,7 @@ async function startSquadronTracker() {
               if (parsed0 && Array.isArray(parsed0.rows)) {
                 snapshot.data = parsed0;
                 snapshot.membersCaptured = true;
+                didInitialMembersFetch = true;
                 console.log(`ℹ️ Startup parsed member rows=${parsed0.rows.length}`);
                 if (!parsed0.rows.length) {
                   try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw0, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html (startup)'); } catch (_) {}
@@ -703,11 +710,20 @@ async function startSquadronTracker() {
         msgLines.push(`📊 Squadron tracker update (${new Date().toLocaleString()})`);
 
         // Total points change (site-reported and calculated)
-        if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
-          const delta = newTotal - prevTotal;
-          msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${delta >= 0 ? '+' : ''}${delta})`);
+        const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
+        if (pointsDelta != null && pointsDelta !== 0) {
+          msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
+          // Event: points change
+          appendEvent({
+            type: 'points_change',
+            delta: pointsDelta,
+            from: prevTotal,
+            to: newTotal,
+            place: squadronPlace ?? null,
+            totalPointsAbove: totalPointsAbove ?? null,
+            totalPointsBelow: totalPointsBelow ?? null,
+          });
         }
-        // Only include member add/remove sections if we captured member rows this cycle
 
         // Row-level changes: added/removed players
         if (snapshot.membersCaptured && prev) {
@@ -746,14 +762,40 @@ async function startSquadronTracker() {
           };
 
           if (removed.length) {
-            msgLines.push(`• Departures (${removed.length}):`);
-            buildLines(removed, '-').forEach(line => msgLines.push(line));
-            if (removed.length > 10) msgLines.push(`   …and ${removed.length - 10} more`);
+            msgLines.push('• Departures:');
+            msgLines.push(...buildLines(removed, '-'));
+            // Events: member leave (delta reflects squadron total points change)
+            for (const r of removed) {
+              const member = {
+                'Player': safeName(r),
+                'Personal clan rating': safeRating(r) || '0',
+                'Role': safeRole(r) || 'Member',
+                'Date of entry': (r['Date of entry'] || r['date of entry'] || r['Date'] || '').toString(),
+              };
+              appendEvent({
+                type: 'member_leave',
+                delta: pointsDelta ?? null,
+                member,
+              });
+            }
           }
           if (added.length) {
-            msgLines.push(`• New members (${added.length}):`);
-            buildLines(added, '+').forEach(line => msgLines.push(line));
-            if (added.length > 10) msgLines.push(`   …and ${added.length - 10} more`);
+            msgLines.push('• New members:');
+            msgLines.push(...buildLines(added, '+'));
+            // Events: member join (delta reflects squadron total points change)
+            for (const r of added) {
+              const member = {
+                'Player': safeName(r),
+                'Personal clan rating': safeRating(r) || '0',
+                'Role': safeRole(r) || 'Member',
+                'Date of entry': (r['Date of entry'] || r['date of entry'] || r['Date'] || '').toString(),
+              };
+              appendEvent({
+                type: 'member_join',
+                delta: pointsDelta ?? null,
+                member,
+              });
+            }
           }
         }
 
@@ -761,7 +803,7 @@ async function startSquadronTracker() {
         console.log(composed);
         const send = getDiscordSend();
         if (send) {
-          try { await send(composed); appendEvent(composed, { source: 'squadronTracker' }); } catch (_) { try { appendEvent(composed, { source: 'squadronTracker', note: 'send failed' }); } catch (_) {} }
+          try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
         }
       } catch (e) {
         console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);

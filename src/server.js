@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const state = require('./state');
 const { loadSettings } = require('./config');
 const discord = require('./discordBot');
+const { processMissionEnd } = require('./missionEnd');
 
 let wss;
 
@@ -79,20 +80,15 @@ function startServer() {
         } else if (pathname === '/api/result' && req.method === 'POST') {
             const type = url.searchParams.get('type');
             let gameParam = url.searchParams.get('game');
-            if (!['win', 'loss'].includes(type)) {
+            try {
+                const payload = processMissionEnd(type, gameParam);
+                broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(payload));
+            } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify({ error: 'type must be win or loss' }));
+                return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
             }
-            if (!gameParam || gameParam === 'current' || gameParam === 'all') {
-                gameParam = String(state.getCurrentGame());
-            }
-            const numericGame = parseInt(gameParam, 10);
-            const result = state.recordResult(numericGame, type);
-            broadcast({ type: 'update', message: `Result recorded for game ${gameParam}` });
-            // Attempt to post to Discord
-            try { discord.postGameSummary(numericGame); } catch (_) {}
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
         } else if (pathname === '/') {
             const htmlPath = path.join(__dirname, '../index.html');
             fs.readFile(htmlPath, (err, data) => {
