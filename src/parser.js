@@ -20,19 +20,20 @@ function parseLogLine(line) {
   }
 
   const original = String(line).trim();
+  // Track segments with their position relative to the keyword
   const segments = [];
   if (earliest.idx !== -1) {
     // For certain keywords, parse segments on both sides
     if (['destroyed', 'shot down', 'set afire'].includes(earliest.kw)) {
       let after = original.slice(earliest.idx + earliest.kw.length).trim();
       after = after.replace(/^(:|-|–|—|by)\s+/i, '');
-      if (after) segments.push(after);
+      if (after) segments.push({ text: after, isAfter: true });
     }
     const before = original.slice(0, earliest.idx).trim();
-    if (before) segments.push(before);
+    if (before) segments.push({ text: before, isAfter: false });
   } else {
     // No keywords, parse the whole line
-    segments.push(original);
+    segments.push({ text: original, isAfter: null });
   }
 
   const VEH = '([^()]*?(?:\\([^()]*\\)[^()]*)*)'; // Balanced parentheses approximation
@@ -46,10 +47,11 @@ function parseLogLine(line) {
     '^\\s*(?<player>[^()]+?)\\s+\\((?<vehicle>' + VEH + ')\\)'
   );
 
-  const tryParse = (seg) => {
-    const norm = String(seg)
+  const tryParse = (segText) => {
+    const norm = String(segText)
       // Replace HUD separator glyphs with spaces
       .replace(/╖/g, ' ')
+      .replace(/[\u2500-\u257F]/g, ' ') // box drawing characters
       // Strip leading timestamp (hh:mm[:ss]) and common delimiters
       .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–—: ]?\s*/, '')
       // Collapse excessive whitespace
@@ -98,17 +100,22 @@ function parseLogLine(line) {
 
   const results = [];
   for (const seg of segments) {
-    const parsed = tryParse(seg);
+    const parsed = tryParse(seg.text);
     if (parsed) {
-        // Determine status from the original line context
-        const vehicleText = `(${parsed.vehicle})`;
-        const vehicleIdx = original.indexOf(vehicleText);
-        const isDestroyed = vehicleIdx !== -1 && (
+        // Determine status with positional hint first, then fallback to original-line heuristics
+        let isDestroyed = false;
+        if (seg.isAfter === true && ['destroyed', 'shot down', 'has been wrecked', 'has crashed'].includes(earliest.kw)) {
+          isDestroyed = true;
+        } else {
+          const vehicleText = `(${parsed.vehicle})`;
+          const vehicleIdx = original.indexOf(vehicleText);
+          isDestroyed = vehicleIdx !== -1 && (
             original.lastIndexOf(' destroyed ', vehicleIdx) !== -1 ||
             original.indexOf(' has crashed', vehicleIdx + vehicleText.length) !== -1 ||
             original.indexOf(' has been wrecked', vehicleIdx + vehicleText.length) !== -1 ||
             original.lastIndexOf(' shot down ', vehicleIdx) !== -1
-        );
+          );
+        }
         parsed.status = isDestroyed ? 'destroyed' : 'active';
         parsed.originalLine = original;
         results.push(parsed);

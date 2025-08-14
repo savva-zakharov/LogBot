@@ -15,12 +15,23 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.bak.json
+*data.json
+squadron_events.json
+squadron_data.json
+sqbr.txt
+
 
 # Setttings
 settings.json
 highlights.json
+settings.env
+sqbbr.txt
 
 # Env/config
+settings.env
+settings.env.bak
+*.bak
+*.env
 .env
 .env.*
 .DS_Store

@@ -26,13 +26,22 @@ if not exist "node_modules" (
   )
 )
 
-REM Start the app via npm start; if it fails, fallback to node index.js
-echo [INFO] Starting War Thunder LogBot (npm start)
-call npm start
-if %ERRORLEVEL% NEQ 0 (
-  echo [WARN] npm start failed, falling back to node index.js
-  node index.js
+REM Prefer nodemon for auto-restart if available
+set "LOCAL_NODEMON=%~dp0node_modules\.bin\nodemon.cmd"
+if exist "%LOCAL_NODEMON%" (
+  echo [INFO] Starting War Thunder LogBot (nodemon - local)
+  call "%LOCAL_NODEMON%" --watch index.js --watch src --watch settings.env --watch settings.json --watch restart.flag --ext js,json,env index.js
+  goto end
 )
+
+where npx >NUL 2>&1
+if %ERRORLEVEL% EQU 0 (
+  echo [INFO] Starting War Thunder LogBot (npx nodemon)
+  call npx nodemon --watch index.js --watch src --watch settings.env --watch settings.json --watch restart.flag --ext js,json,env index.js
+  if %ERRORLEVEL% EQU 0 goto end
+)
+
+
 
 :end
 popd >NUL 2>&1

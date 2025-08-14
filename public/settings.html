@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>LogBot Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
+    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+    h1 { color: #4CAF50; margin: 0 0 12px 0; }
+    a { color: #90CAF9; }
+    .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 10px 12px; margin-top: 16px; }
+    label { align-self: center; }
+    input, select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 8px; border-radius: 4px; width: 100%; }
+    .actions { margin-top: 16px; display: flex; gap: 10px; }
+    button { background: #4CAF50; color: #fff; border: 0; border-radius: 4px; padding: 10px 14px; cursor: pointer; }
+    button.secondary { background: #2e7d32; }
+    .msg { margin-top: 12px; min-height: 20px; }
+    .hint { color: #bbb; font-size: 12px; }
+    hr { border: none; border-top: 1px solid #2a2a2a; margin: 24px 0; }
+    textarea { width: 100%; min-height: 260px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>LogBot Settings</h1>
+    <div><a href="/">← Back to Dashboard</a></div>
+
+    <div class="hint">Editing values updates <code>settings.env</code>. You may need to restart the app for changes to take effect.</div>
+
+    <form id="settingsForm" onsubmit="return false;">
+      <div class="grid">
+        <label for="TELEMETRY_URL">Telemetry URL</label>
+        <input id="TELEMETRY_URL" name="TELEMETRY_URL" placeholder="http://localhost:8111" />
+
+        <label for="SQUADRON_PAGE_URL">Squadron Page URL</label>
+        <input id="SQUADRON_PAGE_URL" name="SQUADRON_PAGE_URL" placeholder="https://warthunder.com/..." />
+
+        <label for="PORT">HTTP Port</label>
+        <input id="PORT" name="PORT" type="number" min="1" max="65535" placeholder="3000" />
+
+        <label for="WS_PORT">WebSocket Port</label>
+        <input id="WS_PORT" name="WS_PORT" type="number" min="1" max="65535" placeholder="3001" />
+
+        <label for="DISCORD_BOT_TOKEN">Discord Bot Token</label>
+        <input id="DISCORD_BOT_TOKEN" name="DISCORD_BOT_TOKEN" placeholder="" />
+
+        <label for="DISCORD_CHANNEL">Discord Channel</label>
+        <input id="DISCORD_CHANNEL" name="DISCORD_CHANNEL" placeholder="#general or 123... or guildId/channelId" />
+
+        <label for="CLIENT_ID">Discord Application Client ID</label>
+        <input id="CLIENT_ID" name="CLIENT_ID" placeholder="" />
+
+        <label for="GUILD_ID">Default Discord Guild ID</label>
+        <input id="GUILD_ID" name="GUILD_ID" placeholder="" />
+
+        <label for="WAITING_VOICE_CHANNEL">Waiting Voice Channel</label>
+        <input id="WAITING_VOICE_CHANNEL" name="WAITING_VOICE_CHANNEL" placeholder="General or 123... or guildId/channelId" />
+      </div>
+
+      <div class="actions">
+        <button id="saveBtn">Save</button>
+        <button class="secondary" id="reloadBtn" type="button">Reload</button>
+      </div>
+      <div class="msg" id="msg"></div>
+    </form>
+
+    <hr />
+
+    <h2>settings.json</h2>
+    <div class="hint">Edit non-secret structured settings (e.g., highlight colors for players and squadrons). This writes to <code>settings.json</code>. Invalid JSON will be rejected.</div>
+    <textarea id="settingsJson"></textarea>
+    <div class="actions">
+      <button id="jsonSaveBtn">Save JSON</button>
+      <button class="secondary" id="jsonReloadBtn" type="button">Reload JSON</button>
+    </div>
+    <div class="msg" id="jsonMsg"></div>
+
+    <hr />
+    <h2>Process</h2>
+    <div class="hint">Restart the LogBot process to apply changes. This will exit the current process; ensure you started LogBot under a process manager (e.g., npm script with nodemon/PM2) so it restarts automatically.</div>
+    <div class="actions">
+      <button id="restartBtn" class="secondary" type="button">Restart</button>
+    </div>
+    <div class="msg" id="restartMsg"></div>
+  </div>
+
+  <script>
+    const msg = document.getElementById('msg');
+    async function loadSettings() {
+      msg.textContent = 'Loading...';
+      try {
+        const resp = await fetch('/api/settings-env');
+        const data = await resp.json();
+        const fields = [
+          'TELEMETRY_URL','SQUADRON_PAGE_URL','PORT','WS_PORT','DISCORD_BOT_TOKEN','DISCORD_CHANNEL','CLIENT_ID','GUILD_ID','WAITING_VOICE_CHANNEL'
+        ];
+        fields.forEach(k => {
+          const el = document.getElementById(k);
+          if (el) el.value = (data[k] ?? '');
+        });
+        msg.textContent = '';
+      } catch (e) {
+        console.error(e);
+        msg.textContent = 'Failed to load settings.';
+      }
+    }
+
+    async function saveSettings() {
+      msg.textContent = 'Saving...';
+      try {
+        const fields = [
+          'TELEMETRY_URL','SQUADRON_PAGE_URL','PORT','WS_PORT','DISCORD_BOT_TOKEN','DISCORD_CHANNEL','CLIENT_ID','GUILD_ID','WAITING_VOICE_CHANNEL'
+        ];
+        const updates = {};
+        fields.forEach(k => {
+          const v = document.getElementById(k).value;
+          if (v !== undefined) updates[k] = v;
+        });
+        const resp = await fetch('/api/settings-env', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates })
+        });
+        const res = await resp.json();
+        if (resp.ok) {
+          msg.textContent = 'Saved. You may need to restart the app.';
+        } else {
+          msg.textContent = 'Save failed: ' + (res && res.error || 'Unknown error');
+        }
+      } catch (e) {
+        console.error(e);
+        msg.textContent = 'Save failed.';
+      }
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', saveSettings);
+    document.getElementById('reloadBtn').addEventListener('click', loadSettings);
+
+    async function loadSettingsJson() {
+      const jsonMsg = document.getElementById('jsonMsg');
+      jsonMsg.textContent = 'Loading JSON...';
+      try {
+        const resp = await fetch('/api/settings-json');
+        const text = await resp.text();
+        // Validate and pretty print
+        let obj;
+        try { obj = JSON.parse(text); } catch (e) { obj = { error: 'Invalid JSON on server', raw: text }; }
+        const pretty = JSON.stringify(obj, null, 2);
+        document.getElementById('settingsJson').value = pretty;
+        jsonMsg.textContent = '';
+      } catch (e) {
+        console.error(e);
+        jsonMsg.textContent = 'Failed to load settings.json';
+      }
+    }
+
+    async function saveSettingsJson() {
+      const jsonMsg = document.getElementById('jsonMsg');
+      jsonMsg.textContent = 'Saving JSON...';
+      try {
+        const text = document.getElementById('settingsJson').value;
+        // Validate before sending
+        JSON.parse(text);
+        const resp = await fetch('/api/settings-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const res = await resp.json();
+        if (resp.ok) {
+          // Force server to reload in-memory settings and then refresh the textarea
+          try { await fetch('/api/settings-reload'); } catch (_) {}
+          await loadSettingsJson();
+          jsonMsg.textContent = 'Saved settings.json and reloaded.';
+        } else {
+          jsonMsg.textContent = 'Save failed: ' + (res && res.error || 'Unknown error');
+        }
+      } catch (e) {
+        jsonMsg.textContent = 'Invalid JSON: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    document.getElementById('jsonSaveBtn').addEventListener('click', saveSettingsJson);
+    document.getElementById('jsonReloadBtn').addEventListener('click', async function(){
+      const jsonMsg = document.getElementById('jsonMsg');
+      jsonMsg.textContent = 'Reloading settings...';
+      try { await fetch('/api/settings-reload'); } catch (_) {}
+      await loadSettingsJson();
+      jsonMsg.textContent = '';
+    });
+    document.getElementById('restartBtn').addEventListener('click', async function(){
+      const el = document.getElementById('restartMsg');
+      el.textContent = 'Requesting restart...';
+      try {
+        const resp = await fetch('/api/restart', { method: 'POST' });
+        const res = await resp.json();
+        if (resp.ok) {
+          el.textContent = 'Restarting... the page may stop responding temporarily.';
+          // Give a hint to the user after a short delay
+          setTimeout(() => { el.textContent += ' If not managed by PM2/nodemon, start the process manually.'; }, 2000);
+        } else {
+          el.textContent = 'Restart failed: ' + (res && res.error || 'Unknown error');
+        }
+      } catch (e) {
+        el.textContent = 'Restart request failed.';
+      }
+    });
+
+    // Initial loads
+    loadSettings();
+    loadSettingsJson();
+  </script>
+</body>
+</html>
