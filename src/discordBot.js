@@ -31,7 +31,7 @@ function appendEvent(message, meta = {}) {
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const state = require('./state');
-const { loadSettings } = require('./config');
+const { loadSettings, OUTPUT_ORDER } = require('./config');
 const waitingTracker = require('./waitingTracker');
 
 let client = null;
@@ -44,6 +44,9 @@ let appClientId = null; // Optional application client id
 const commands = new Map();
 // Track per-game summary message IDs so we can edit instead of posting new
 const summaryMessages = new Map(); // key: gameId (Number), value: messageId (String)
+// Track merged summary last message to edit-if-recent
+let mergedSummaryMessageId = null;
+let mergedSummaryLastAt = 0; // ms epoch
 
 function stripHash(name) {
   if (!name) return '';
@@ -404,6 +407,108 @@ function formatSummary(gameId) {
   return blocks;
 }
 
+// Build a single text block for merged summary across all games
+function formatMergedSummaryText() {
+  const lines = [];
+  try {
+    // Meta header lines from current game's meta
+    try {
+      const currentGame = state.getCurrentGame();
+      const meta = state.getGameMeta(currentGame) || { squadNo: '', gc: '', ac: '' };
+      lines.push(`Squad: ${meta.squadNo || ''}`);
+      lines.push(`AC: ${meta.ac || ''}`);
+      lines.push(`GC: ${meta.gc || ''}`);
+    } catch (_) {}
+
+    // Build exactly like index.html's allGamesSummaryBody
+    // Group per game: totals across squadrons for each game (excluding excluded squadrons)
+    const isExcluded = (sqName) => {
+      try {
+        const settings = loadSettings();
+        const h = (settings.squadrons || {})[sqName];
+        if (h && typeof h === 'object' && h.exclude === true) return true;
+      } catch (_) {}
+      return false;
+    };
+
+    const grouped = new Map(); // game -> { totals, squads }
+    const all = state.getSquadronSummaries(null) || [];
+    for (const item of all) {
+      if (!item || !item.counts || item.game == null) continue;
+      const game = Number(item.game);
+      const sq = item.squadron;
+      if (!sq || isExcluded(sq)) continue;
+      if (!grouped.has(game)) {
+        const totals = {}; OUTPUT_ORDER.forEach(k => { totals[k] = 0; });
+        grouped.set(game, { totals, squads: new Set() });
+      }
+      const g = grouped.get(game);
+      g.squads.add(sq);
+      OUTPUT_ORDER.forEach(label => {
+        g.totals[label] = (g.totals[label] || 0) + (item.counts[label] || 0);
+      });
+    }
+
+    const games = Array.from(grouped.keys()).sort((a,b) => a - b);
+    if (games.length === 0) {
+      lines.push('No data');
+    } else {
+      for (const gm of games) {
+        const g = grouped.get(gm);
+        const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
+        const parts = OUTPUT_ORDER.map(label => `${g.totals[label] || 0} ${label}`);
+        const namePad = String(sqName).replace(/[^A-Za-z0-9]/g,'').padEnd(6,' ').slice(0,6);
+        const line = `${namePad} | ${parts.join(' | ')} |`;
+        lines.push(line);
+      }
+    }
+  } catch (e) {
+    lines.push('(error building summary)');
+  }
+
+  // Keep within Discord 2000 char limit (code block wrapped)
+  let content = lines.join('\n');
+  const wrapperOverhead = 8; // ``` + ```
+  const maxLen = 2000 - wrapperOverhead;
+  if (content.length > maxLen) {
+    content = content.slice(content.length - maxLen);
+    const cutIdx = content.indexOf('\n');
+    if (cutIdx > 0) content = content.slice(cutIdx + 1);
+  }
+  return '```\n' + content + '\n```';
+}
+
+// Post or edit the merged summary message (edit if recently posted)
+async function postMergedSummary() {
+  const ch = await ensureTargetChannel();
+  if (!ch) {
+    console.warn('⚠️ Discord: No target channel for merged summary.');
+    return null;
+  }
+  const content = formatMergedSummaryText();
+  const now = Date.now();
+  const RECENT_MS = 10 * 60 * 1000; // 10 minutes window
+  try {
+    if (mergedSummaryMessageId && (now - mergedSummaryLastAt) <= RECENT_MS) {
+      try {
+        const msg = await ch.messages.fetch(mergedSummaryMessageId);
+        if (msg) {
+          await msg.edit({ content });
+          mergedSummaryLastAt = now;
+          return msg;
+        }
+      } catch (_) { /* fallthrough to send new */ }
+    }
+    const sent = await ch.send({ content });
+    mergedSummaryMessageId = sent.id;
+    mergedSummaryLastAt = now;
+    return sent;
+  } catch (e) {
+    console.error('❌ Discord: Failed to post merged summary:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 // Build a single text block for editing an existing message
 function formatSummaryText(gameId) {
   const lines = [];
@@ -501,4 +606,4 @@ async function postGameSummary(gameId) {
   }
 }
 
-module.exports = { init, postGameSummary, sendMessage };
+module.exports = { init, postGameSummary, postMergedSummary, sendMessage };

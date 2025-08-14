@@ -33,12 +33,10 @@ function processMissionEnd(type, game) {
  * @returns {{ ok: boolean, game: number }}
  */
 function postLogs(game) {
-  let targetGame = game;
-  if (targetGame == null || targetGame === 'current' || targetGame === 'all') {
-    targetGame = state.getCurrentGame();
-  }
-  const numericGame = parseInt(targetGame, 10);
-  discord.postGameSummary(numericGame);
+  // For merged behavior, ignore per-game and post/edit the total summary instead
+  try { discord.postMergedSummary(); } catch (_) {}
+  // Retain response shape for compatibility; report current game for UI context
+  const numericGame = parseInt((game == null || game === 'current' || game === 'all') ? state.getCurrentGame() : game, 10);
   return { ok: true, game: numericGame };
 }
 

@@ -7,6 +7,55 @@ const { OUTPUT_ORDER, CATEGORY_TO_OUTPUT } = require('./config');
 // Writable base directory for runtime files
 const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
 try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
+
+// Build merged summary lines across ALL games, grouped by squadron.
+// Returns array of objects: { squadron, line, counts, win, loss }
+function getMergedSquadronSummaryLines() {
+  const results = [];
+  try {
+    const games = getGamesList();
+    // Aggregate per-squadron counts across all games
+    const agg = new Map(); // squadron -> { counts }
+    for (const gid of games) {
+      const perGame = getSquadronSummaries(gid) || [];
+      for (const row of perGame) {
+        const key = row.squadron;
+        if (!agg.has(key)) {
+          const init = {};
+          OUTPUT_ORDER.forEach(label => { init[label] = 0; });
+          agg.set(key, { counts: init });
+        }
+        const ref = agg.get(key);
+        for (const label of OUTPUT_ORDER) {
+          ref.counts[label] = (ref.counts[label] || 0) + (row.counts[label] || 0);
+        }
+      }
+    }
+    // Compute overall W/L across all games
+    let winTotal = 0, lossTotal = 0;
+    try {
+      const resultsMap = state.data._results || {};
+      Object.keys(resultsMap).forEach(k => {
+        if (resultsMap[k] === true) winTotal++;
+        else if (resultsMap[k] === false) lossTotal++;
+      });
+    } catch (_) {}
+
+    // Build lines for each squadron
+    for (const [squadron, data] of agg.entries()) {
+      const cleaned = String(squadron || '').replace(/[^A-Za-z0-9]/g, '') || '';
+      const fixedName = cleaned.padEnd(8, ' ').slice(0, 8);
+      const parts = OUTPUT_ORDER.map(label => String(data.counts[label] || 0).padStart(3, ' '));
+      const line = `${fixedName} | ${parts.join(' | ')} | ${winTotal}/${lossTotal} |`;
+      results.push({ squadron: cleaned, line, counts: data.counts, win: winTotal, loss: lossTotal });
+    }
+
+    results.sort((a, b) => a.squadron.localeCompare(b.squadron));
+  } catch (e) {
+    console.warn('Merged summary build failed:', e && e.message ? e.message : e);
+  }
+  return results;
+}
 const JSON_FILE_PATH = path.join(WRITE_BASE_DIR, 'parsed_data.json');
 
 let state = {
@@ -324,6 +373,7 @@ module.exports = {
   getGamesList,
   getActiveVehicles,
   getSquadronSummaries,
+  getMergedSquadronSummaryLines,
   getTelemetryCursors,
   setTelemetryCursors,
   getGameMeta,
