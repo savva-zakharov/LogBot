@@ -838,6 +838,16 @@ async function startSquadronTracker() {
           const lastMin = lastDate.getUTCHours() * 60 + lastDate.getUTCMinutes();
           // If it's past cutoff, and we haven't saved a post-cutoff snapshot today, do it now
           if (curMin >= cutoffMin && (isNaN(lastMin) || lastMin < cutoffMin)) {
+            // Safeguard: if current snapshot has no member rows, reuse last known rows
+            try {
+              const hasRows = snapshot && snapshot.data && Array.isArray(snapshot.data.rows) && snapshot.data.rows.length > 0;
+              const lastHasRows = lastSnapshot && lastSnapshot.data && Array.isArray(lastSnapshot.data.rows) && lastSnapshot.data.rows.length > 0;
+              if (!hasRows && lastHasRows) {
+                snapshot.data = { ...lastSnapshot.data };
+                snapshot.membersCaptured = true;
+                console.log('ℹ️ Daily cutoff: reused last known member rows for snapshot.');
+              }
+            } catch (_) {}
             appendSnapshot(dataFile, snapshot);
             lastKey = simplifyForComparison(snapshot);
             lastSnapshot = pruneSnapshot(snapshot);

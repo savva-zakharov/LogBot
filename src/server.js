@@ -199,13 +199,24 @@ function startServer() {
                     // Backup existing
                     try { if (fs.existsSync(jsonPath)) fs.copyFileSync(jsonPath, jsonPath + '.bak'); } catch (_) {}
                     fs.writeFileSync(jsonPath, content, 'utf8');
+                    // Immediately reload settings and return them
+                    const updated = loadSettings();
                     res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: true }));
+                    res.end(JSON.stringify({ ok: true, settings: updated }));
                 } catch (e) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
                 }
             });
+        } else if (pathname === '/api/settings-reload' && req.method === 'GET') {
+            try {
+              const settings = loadSettings();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(settings));
+            } catch (e) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: e && e.message ? e.message : 'Failed to reload settings' }));
+            }
         } else if (pathname === '/api/restart' && req.method === 'POST') {
             // Touch a restart flag file to trigger nodemon file watch based restart.
             try {

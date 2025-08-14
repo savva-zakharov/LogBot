@@ -169,7 +169,10 @@
         });
         const res = await resp.json();
         if (resp.ok) {
-          jsonMsg.textContent = 'Saved settings.json';
+          // Force server to reload in-memory settings and then refresh the textarea
+          try { await fetch('/api/settings-reload'); } catch (_) {}
+          await loadSettingsJson();
+          jsonMsg.textContent = 'Saved settings.json and reloaded.';
         } else {
           jsonMsg.textContent = 'Save failed: ' + (res && res.error || 'Unknown error');
         }
@@ -179,7 +182,13 @@
     }
 
     document.getElementById('jsonSaveBtn').addEventListener('click', saveSettingsJson);
-    document.getElementById('jsonReloadBtn').addEventListener('click', loadSettingsJson);
+    document.getElementById('jsonReloadBtn').addEventListener('click', async function(){
+      const jsonMsg = document.getElementById('jsonMsg');
+      jsonMsg.textContent = 'Reloading settings...';
+      try { await fetch('/api/settings-reload'); } catch (_) {}
+      await loadSettingsJson();
+      jsonMsg.textContent = '';
+    });
     document.getElementById('restartBtn').addEventListener('click', async function(){
       const el = document.getElementById('restartMsg');
       el.textContent = 'Requesting restart...';
