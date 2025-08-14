@@ -98,6 +98,8 @@ function parseLogLine(line) {
     return null;
   };
 
+  // Determine if there is a valid entity after the keyword on this line (for gotKill only)
+  const hasAfterEntity = segments.some(s => s.isAfter === true && !!tryParse(s.text));
   const results = [];
   for (const seg of segments) {
     const parsed = tryParse(seg.text);
@@ -117,6 +119,13 @@ function parseLogLine(line) {
           );
         }
         parsed.status = isDestroyed ? 'destroyed' : 'active';
+        // Mark killers: entities that appear BEFORE kill keywords AND there is a valid player entity after the keyword
+        // We consider only 'destroyed' and 'shot down' as explicit kill events
+        if (seg.isAfter === false && ['destroyed', 'shot down'].includes(earliest.kw) && hasAfterEntity) {
+          parsed.gotKill = true;
+        } else {
+          parsed.gotKill = false;
+        }
         parsed.originalLine = original;
         results.push(parsed);
     }

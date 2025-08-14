@@ -11,7 +11,13 @@
     .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
     h1 { color: #4CAF50; margin: 0 0 12px 0; }
     .topnav { margin: 6px 0 16px 0; }
-    .topnav a { color: #90CAF9; text-decoration: none; margin-right: 14px; }
+    .topnav a { color: #90CAF9; text-decoration: none; margin-left: 10px; }
+    .topnav {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .meta-input { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 4px 6px; border-radius: 4px; width: 110px; }
+    .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+    .btn:hover { background: #333; }
     .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
@@ -27,8 +33,11 @@
   <script>
     let rows = [];
     let summaries = [];
+    let allSummaries = [];
     let highlights = { players: {}, squadrons: {} };
     const ws = new WebSocket('ws://localhost:3001');
+    let gameMeta = { squadNo: '', gc: '', ac: '', game: null };
+    const OUTPUT_ORDER = ['Medium','Heavy','Light','SPG','Fighter','Attacker','Bomber','Heli','SPAA'];
 
     async function fetchGames() {
       const [gamesResp, currentResp] = await Promise.all([
@@ -38,6 +47,44 @@
       const games = await gamesResp.json();
       const current = (await currentResp.json()).currentGame;
       return { games, current };
+    }
+
+    async function fetchMetaForSelectedGame() {
+      const gameSel = document.getElementById('filterGame');
+      let game = gameSel.value;
+      if (game === 'current') {
+        try { game = String((await (await fetch('/api/current-game')).json()).currentGame); } catch (_) {}
+      }
+      try {
+        const res = await fetch('/api/meta' + (game && game !== 'all' ? ('?game=' + encodeURIComponent(game)) : ''));
+        const j = await res.json();
+        gameMeta = { game: j.game, ...(j.meta || { squadNo: '', gc: '', ac: '' }) };
+      } catch (_) { gameMeta = { squadNo: '', gc: '', ac: '', game: game }; }
+      // reflect into inputs
+      const iSquad = document.getElementById('inpSquadNo');
+      const iGc = document.getElementById('inpGC');
+      const iAc = document.getElementById('inpAC');
+      if (iSquad) iSquad.value = gameMeta.squadNo || '';
+      if (iGc) iGc.value = gameMeta.gc || '';
+      if (iAc) iAc.value = gameMeta.ac || '';
+    }
+
+    async function saveMetaForSelectedGame() {
+      let game = document.getElementById('filterGame').value;
+      if (game === 'current' || game === 'all') {
+        try { game = String((await (await fetch('/api/current-game')).json()).currentGame); } catch (_) {}
+      }
+      const payload = {
+        squadNo: document.getElementById('inpSquadNo').value || '',
+        gc: document.getElementById('inpGC').value || '',
+        ac: document.getElementById('inpAC').value || ''
+      };
+      try {
+        await fetch('/api/meta?game=' + encodeURIComponent(game), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        await fetchMetaForSelectedGame();
+        await fetchSummariesForSelectedGame();
+        applyFiltersAndRender();
+      } catch (_) {}
     }
 
     // Load highlight colors for players and squadrons
@@ -135,6 +182,15 @@
       if (game !== 'all') params.set('game', game);
       const res = await fetch('/api/summaries' + (params.toString() ? ('?' + params.toString()) : ''));
       summaries = await res.json();
+      // Refresh meta too to keep render in sync
+      await fetchMetaForSelectedGame();
+    }
+
+    async function fetchAllSummaries() {
+      try {
+        const res = await fetch('/api/summaries');
+        allSummaries = await res.json();
+      } catch (_) { allSummaries = []; }
     }
 
     // Record a manual result for the selected (or current) game
@@ -152,6 +208,7 @@
           // Refresh data views
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
           applyFiltersAndRender();
         } else {
           console.error('Failed to record result:', data && data.error);
@@ -243,12 +300,66 @@
         var cellStyle = styles.length ? (' style="' + styles.join(' ') + '"') : '';
         if (lastGame !== s.game) {
           html += '<tr><td><strong>Game ' + s.game + '</strong></td></tr>';
+          // Insert per-game meta immediately after the Game header (for selected game views)
+          if (selGame !== 'all' && String(s.game) === String((gameMeta && gameMeta.game) || s.game)) {
+            const meta = gameMeta || { squadNo: '', gc: '', ac: '' };
+            html += '<tr><td><strong>Squad:</strong> ' + (meta.squadNo || '') + '</td></tr>';
+            html += '<tr><td><strong>GC:</strong> ' + (meta.gc || '') + '</td></tr>';
+            html += '<tr><td><strong>AC:</strong> ' + (meta.ac || '') + '</td></tr>';
+          }
           lastGame = s.game;
         }
         // Render a single preformatted line (already padded so first | is column 7)
         html += '<tr><td' + cellStyle + '>' + s.line + '</td></tr>';
       });
       summaryTbody.innerHTML = html || '<tr><td>No data</td></tr>';
+
+      // Render merged summary per game (one line per game)
+      try {
+        const tgt = document.getElementById('allGamesSummaryBody');
+        if (tgt) {
+          const isExcluded = (sqName) => {
+            try {
+              const h = highlights.squadrons[sqName];
+              if (h && typeof h === 'object' && h.exclude === true) return true;
+            } catch (_) {}
+            return false;
+          };
+          // Group per game
+          const grouped = new Map(); // game -> { totals, squads }
+          (allSummaries || []).forEach(item => {
+            if (!item || !item.counts || item.game == null) return;
+            const game = Number(item.game);
+            const sq = item.squadron;
+            if (!sq || isExcluded(sq)) return;
+            if (!grouped.has(game)) {
+              const totals = {}; OUTPUT_ORDER.forEach(k => totals[k] = 0);
+              grouped.set(game, { totals, squads: new Set() });
+            }
+            const g = grouped.get(game);
+            g.squads.add(sq);
+            OUTPUT_ORDER.forEach(label => { g.totals[label] = (g.totals[label] || 0) + (item.counts[label] || 0); });
+          });
+          // Sort by game ascending and render
+          const games = Array.from(grouped.keys()).sort((a,b) => a - b);
+          let mergedHtml = '';
+          try {
+            const meta = gameMeta || { squadNo: '', gc: '', ac: '' };
+            mergedHtml += `<tr><td>Squad: ${meta.squadNo || ''}</td></tr>`;
+            mergedHtml += `<tr><td>AC: ${meta.ac || ''}</td></tr>`;
+            mergedHtml += `<tr><td>GC: ${meta.gc || ''}</td></tr>`;
+          } catch (_) {}
+          games.forEach(gm => {
+            const g = grouped.get(gm);
+            const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
+            const parts = OUTPUT_ORDER.map(label => `${g.totals[label] || 0} ${label}`);
+            const namePad = String(sqName).replace(/[^A-Za-z0-9]/g,'').padEnd(6,' ').slice(0,6);
+            const line = `${namePad} | ${parts.join(' | ')} |`;
+            mergedHtml += `<tr><td>${line}</td></tr>`;
+          });
+          tgt.innerHTML = mergedHtml || '<tr><td>No data</td></tr>';
+        }
+      } catch (_) {}
     }
 
     async function init() {
@@ -263,6 +374,7 @@
 
       await fetchRowsForSelectedGame();
       await fetchSummariesForSelectedGame();
+      await fetchAllSummaries();
 
       // Initialize status and type filters
       document.getElementById('filterStatus').value = 'all';
@@ -277,12 +389,17 @@
             localStorage.setItem('selectedGame', e.target.value);
             await fetchRowsForSelectedGame();
             await fetchSummariesForSelectedGame();
+            await fetchAllSummaries();
+            await fetchMetaForSelectedGame();
           }
           applyFiltersAndRender();
         });
       });
       document.getElementById('btnWin').addEventListener('click', () => recordResult('win'));
       document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
+      const postBtn = document.getElementById('btnPostLogs');
+      if (postBtn) postBtn.addEventListener('click', postLogs);
+      document.getElementById('btnSaveMeta').addEventListener('click', saveMetaForSelectedGame);
     }
 
     ws.onmessage = async (ev) => {
@@ -300,16 +417,44 @@
           localStorage.setItem('selectedGame', gameSel.value);
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
+          await fetchMetaForSelectedGame();
           applyFiltersAndRender();
         } else if (data.type === 'match' || data.type === 'destroyed' || data.type === 'update') {
           // If current selected game is active, refresh rows
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
+          await fetchMetaForSelectedGame();
           applyFiltersAndRender();
         }
       } catch (_) { }
     };
 
+    // Post logs (Discord) for the selected (or current) game
+    async function postLogs() {
+      try {
+        let game = document.getElementById('filterGame').value;
+        if (game === 'all' || game === 'current') {
+          const j = await (await fetch('/api/current-game')).json();
+          game = String(j.currentGame);
+        }
+        const url = '/api/post-logs?game=' + encodeURIComponent(game);
+        const resp = await fetch(url, { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok) {
+          // Refresh views just in case something changed
+          await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
+          applyFiltersAndRender();
+        } else {
+          console.error('Failed to post logs:', data && data.error);
+        }
+      } catch (e) {
+        console.error('Error posting logs:', e);
+      }
+    }
     window.addEventListener('load', init);
   </script>
 </head>
@@ -317,8 +462,13 @@
   <div class="container">
     <h1>War Thunder LogBot Game Log Assistant</h1>
     <div class="topnav">
+      <label>Squad No: <input id="inpSquadNo" class="meta-input" type="text" placeholder="e.g. 123" /></label>
+      <label>GC: <input id="inpGC" class="meta-input" type="text" placeholder="e.g. GC" /></label>
+      <label>AC: <input id="inpAC" class="meta-input" type="text" placeholder="e.g. AC" /></label>
+      <button id="btnSaveMeta" class="btn">Save</button>
       <a href="/settings">Settings</a>
     </div>
+    <h2 class="section-title">Current Game</h2>
     <div class="filters">
       <select id="filterGame"></select>
       <select id="filterSquadron"><option value="all">All Squadrons</option></select>
@@ -344,6 +494,7 @@
       </select>
       <button id="btnWin">Record Win</button>
       <button id="btnLoss">Record Loss</button>
+      <button id="btnPostLogs">Post Logs</button>
     </div>
     <table>
       <thead>
@@ -368,6 +519,16 @@
         </tr>
       </thead>
       <tbody id="summaryBody"></tbody>
+    </table>
+
+    <h2 class="section-title">All Games Summary (merged)</h2>
+    <table class="mono-table">
+      <thead>
+        <tr>
+          <th>Summary</th>
+        </tr>
+      </thead>
+      <tbody id="allGamesSummaryBody"></tbody>
     </table>
   </div>
 </body>

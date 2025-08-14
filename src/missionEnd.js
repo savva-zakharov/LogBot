@@ -3,7 +3,6 @@
 // Responsibilities:
 // - Resolve target game index
 // - Record result in state
-// - Post game summary to Discord
 // - Return a small payload that callers can broadcast over WS
 
 const state = require('./state');
@@ -25,8 +24,22 @@ function processMissionEnd(type, game) {
   }
   const numericGame = parseInt(targetGame, 10);
   const result = state.recordResult(numericGame, type);
-  try { discord.postGameSummary(numericGame); } catch (_) {}
   return { ok: true, game: numericGame, type, result };
 }
 
-module.exports = { processMissionEnd };
+/**
+ * Post logs (game summary) to Discord for a given game.
+ * @param {number|string|null} game - Numeric game index or null/current.
+ * @returns {{ ok: boolean, game: number }}
+ */
+function postLogs(game) {
+  let targetGame = game;
+  if (targetGame == null || targetGame === 'current' || targetGame === 'all') {
+    targetGame = state.getCurrentGame();
+  }
+  const numericGame = parseInt(targetGame, 10);
+  discord.postGameSummary(numericGame);
+  return { ok: true, game: numericGame };
+}
+
+module.exports = { processMissionEnd, postLogs };

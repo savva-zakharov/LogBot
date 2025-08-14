@@ -63,7 +63,8 @@ function loadAndPrepareInitialState() {
       _telemetry: {
         lastEvtId: 0,
         lastDmgId: 0,
-      }
+      },
+      _meta: {}
     };
     fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(initialData, null, 2), 'utf8');
     state.data = initialData;
@@ -102,13 +103,22 @@ function getCurrentGame() {
 function incrementGame() {
   state.currentGame++;
   state.lastGameIncrementTime = Date.now();
+  // Copy per-game metadata forward from previous game if not set yet
+  try {
+    const toKey = String(state.currentGame);
+    const fromKey = String(Math.max(0, state.currentGame - 1));
+    state.data._meta = state.data._meta || {};
+    if (state.data._meta[fromKey] && !state.data._meta[toKey]) {
+      state.data._meta[toKey] = { ...state.data._meta[fromKey] };
+    }
+  } catch (_) {}
   persistState();
   console.log(`🎮 Game incremented to ${state.currentGame}`);
   return true;
 }
 
 function recordEntry(entry) {
-  const { game, squadron, player, vehicle, status } = entry;
+  const { game, squadron, player, vehicle, status, gotKill } = entry;
   const gameKey = String(game);
 
   try {
@@ -133,14 +143,24 @@ function recordEntry(entry) {
         vehicleRef.classification = classifyVehicleLenient(vehicle, state.vehicleToCategory, { minScore: 4 });
     }
     let statusChanged = false;
+    let killsChanged = false;
     if (status === 'destroyed' && vehicleRef.status !== 'destroyed') {
         vehicleRef.status = 'destroyed';
         vehicleRef.destroyedAt = new Date().toISOString();
         console.log(`💥 Vehicle destroyed - Game: ${game}, Squadron: ${squadron}, Player: ${player}, Vehicle: ${vehicle}`);
         statusChanged = true;
     }
+    // Increment kills if provided by parser (entity appeared BEFORE kill keywords)
+    if (gotKill === true) {
+        const before = vehicleRef.kills || 0;
+        vehicleRef.kills = before + 1;
+        if (vehicleRef.kills !== before) {
+            killsChanged = true;
+            console.log(`🔫 Kill recorded - Game: ${game}, Squadron: ${squadron}, Player: ${player}, Vehicle: ${vehicle}, Total Kills: ${vehicleRef.kills}`);
+        }
+    }
 
-    if (created || statusChanged) {
+    if (created || statusChanged || killsChanged) {
       persistState();
       return vehicleRef;
     }
@@ -261,6 +281,38 @@ function setTelemetryCursors({ lastEvtId, lastDmgId }) {
   persistState();
 }
 
+// --- Per-game metadata (Squad No, GC, AC) ---
+function getGameMeta(gameId) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    const meta = (state.data._meta && state.data._meta[k]) || null;
+    if (!meta) return { squadNo: '', gc: '', ac: '' };
+    return {
+      squadNo: String(meta.squadNo || ''),
+      gc: String(meta.gc || ''),
+      ac: String(meta.ac || ''),
+    };
+  } catch (_) { return { squadNo: '', gc: '', ac: '' }; }
+}
+
+function setGameMeta(gameId, { squadNo, gc, ac }) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    if (!state.data._meta) state.data._meta = {};
+    const prev = state.data._meta[k] || {};
+    state.data._meta[k] = {
+      squadNo: (squadNo != null ? String(squadNo) : prev.squadNo || ''),
+      gc: (gc != null ? String(gc) : prev.gc || ''),
+      ac: (ac != null ? String(ac) : prev.ac || ''),
+    };
+    persistState();
+    return state.data._meta[k];
+  } catch (e) {
+    console.error('Failed to set game meta:', e);
+    return null;
+  }
+}
+
 
 module.exports = {
   loadAndPrepareInitialState,
@@ -274,4 +326,6 @@ module.exports = {
   getSquadronSummaries,
   getTelemetryCursors,
   setTelemetryCursors,
+  getGameMeta,
+  setGameMeta,
 };

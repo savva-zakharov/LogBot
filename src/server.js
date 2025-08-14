@@ -6,7 +6,7 @@ const WebSocket = require('ws');
 const state = require('./state');
 const { loadSettings } = require('./config');
 const discord = require('./discordBot');
-const { processMissionEnd } = require('./missionEnd');
+const { processMissionEnd, postLogs } = require('./missionEnd');
 
 let wss;
 
@@ -64,6 +64,38 @@ function startServer() {
         } else if (pathname === '/api/current-game') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ currentGame: state.getCurrentGame() }));
+        } else if (pathname === '/api/meta' && req.method === 'GET') {
+            try {
+              let gameParam = url.searchParams.get('game');
+              if (!gameParam) gameParam = String(state.getCurrentGame());
+              const meta = state.getGameMeta(gameParam);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ game: String(gameParam), meta }));
+            } catch (e) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Failed to read meta' }));
+            }
+        } else if (pathname === '/api/meta' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
+            req.on('end', () => {
+              try {
+                let gameParam = url.searchParams.get('game');
+                if (!gameParam) gameParam = String(state.getCurrentGame());
+                const j = JSON.parse(body || '{}');
+                const saved = state.setGameMeta(gameParam, {
+                  squadNo: j.squadNo,
+                  gc: j.gc,
+                  ac: j.ac,
+                });
+                broadcast({ type: 'update', message: `Meta updated for game ${gameParam}`, data: { game: String(gameParam), meta: saved } });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ game: String(gameParam), meta: saved }));
+              } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid meta payload' }));
+              }
+            });
         } else if (pathname === '/api/games-list') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(state.getGamesList()));
@@ -83,6 +115,17 @@ function startServer() {
             try {
                 const payload = processMissionEnd(type, gameParam);
                 broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(payload));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
+            }
+        } else if (pathname === '/api/post-logs' && req.method === 'POST') {
+            let gameParam = url.searchParams.get('game');
+            try {
+                const payload = postLogs(gameParam);
+                broadcast({ type: 'update', message: `Logs posted for game ${payload.game}`, data: { posted: true, game: payload.game } });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(payload));
             } catch (e) {

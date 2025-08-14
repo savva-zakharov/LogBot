@@ -19,6 +19,8 @@ async function startScraper(callbacks) {
     console.log(`✅ Using HTTP polling mode for telemetry: ${hudUrl}`);
     const seenIds = new Set();
     let lastDamageTime = null; // seconds
+    // Track pending mission outcome to apply on time reset (game end)
+    let pendingOutcome = null; // 'win' | 'loss' | null
     let timer = null;
     let backoffMs = 1000;
     // Resume from persisted cursors if available
@@ -72,7 +74,18 @@ async function startScraper(callbacks) {
           // Game increment heuristic: time reset backwards by >= 60s
           const t = Number.isFinite(d.time) ? d.time : null;
           if (t != null && lastDamageTime != null && t < lastDamageTime && (lastDamageTime - t) >= 60) {
-            if (typeof onGameIncrement === 'function') onGameIncrement();
+            // Primary game end: time reset detected
+            try {
+              if (pendingOutcome === 'win' || pendingOutcome === 'loss') {
+                // Record result for the game that just ended before incrementing
+                const payload = processMissionEnd(pendingOutcome, 'current');
+                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
+              }
+            } catch (_) { /* swallow and continue */ }
+            // Increment to the next game
+            try { if (typeof onGameIncrement === 'function') onGameIncrement(); } catch (_) {}
+            // Clear pending outcome after applying
+            pendingOutcome = null;
           }
           if (t != null) lastDamageTime = t;
 
@@ -128,18 +141,9 @@ async function startScraper(callbacks) {
               else if (candidates.some(o => getStatus(o) === 'success' || getStatus(o) === 'succeeded')) outcome = 'success';
             }
             if (outcome && outcome !== lastMissionOutcome) {
-              // Centralized mission processing (independent of HTTP server route)
+              // Defer result recording until time reset (primary end-of-game trigger)
               const type = outcome === 'success' ? 'win' : 'loss';
-              try {
-                const payload = processMissionEnd(type, 'current');
-                // Broadcast to WS clients if server is running
-                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
-              } catch (_) {
-                // Fallback: at least emit local callbacks
-                const line = outcome === 'success' ? '[Mission] Victory' : '[Mission] Defeat';
-                if (typeof onNewLine === 'function') onNewLine(line);
-                if (typeof onEntry === 'function') onEntry({ type: 'mission_result', result: outcome, status: 'final' });
-              }
+              pendingOutcome = type;
               lastMissionOutcome = outcome;
             }
             // Reset outcome marker when mission is running again
