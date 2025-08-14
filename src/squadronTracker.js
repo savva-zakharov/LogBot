@@ -19,6 +19,90 @@ const HTML_REQUEST_HEADERS = {
 // Lazy accessor to avoid circular dependency at module load, memoized
 let __discordSendChecked = false;
 let __discordSendFn = null;
+
+// --- Session state (W/L and starting points) ---
+// Resets at daily cutoff. In-memory only.
+const __session = {
+  startedAt: null,           // Date
+  dateKey: null,             // YYYY-MM-DD
+  startingPoints: null,      // number
+  wins: 0,
+  losses: 0,
+};
+
+// Helper: get UTC date key YYYY-MM-DD
+function dateKeyUTC(d = new Date()) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Read events array from squadron_events.json
+function readEventsFile() {
+  try {
+    const file = ensureEventsFile();
+    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(obj.events) ? obj.events : [];
+  } catch (_) { return []; }
+}
+
+// Rebuild today's session from events (idempotent). Uses explicit session events when present,
+// else infers from first/last points_change and accumulated w_l_update entries.
+function rebuildSessionFromEvents() {
+  try {
+    const events = readEventsFile();
+    if (!events.length) return;
+    const today = dateKeyUTC();
+
+    // Find the latest session_start or session_reset for today
+    let startingPoints = null;
+    let startedAt = null;
+    let wins = 0, losses = 0;
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      const ets = ev.ts ? new Date(ev.ts) : null;
+      const key = ets ? dateKeyUTC(ets) : null;
+      if (key !== today) continue;
+      if (ev.type === 'session_start' || ev.type === 'session_reset') {
+        startingPoints = typeof ev.startingPoints === 'number' ? ev.startingPoints : startingPoints;
+        startedAt = ets || startedAt;
+        wins = 0; losses = 0; // reset from start
+      } else if (ev.type === 'w_l_update') {
+        // Legacy support: earlier versions emitted a separate W/L event
+        const w = Number(ev.matchesWon || 0);
+        const l = Number(ev.matchesLost || 0);
+        if (Number.isFinite(w)) wins += w;
+        if (Number.isFinite(l)) losses += l;
+      } else if (ev.type === 'points_change') {
+        // New unified event may include matchesWon/matchesLost
+        const w = Number(ev.matchesWon || 0);
+        const l = Number(ev.matchesLost || 0);
+        if (Number.isFinite(w)) wins += w;
+        if (Number.isFinite(l)) losses += l;
+      }
+    }
+
+    // If no explicit session_start, infer starting points from first points_change today
+    if (startingPoints == null) {
+      const firstPointsChange = events.find(ev => {
+        const ets = ev.ts ? new Date(ev.ts) : null;
+        const key = ets ? dateKeyUTC(ets) : null;
+        return key === today && ev.type === 'points_change' && typeof ev.from === 'number';
+      });
+      if (firstPointsChange && typeof firstPointsChange.from === 'number') {
+        startingPoints = firstPointsChange.from;
+        startedAt = firstPointsChange.ts ? new Date(firstPointsChange.ts) : new Date();
+      }
+    }
+
+    if (startingPoints != null) {
+      __session.dateKey = today;
+      __session.startedAt = startedAt || new Date();
+      __session.startingPoints = startingPoints;
+      __session.wins = wins;
+      __session.losses = losses;
+    }
+  } catch (_) { /* ignore */ }
+}
 function getDiscordSend() {
   if (!__discordSendChecked) {
     __discordSendChecked = true;
@@ -620,6 +704,8 @@ async function startSquadronTracker() {
   }
 
   const dataFile = ensureParsedDataFile();
+  // Rebuild in-memory session from existing events (if any)
+  try { rebuildSessionFromEvents(); } catch (_) {}
   let lastKey = null;
   let lastSnapshot = null;
   let didInitialMembersFetch = false;
@@ -633,36 +719,53 @@ async function startSquadronTracker() {
       primaryTag = keys.length ? keys[0] : '';
     } catch (_) {}
 
-    // Initialize leaderboard context (API-first)
+    // Initialize leaderboard context (API only for context; HTML is primary for totals)
     let squadronPlace = null;
     let totalPointsAbove = null;
     let totalPointsBelow = null;
-    let apiPoints = null;
 
-    if (primaryTag) {
-      const api = await findOnLeaderboardViaApi(primaryTag);
-      if (api) {
-        squadronPlace = api.squadronPlace;
-        totalPointsAbove = api.totalPointsAbove;
-        totalPointsBelow = api.totalPointsBelow;
-        apiPoints = api.found && typeof api.found.points === 'number' ? api.found.points : null;
-        console.log(`ℹ️ API: place=${squadronPlace}, points=${apiPoints}, above=${totalPointsAbove}, below=${totalPointsBelow}`);
-      } else {
-        console.log(`[leaderboard] API lookup failed or tag not found for "${primaryTag}".`);
-      }
-    }
-
-    const effectiveTotal = (typeof apiPoints === 'number' && Number.isFinite(apiPoints)) ? apiPoints : null;
-
-    // Prepare minimal snapshot (no members yet)
+    // Prepare snapshot and fetch HTML first (primary data source)
     let snapshot = {
       ts: Date.now(),
       data: { headers: [], rows: [] },
-      totalPoints: effectiveTotal,
-      squadronPlace,
-      totalPointsAbove,
-      totalPointsBelow,
+      totalPoints: null,
+      squadronPlace: null,
+      totalPointsAbove: null,
+      totalPointsBelow: null,
     };
+
+    try {
+      const raw = await fetchText(squadronPageUrl);
+      if (raw) {
+        const parsed = parseSquadronWithCheerio(raw);
+        if (parsed && Array.isArray(parsed.rows)) {
+          snapshot.data = parsed;
+          snapshot.membersCaptured = true;
+          // Compute manual total from member ratings as primary
+          try {
+            const manual = calculateManualPoints(parsed.rows);
+            if (typeof manual === 'number' && Number.isFinite(manual)) {
+              snapshot.totalPoints = manual;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
+    // Optionally fetch leaderboard context (place/above/below) without relying on API points
+    try {
+      if (primaryTag) {
+        const api = await findOnLeaderboardViaApi(primaryTag);
+        if (api) {
+          squadronPlace = api.squadronPlace;
+          totalPointsAbove = api.totalPointsAbove;
+          totalPointsBelow = api.totalPointsBelow;
+          snapshot.squadronPlace = squadronPlace;
+          snapshot.totalPointsAbove = totalPointsAbove;
+          snapshot.totalPointsBelow = totalPointsBelow;
+        }
+      }
+    } catch (_) {}
 
     const key = simplifyForComparison(snapshot);
     if (lastKey === null) {
@@ -699,20 +802,15 @@ async function startSquadronTracker() {
         const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
         const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
 
-        // Only when points changed: fetch and include members via HTML parsing
-        if (prevTotal != null && newTotal != null && newTotal !== prevTotal) {
+        // We already fetched members above for HTML-first; if empty, attempt a retry once
+        if ((!snapshot.data || !Array.isArray(snapshot.data.rows) || !snapshot.data.rows.length)) {
           try {
             const raw = await fetchText(squadronPageUrl);
             if (raw) {
-              console.log(`ℹ️ Members HTML length=${raw.length}`);
               const parsed = parseSquadronWithCheerio(raw);
               if (parsed && Array.isArray(parsed.rows)) {
                 snapshot.data = parsed;
                 snapshot.membersCaptured = true;
-                console.log(`ℹ️ Members parsed rows=${parsed.rows.length}`);
-                if (!parsed.rows.length) {
-                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html'); } catch (_) {}
-                }
               }
             }
           } catch (_) {}
@@ -725,19 +823,16 @@ async function startSquadronTracker() {
         const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
         if (pointsDelta != null && pointsDelta !== 0) {
           msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
-          // Event: points change
-          appendEvent({
-            type: 'points_change',
-            delta: pointsDelta,
-            from: prevTotal,
-            to: newTotal,
-            place: squadronPlace ?? null,
-            totalPointsAbove: totalPointsAbove ?? null,
-            totalPointsBelow: totalPointsBelow ?? null,
-          });
+          // Defer emitting event until after W/L inference so we can unify into one event
         }
 
-        // Row-level changes: added/removed players
+        // Prepare interval stats for persistence
+        let gainedPoints = 0;
+        let lostPoints = 0;
+        let matchesWon = 0;
+        let matchesLost = 0;
+
+        // Row-level changes: added/removed players and W/L inference
         if (snapshot.membersCaptured && prev) {
           const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
           const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
@@ -753,6 +848,89 @@ async function startSquadronTracker() {
           const added = [];
           prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
           currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
+
+          // Compute gained/lost counts across common members by comparing Personal clan rating
+          try {
+            prevMap.forEach((prevMember, name) => {
+              const currMember = currMap.get(name);
+              if (!currMember) return;
+              const prevRatingRaw = (prevMember['Personal clan rating'] || prevMember['rating'] || prevMember['Points'] || '').toString();
+              const currRatingRaw = (currMember['Personal clan rating'] || currMember['rating'] || currMember['Points'] || '').toString();
+              const prevRating = toNum(prevRatingRaw);
+              const currRating = toNum(currRatingRaw);
+              if (Number.isFinite(prevRating) && Number.isFinite(currRating)) {
+                if (currRating > prevRating) gainedPoints += 1;
+                else if (currRating < prevRating) lostPoints += 1;
+              }
+            });
+          } catch (_) {}
+
+          // Infer matches won/lost from counts (mirror Python thresholds)
+          if (gainedPoints > 4 && gainedPoints < 9) matchesWon = 1;
+          else if (gainedPoints > 12 && gainedPoints < 17) matchesWon = 2;
+          else if (gainedPoints > 20) matchesWon = 3;
+
+          if (lostPoints > 4 && lostPoints < 9) matchesLost = 1;
+          else if (lostPoints > 12 && lostPoints < 17) matchesLost = 2;
+          else if (lostPoints > 20) matchesLost = 3;
+
+          // Initialize/advance session state
+          const now = new Date();
+          const y = now.getUTCFullYear();
+          const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+          const d = String(now.getUTCDate()).padStart(2, '0');
+          const todayKey = `${y}-${m}-${d}`;
+          if (__session.dateKey !== todayKey || __session.startedAt == null || __session.startingPoints == null) {
+            __session.startedAt = now;
+            __session.dateKey = todayKey;
+            __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
+            __session.wins = 0;
+            __session.losses = 0;
+            // Persist a session_start event for reconstruction
+            try {
+              if (__session.startingPoints != null) {
+                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey });
+              }
+            } catch (_) {}
+          }
+          __session.wins += matchesWon;
+          __session.losses += matchesLost;
+
+          // Emit a single unified points_change event enriched with W/L and interval info
+          try {
+            if (pointsDelta != null && pointsDelta !== 0) {
+              appendEvent({
+                type: 'points_change',
+                delta: pointsDelta,
+                from: prevTotal,
+                to: newTotal,
+                place: squadronPlace ?? null,
+                totalPointsAbove: totalPointsAbove ?? null,
+                totalPointsBelow: totalPointsBelow ?? null,
+                matchesWon,
+                matchesLost,
+                gainedPlayers: gainedPoints,
+                lostPlayers: lostPoints,
+                dateKey: __session.dateKey,
+              });
+            }
+          } catch (_) {}
+
+          // Compose a session summary line akin to Python's tracker output
+          const hh = String(now.getUTCHours()).padStart(2, '0');
+          const mm = String(now.getUTCMinutes()).padStart(2, '0');
+          const timeSummary = `${hh}:${mm}`.padEnd(5, ' ');
+          const deltaFromStart = (newTotal != null && __session.startingPoints != null) ? (Number(newTotal) - Number(__session.startingPoints)) : null;
+          const wlSummary = `${__session.wins}/${__session.losses}`;
+          const intervalSummary = matchesWon === 0 && matchesLost === 0
+            ? 'no matches'
+            : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
+          const pointsChangeStr = (pointsDelta != null)
+            ? (pointsDelta < 0 ? `- ${Math.abs(pointsDelta)} points` : `+ ${pointsDelta} points`)
+            : '± 0 points';
+          const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
+          const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
+          msgLines.push(`• Session: ${pointsChangeStr}; W/L ${wlSummary}; ${timeSummary}; session Δ ${sessionDeltaStr}; start ${startStr}; interval: ${intervalSummary}`);
 
           // Helpers for monospace alignment
           const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
@@ -821,6 +999,23 @@ async function startSquadronTracker() {
         console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);
       }
 
+      // Persist session state with snapshot
+      try {
+        snapshot.session = {
+          dateKey: __session.dateKey,
+          startedAt: __session.startedAt ? __session.startedAt.toISOString() : null,
+          startingPoints: __session.startingPoints,
+          wins: __session.wins,
+          losses: __session.losses,
+          lastInterval: {
+            gainedPlayers: gainedPoints,
+            lostPlayers: lostPoints,
+            matchesWon,
+            matchesLost,
+            pointsDelta: (typeof pointsDelta === 'number') ? pointsDelta : null,
+          },
+        };
+      } catch (_) {}
       appendSnapshot(dataFile, snapshot);
       lastKey = key;
       lastSnapshot = pruneSnapshot(snapshot);
@@ -848,10 +1043,35 @@ async function startSquadronTracker() {
                 console.log('ℹ️ Daily cutoff: reused last known member rows for snapshot.');
               }
             } catch (_) {}
+            // Attach session at cutoff as well
+            try {
+              snapshot.session = {
+                dateKey: __session.dateKey,
+                startedAt: __session.startedAt ? __session.startedAt.toISOString() : null,
+                startingPoints: __session.startingPoints,
+                wins: __session.wins,
+                losses: __session.losses,
+              };
+            } catch (_) {}
             appendSnapshot(dataFile, snapshot);
             lastKey = simplifyForComparison(snapshot);
             lastSnapshot = pruneSnapshot(snapshot);
             console.log('🕧 Squadron tracker: daily cutoff snapshot saved.');
+            // Reset session at cutoff for the new day
+            try {
+              const resetNow = new Date();
+              const yy = resetNow.getUTCFullYear();
+              const mm2 = String(resetNow.getUTCMonth() + 1).padStart(2, '0');
+              const dd2 = String(resetNow.getUTCDate()).padStart(2, '0');
+              const newStarting = (typeof snapshot.totalPoints === 'number') ? snapshot.totalPoints : (__session.startingPoints ?? null);
+              // Persist a session_reset event with new starting points
+              try { if (newStarting != null) appendEvent({ type: 'session_reset', startingPoints: newStarting, dateKey: `${yy}-${mm2}-${dd2}` }); } catch (_) {}
+              __session.startedAt = resetNow;
+              __session.dateKey = `${yy}-${mm2}-${dd2}`;
+              __session.startingPoints = newStarting;
+              __session.wins = 0;
+              __session.losses = 0;
+            } catch (_) {}
           }
         }
       } catch (_) {}
