@@ -8,6 +8,14 @@ const { OUTPUT_ORDER, CATEGORY_TO_OUTPUT } = require('./config');
 const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
 try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
 
+function getResultsMap() {
+  try {
+    const m = state.data._results || {};
+    // Return a shallow copy to avoid external mutation
+    return Object.assign({}, m);
+  } catch (_) { return {}; }
+}
+
 // Build merged summary lines across ALL games, grouped by squadron.
 // Returns array of objects: { squadron, line, counts, win, loss }
 function getMergedSquadronSummaryLines() {
@@ -373,6 +381,7 @@ module.exports = {
   getGamesList,
   getActiveVehicles,
   getSquadronSummaries,
+  getResultsMap,
   getMergedSquadronSummaryLines,
   getTelemetryCursors,
   setTelemetryCursors,

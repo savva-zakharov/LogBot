@@ -18,6 +18,10 @@
     .meta-input { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 4px 6px; border-radius: 4px; width: 110px; }
     .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
     .btn:hover { background: #333; }
+    .btn-win { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
+    .btn-win:hover { background: #1b5e20; }
+    .btn-loss { background: #c62828; border-color: #8e0000; color: #ffebee; }
+    .btn-loss:hover { background: #8e0000; }
     .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
@@ -29,11 +33,18 @@
     /* Monospace summary table to preserve alignment */
     .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .mono-table td { white-space: pre; }
+    /* Collapsible sections */
+    .section-title { display: flex; align-items: center; gap: 8px; }
+    .toggle-btn { background: #1e1e1e; color: #bbb; border: 1px solid #444; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .toggle-btn:hover { background: #2a2a2a; color: #fff; }
+    .collapsed { display: none !important; }
   </style>
   <script>
     let rows = [];
     let summaries = [];
     let allSummaries = [];
+    let mergedSummary = { meta: { squadNo: '', ac: '', gc: '' }, lines: [] };
+    let resultsMap = {};
     let highlights = { players: {}, squadrons: {} };
     const ws = new WebSocket('ws://localhost:3001');
     let gameMeta = { squadNo: '', gc: '', ac: '', game: null };
@@ -166,6 +177,38 @@
           return item;
         });
       }
+      // Setup collapsible sections after initial render
+      setupCollapsibles();
+    }
+
+    // Add collapse/expand buttons to each section title and persist state
+    function setupCollapsibles() {
+      const headers = document.querySelectorAll('h2.section-title');
+      headers.forEach((h2, idx) => {
+        if (h2.querySelector('.toggle-btn')) return; // already wired
+        const key = 'collapse:' + (h2.textContent || ('section-' + idx)).trim().toLowerCase();
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'toggle-btn';
+        // Collect all sibling elements until the next section-title header
+        const group = [];
+        let node = h2.nextElementSibling;
+        while (node && !(node.tagName === 'H2' && node.classList.contains('section-title'))) {
+          group.push(node);
+          node = node.nextElementSibling;
+        }
+        const collapsed = localStorage.getItem(key) === '1';
+        if (collapsed) group.forEach(el => el.classList.add('collapsed'));
+        btn.textContent = collapsed ? 'Show' : 'Hide';
+        btn.addEventListener('click', () => {
+          if (group.length === 0) return;
+          const willHide = !group[0].classList.contains('collapsed');
+          group.forEach(el => el.classList.toggle('collapsed', willHide));
+          btn.textContent = willHide ? 'Show' : 'Hide';
+          localStorage.setItem(key, willHide ? '1' : '0');
+        });
+        h2.prepend(btn);
+      });
     }
 
     async function fetchSummariesForSelectedGame() {
@@ -188,9 +231,23 @@
 
     async function fetchAllSummaries() {
       try {
-        const res = await fetch('/api/summaries');
-        allSummaries = await res.json();
-      } catch (_) { allSummaries = []; }
+        const resp = await fetch('/api/summaries');
+        allSummaries = await resp.json();
+      } catch (e) { allSummaries = []; }
+    }
+
+    async function fetchResults() {
+      try {
+        const resp = await fetch('/api/results');
+        resultsMap = await resp.json();
+      } catch (e) { resultsMap = {}; }
+    }
+
+    async function fetchMergedSummary() {
+      try {
+        const resp = await fetch('/api/merged-summary');
+        mergedSummary = await resp.json();
+      } catch (e) { mergedSummary = { meta: { squadNo: '', ac: '', gc: '' }, lines: [] }; }
     }
 
     // Record a manual result for the selected (or current) game
@@ -209,6 +266,10 @@
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
           await fetchAllSummaries();
+      await fetchResults();
+      await fetchMergedSummary();
+      await fetchResults();
+      await fetchMergedSummary();
           applyFiltersAndRender();
         } else {
           console.error('Failed to record result:', data && data.error);
@@ -325,39 +386,46 @@
             } catch (_) {}
             return false;
           };
-          // Group per game
-          const grouped = new Map(); // game -> { totals, squads }
-          (allSummaries || []).forEach(item => {
-            if (!item || !item.counts || item.game == null) return;
-            const game = Number(item.game);
-            const sq = item.squadron;
-            if (!sq || isExcluded(sq)) return;
-            if (!grouped.has(game)) {
-              const totals = {}; OUTPUT_ORDER.forEach(k => totals[k] = 0);
-              grouped.set(game, { totals, squads: new Set() });
-            }
-            const g = grouped.get(game);
-            g.squads.add(sq);
-            OUTPUT_ORDER.forEach(label => { g.totals[label] = (g.totals[label] || 0) + (item.counts[label] || 0); });
-          });
-          // Sort by game ascending and render
-          const games = Array.from(grouped.keys()).sort((a,b) => a - b);
+          // Render from shared formatter output
           let mergedHtml = '';
           try {
-            const meta = gameMeta || { squadNo: '', gc: '', ac: '' };
+            const meta = mergedSummary && mergedSummary.meta ? mergedSummary.meta : { squadNo: '', gc: '', ac: '' };
             mergedHtml += `<tr><td>Squad: ${meta.squadNo || ''}</td></tr>`;
             mergedHtml += `<tr><td>AC: ${meta.ac || ''}</td></tr>`;
             mergedHtml += `<tr><td>GC: ${meta.gc || ''}</td></tr>`;
           } catch (_) {}
-          games.forEach(gm => {
-            const g = grouped.get(gm);
-            const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
-            const parts = OUTPUT_ORDER.map(label => `${g.totals[label] || 0} ${label}`);
-            const namePad = String(sqName).replace(/[^A-Za-z0-9]/g,'').padEnd(6,' ').slice(0,6);
-            const line = `${namePad} | ${parts.join(' | ')} |`;
-            mergedHtml += `<tr><td>${line}</td></tr>`;
-          });
-          tgt.innerHTML = mergedHtml || '<tr><td>No data</td></tr>';
+          let lines = (mergedSummary && Array.isArray(mergedSummary.lines)) ? mergedSummary.lines : [];
+          if (!lines || lines.length === 0) {
+            // Fallback: build client-side from allSummaries + resultsMap (legacy logic)
+            const grouped = new Map(); // game -> { totals, squads }
+            (allSummaries || []).forEach(item => {
+              if (!item || !item.counts || item.game == null) return;
+              const game = Number(item.game);
+              const sq = item.squadron;
+              if (!sq || isExcluded(sq)) return;
+              if (!grouped.has(game)) {
+                const totals = {}; OUTPUT_ORDER.forEach(k => totals[k] = 0);
+                grouped.set(game, { totals, squads: new Set() });
+              }
+              const g = grouped.get(game);
+              g.squads.add(sq);
+              OUTPUT_ORDER.forEach(label => { g.totals[label] = (g.totals[label] || 0) + (item.counts[label] || 0); });
+            });
+            let winTotal = 0, lossTotal = 0;
+            try {
+              Object.keys(resultsMap || {}).forEach(k => { if (resultsMap[k] === true) winTotal++; else if (resultsMap[k] === false) lossTotal++; });
+            } catch (_) {}
+            const games = Array.from(grouped.keys()).sort((a,b) => a - b);
+            lines = games.map(gm => {
+              const g = grouped.get(gm);
+              const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
+              const parts = OUTPUT_ORDER.map(label => `${g.totals[label] || 0} ${label}`);
+              const namePad = String(sqName).replace(/[^A-Za-z0-9]/g,'').padEnd(6,' ').slice(0,6);
+              const indicator = (String(resultsMap[String(gm)]) === 'true' || resultsMap[String(gm)] === true) ? 'W' : ((String(resultsMap[String(gm)]) === 'false' || resultsMap[String(gm)] === false) ? 'L' : '');
+              return `${namePad} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${winTotal}:${lossTotal} |`;
+            });
+          }
+          tgt.innerHTML = (lines && lines.length) ? lines.map(l => `<tr><td>${l}</td></tr>`).join('') : '<tr><td>No data</td></tr>';
         }
       } catch (_) {}
     }
@@ -375,6 +443,8 @@
       await fetchRowsForSelectedGame();
       await fetchSummariesForSelectedGame();
       await fetchAllSummaries();
+      await fetchResults();
+      await fetchMergedSummary();
 
       // Initialize status and type filters
       document.getElementById('filterStatus').value = 'all';
@@ -391,6 +461,7 @@
             await fetchSummariesForSelectedGame();
             await fetchAllSummaries();
             await fetchMetaForSelectedGame();
+            await fetchMergedSummary();
           }
           applyFiltersAndRender();
         });
@@ -419,6 +490,8 @@
           await fetchSummariesForSelectedGame();
           await fetchAllSummaries();
           await fetchMetaForSelectedGame();
+          await fetchResults();
+          await fetchMergedSummary();
           applyFiltersAndRender();
         } else if (data.type === 'match' || data.type === 'destroyed' || data.type === 'update') {
           // If current selected game is active, refresh rows
@@ -426,6 +499,8 @@
           await fetchSummariesForSelectedGame();
           await fetchAllSummaries();
           await fetchMetaForSelectedGame();
+          await fetchResults();
+          await fetchMergedSummary();
           applyFiltersAndRender();
         }
       } catch (_) { }
@@ -466,7 +541,10 @@
       <label>GC: <input id="inpGC" class="meta-input" type="text" placeholder="e.g. GC" /></label>
       <label>AC: <input id="inpAC" class="meta-input" type="text" placeholder="e.g. AC" /></label>
       <button id="btnSaveMeta" class="btn">Save</button>
-      <a href="/settings">Settings</a>
+      <a href="/settings">Settings</a>      
+      <button id="btnWin" class="btn btn-win">Record Win</button>
+      <button id="btnLoss" class="btn btn-loss">Record Loss</button>
+      <button id="btnPostLogs">Post Logs</button>
     </div>
     <h2 class="section-title">Current Game</h2>
     <div class="filters">
@@ -492,9 +570,6 @@
         <option value="helicopter">Helicopter</option>
         <option value="other">Other</option>
       </select>
-      <button id="btnWin">Record Win</button>
-      <button id="btnLoss">Record Loss</button>
-      <button id="btnPostLogs">Post Logs</button>
     </div>
     <table>
       <thead>

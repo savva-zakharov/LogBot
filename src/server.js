@@ -184,6 +184,25 @@ function startServer() {
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(envObj));
+        } else if (pathname === '/api/results' && req.method === 'GET') {
+            try {
+                const map = state.getResultsMap ? state.getResultsMap() : (state.data && state.data._results) || {};
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(map));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Failed to read results' }));
+            }
+        } else if (pathname === '/api/merged-summary' && req.method === 'GET') {
+            try {
+                const { buildMergedSummary } = require('./summaryFormatter');
+                const payload = buildMergedSummary();
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(payload));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Failed to build merged summary' }));
+            }
         } else if (pathname === '/api/settings-env' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });

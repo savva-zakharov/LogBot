@@ -32,6 +32,7 @@ function appendEvent(message, meta = {}) {
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
+const { buildMergedSummary } = require('./summaryFormatter');
 const waitingTracker = require('./waitingTracker');
 
 let client = null;
@@ -409,73 +410,26 @@ function formatSummary(gameId) {
 
 // Build a single text block for merged summary across all games
 function formatMergedSummaryText() {
-  const lines = [];
   try {
-    // Meta header lines from current game's meta
-    try {
-      const currentGame = state.getCurrentGame();
-      const meta = state.getGameMeta(currentGame) || { squadNo: '', gc: '', ac: '' };
-      lines.push(`Squad: ${meta.squadNo || ''}`);
-      lines.push(`AC: ${meta.ac || ''}`);
-      lines.push(`GC: ${meta.gc || ''}`);
-    } catch (_) {}
-
-    // Build exactly like index.html's allGamesSummaryBody
-    // Group per game: totals across squadrons for each game (excluding excluded squadrons)
-    const isExcluded = (sqName) => {
-      try {
-        const settings = loadSettings();
-        const h = (settings.squadrons || {})[sqName];
-        if (h && typeof h === 'object' && h.exclude === true) return true;
-      } catch (_) {}
-      return false;
-    };
-
-    const grouped = new Map(); // game -> { totals, squads }
-    const all = state.getSquadronSummaries(null) || [];
-    for (const item of all) {
-      if (!item || !item.counts || item.game == null) continue;
-      const game = Number(item.game);
-      const sq = item.squadron;
-      if (!sq || isExcluded(sq)) continue;
-      if (!grouped.has(game)) {
-        const totals = {}; OUTPUT_ORDER.forEach(k => { totals[k] = 0; });
-        grouped.set(game, { totals, squads: new Set() });
-      }
-      const g = grouped.get(game);
-      g.squads.add(sq);
-      OUTPUT_ORDER.forEach(label => {
-        g.totals[label] = (g.totals[label] || 0) + (item.counts[label] || 0);
-      });
+    const { meta, lines } = buildMergedSummary();
+    const out = [];
+    out.push(`Squad: ${meta.squadNo || ''}`);
+    out.push(`AC: ${meta.ac || ''}`);
+    out.push(`GC: ${meta.gc || ''}`);
+    if (!lines || lines.length === 0) out.push('No data'); else out.push(...lines);
+    // Keep within Discord 2000 char limit (code block wrapped)
+    let content = out.join('\n');
+    const wrapperOverhead = 8; // ``` + ```
+    const maxLen = 2000 - wrapperOverhead;
+    if (content.length > maxLen) {
+      content = content.slice(content.length - maxLen);
+      const cutIdx = content.indexOf('\n');
+      if (cutIdx > 0) content = content.slice(cutIdx + 1);
     }
-
-    const games = Array.from(grouped.keys()).sort((a,b) => a - b);
-    if (games.length === 0) {
-      lines.push('No data');
-    } else {
-      for (const gm of games) {
-        const g = grouped.get(gm);
-        const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
-        const parts = OUTPUT_ORDER.map(label => `${g.totals[label] || 0} ${label}`);
-        const namePad = String(sqName).replace(/[^A-Za-z0-9]/g,'').padEnd(6,' ').slice(0,6);
-        const line = `${namePad} | ${parts.join(' | ')} |`;
-        lines.push(line);
-      }
-    }
+    return '```\n' + content + '\n```';
   } catch (e) {
-    lines.push('(error building summary)');
+    return '```\n(error building summary)\n```';
   }
-
-  // Keep within Discord 2000 char limit (code block wrapped)
-  let content = lines.join('\n');
-  const wrapperOverhead = 8; // ``` + ```
-  const maxLen = 2000 - wrapperOverhead;
-  if (content.length > maxLen) {
-    content = content.slice(content.length - maxLen);
-    const cutIdx = content.indexOf('\n');
-    if (cutIdx > 0) content = content.slice(cutIdx + 1);
-  }
-  return '```\n' + content + '\n```';
 }
 
 // Post or edit the merged summary message (edit if recently posted)
