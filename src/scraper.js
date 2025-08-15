@@ -18,7 +18,8 @@ async function startScraper(callbacks) {
   if (useHttpHud) {
     console.log(`✅ Using HTTP polling mode for telemetry: ${hudUrl}`);
     const seenIds = new Set();
-    let lastDamageTime = null; // seconds
+    // Track the last seen HUD time from either events or damage streams
+    let lastHudTime = null; // seconds
     // Track pending mission outcome to apply on time reset (game end)
     let pendingOutcome = null; // 'win' | 'loss' | null
     let timer = null;
@@ -54,9 +55,29 @@ async function startScraper(callbacks) {
 
         // advance cursors
         let maxEvtId = lastEvtId;
+        // First, scan events to detect time resets as a fallback when no damage entries carry time
+        let incrementTriggeredThisTick = false;
         for (const e of events) {
           const eid = typeof e.id === 'number' ? e.id : null;
           if (eid != null && eid > maxEvtId) maxEvtId = eid;
+          // Some HUD implementations provide event time under `time` or `t`
+          const et = Number.isFinite(e.time) ? e.time : (Number.isFinite(e.t) ? e.t : null);
+          if (et != null && lastHudTime != null && et < lastHudTime && (lastHudTime - et) >= 60 && !incrementTriggeredThisTick) {
+            // Primary game end: time reset detected via events stream
+            try {
+              if (pendingOutcome === 'win' || pendingOutcome === 'loss') {
+                const payload = processMissionEnd(pendingOutcome, 'current');
+                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
+              }
+            } catch (_) { /* swallow and continue */ }
+            try {
+              console.log(`[SCRAPER] Time reset detected (events): ${lastHudTime}s -> ${et}s (Δ=${lastHudTime - et}s). Triggering increment.`);
+            } catch (_) {}
+            try { if (typeof onGameIncrement === 'function') onGameIncrement(); } catch (_) {}
+            pendingOutcome = null;
+            incrementTriggeredThisTick = true;
+          }
+          if (et != null) lastHudTime = et;
         }
         let maxDmgId = lastDmgId;
         for (const d of damage) {
@@ -71,9 +92,9 @@ async function startScraper(callbacks) {
             for (const x of last200) seenIds.add(x.id ?? `${x.msg}|${x.time}`);
           }
 
-          // Game increment heuristic: time reset backwards by >= 60s
+          // Game increment heuristic: time reset backwards by >= 60s (damage stream)
           const t = Number.isFinite(d.time) ? d.time : null;
-          if (t != null && lastDamageTime != null && t < lastDamageTime && (lastDamageTime - t) >= 60) {
+          if (t != null && lastHudTime != null && t < lastHudTime && (lastHudTime - t) >= 60 && !incrementTriggeredThisTick) {
             // Primary game end: time reset detected
             try {
               if (pendingOutcome === 'win' || pendingOutcome === 'loss') {
@@ -82,12 +103,16 @@ async function startScraper(callbacks) {
                 try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
               }
             } catch (_) { /* swallow and continue */ }
+            try {
+              console.log(`[SCRAPER] Time reset detected (damage): ${lastHudTime}s -> ${t}s (Δ=${lastHudTime - t}s). Triggering increment.`);
+            } catch (_) {}
             // Increment to the next game
             try { if (typeof onGameIncrement === 'function') onGameIncrement(); } catch (_) {}
             // Clear pending outcome after applying
             pendingOutcome = null;
+            incrementTriggeredThisTick = true;
           }
-          if (t != null) lastDamageTime = t;
+          if (t != null) lastHudTime = t;
 
           const line = String(d.msg ?? '').trim();
           if (line) {
@@ -149,6 +174,8 @@ async function startScraper(callbacks) {
             // Reset outcome marker when mission is running again
             if (mstatus === 'running' && lastMissionOutcome) {
               lastMissionOutcome = null;
+              // Mission restarted: clear any pending outcome
+              pendingOutcome = null;
             }
           }
         } catch (_) { /* ignore mission fetch errors */ }
