@@ -3,7 +3,6 @@
     "index.js",
     "src",
     "settings.env",
-    "settings.json",
     "restart.flag"
   ],
   "ext": "js json env",

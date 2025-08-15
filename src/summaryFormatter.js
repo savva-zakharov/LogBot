@@ -61,7 +61,7 @@ function buildMergedSummary() {
       const v = resultsMap[String(gm)];
       indicator = (String(v) === 'true' || v === true) ? 'W' : ((String(v) === 'false' || v === false) ? 'L' : '');
     } catch (_) {}
-    const line = `${namePad} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${winTotal}:${lossTotal} |`;
+    const line = `${namePad} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${winTotal}/${lossTotal} |`;
     lines.push(line);
   }
 

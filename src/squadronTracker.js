@@ -253,6 +253,125 @@ function toNum(val) {
   return cleaned ? parseInt(cleaned, 10) : 0;
 }
 
+// --- Startup: fetch Squadron Battles season schedule and persist ---
+async function initSeasonSchedule() {
+  const url = 'https://forum.warthunder.com/t/season-schedule-for-squadron-battles/4446';
+  try {
+    console.log(`[SEASON] Fetching schedule from: ${url}`);
+    const raw = await fetchText(url);
+    if (!raw) {
+      console.warn('[SEASON] No HTML received from forum URL. Aborting schedule init.');
+      return;
+    }
+    const $ = cheerio.load(raw);
+    // Prefer the OpenGraph description which often summarizes the schedule in one line
+    const ogDesc = $('meta[property="og:description"]').attr('content') || '';
+    const metaDesc = ogDesc || $('meta[name="description"]').attr('content') || '';
+    if (!metaDesc) {
+      console.warn('[SEASON] No og:description/meta description found. Aborting schedule init.');
+      return;
+    }
+    console.log(`[SEASON] og:description length: ${metaDesc.length}`);
+    // Extract schedule-like snippets from the description; support EN/RU markers and a (dd.mm — dd.mm) date range
+    const lines = [];
+    const pushMatch = (m) => { const s = (m && m[0] ? m[0] : '').trim(); if (s) lines.push(s); };
+    // Patterns that include a date range in parens and either 'week' or 'Until the end of season' (EN/RU)
+    const reWeek = /(\bweek\b[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
+    const reWeekRu = /(недел[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
+    const reUntil = /(Until the end of season[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
+    const reUntilRu = /(До\s+конца\s+сезона[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
+    let m;
+    while ((m = reWeek.exec(metaDesc))) pushMatch(m);
+    while ((m = reWeekRu.exec(metaDesc))) pushMatch(m);
+    while ((m = reUntil.exec(metaDesc))) pushMatch(m);
+    while ((m = reUntilRu.exec(metaDesc))) pushMatch(m);
+    // Deduplicate while preserving order
+    const seen = new Set();
+    const scheduleLines = lines.filter(l => { if (seen.has(l)) return false; seen.add(l); return true; });
+    console.log(`[SEASON] Candidate lines: ${lines.length}; unique retained: ${scheduleLines.length}`);
+    if (!scheduleLines.length) {
+      console.warn('[SEASON] No schedule lines matched expected pattern. Aborting schedule init.');
+      return;
+    }
+    console.log(`[SEASON] First lines preview: ${scheduleLines.slice(0, 3).map(s => JSON.stringify(s)).join(' | ')}`);
+
+    // Write sqbbr.txt
+    try {
+      const outPath = path.join(process.cwd(), 'sqbbr.txt');
+      fs.writeFileSync(outPath, scheduleLines.join('\n') + '\n', 'utf8');
+      console.log(`[SEASON] Wrote schedule lines to ${outPath}`);
+    } catch (e) {
+      console.warn('[SEASON] Failed writing sqbbr.txt:', e && e.message ? e.message : e);
+    }
+
+    // Parse into settings.json seasonSchedule
+    const year = new Date().getUTCFullYear();
+    const parseEntry = (text) => {
+      // Example: "1st week мах BR 14.0 (01.07 — 06.07)"
+      // or "Until the end of season, мах BR 4.7 (25.08 — 31.08)"
+      const brMatch = text.match(/\b(?:BR|БР)\s*([0-9]+(?:\.[0-9]+)?)/i);
+      const rangeMatch = text.match(/\((\d{2})\.(\d{2})\s*[—-]\s*(\d{2})\.(\d{2})\)/);
+      let br = brMatch ? brMatch[1] : null;
+      let startDate = null, endDate = null;
+      if (rangeMatch) {
+        const [_, d1, m1, d2, m2] = rangeMatch;
+        const pad = (s) => String(s).padStart(2, '0');
+        startDate = `${year}-${pad(m1)}-${pad(d1)}`;
+        endDate = `${year}-${pad(m2)}-${pad(d2)}`;
+        // Warn if looks like year wrap (month decreases), we still keep same year by default
+        try {
+          if (parseInt(m2, 10) < parseInt(m1, 10)) {
+            console.warn(`[SEASON] Date range spans year boundary? '${text}' -> start ${startDate}, end ${endDate}`);
+          }
+        } catch (_) {}
+      }
+      return { br, startDate, endDate };
+    };
+
+    // Read current settings.json or create if missing
+    const settingsPath = path.join(process.cwd(), 'settings.json');
+    let settingsObj = {};
+    try {
+      if (fs.existsSync(settingsPath)) {
+        settingsObj = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) || {};
+      } else {
+        settingsObj = { players: {}, squadrons: {} };
+      }
+    } catch (_) { settingsObj = { players: {}, squadrons: {} }; }
+
+    const seasonSchedule = {};
+    let idx = 1;
+    for (const line of scheduleLines) {
+      const entry = parseEntry(line);
+      if (entry.br && entry.startDate && entry.endDate) {
+        seasonSchedule[String(idx)] = {
+          startDate: entry.startDate,
+          endDate: entry.endDate,
+          br: entry.br,
+        };
+        console.log(`[SEASON] Parsed #${idx}: br=${entry.br} start=${entry.startDate} end=${entry.endDate}`);
+        idx++;
+      } else {
+        if (!(entry.br)) console.warn('[SEASON] Parse failed: BR not found for line:', line);
+        if (!(entry.startDate && entry.endDate)) console.warn('[SEASON] Parse failed: dates not found for line:', line);
+      }
+    }
+    if (Object.keys(seasonSchedule).length) {
+      settingsObj.seasonSchedule = seasonSchedule;
+      try {
+        fs.writeFileSync(settingsPath, JSON.stringify(settingsObj, null, 2), 'utf8');
+        console.log(`[SEASON] Updated seasonSchedule in ${settingsPath}`);
+      } catch (e) {
+        console.warn('[SEASON] Failed writing settings.json:', e && e.message ? e.message : e);
+      }
+    } else {
+      console.warn('[SEASON] No valid parsed entries to write to settings.json');
+    }
+  } catch (e) {
+    console.warn('[SEASON] Unexpected error initializing season schedule:', e && e.message ? e.message : e);
+  }
+}
+
 async function findOnLeaderboardViaApi(tag) {
   try {
     const needle = String(tag || '').trim().toLowerCase();
@@ -698,6 +817,8 @@ function simplifyForComparison(snapshot) {
 
 async function startSquadronTracker() {
   const { squadronPageUrl } = loadSettings();
+  // Initialize season schedule on startup (best-effort)
+  try { await initSeasonSchedule(); } catch (_) {}
   if (!squadronPageUrl) {
     console.log('ℹ️ Squadron tracker disabled: no SQUADRON_PAGE_URL configured.');
     return { enabled: false };
