@@ -172,6 +172,7 @@ function incrementGame() {
   persistState();
   console.log(`🎮 Game incremented to ${state.currentGame}`);
   return true;
+  
 }
 
 function recordEntry(entry) {

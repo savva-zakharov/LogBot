@@ -9,6 +9,7 @@ const discord = require('./src/discordBot');
 const scraper = require('./src/scraper');
 const { runSetupWizard } = require('./src/setup');
 const { startSquadronTracker } = require('./src/squadronTracker');
+const { postLogs } = require('./src/missionEnd');
 
 // Global safety nets
 process.on('uncaughtException', (err) => {
@@ -70,6 +71,17 @@ async function main() {
     onGameIncrement: () => {
       if (state.incrementGame()) {
         server.broadcast({ type: 'game', message: 'New game started' });
+        // Post merged logs to Discord when a new game begins (after increment)
+        try {
+          const payload = postLogs(state.getCurrentGame());
+          if (payload && payload.ok) {
+            console.log(`[MISSION] POST-LOGS: posted logs for game ${payload.game} after increment`);
+          } else {
+            console.warn('[MISSION] POST-LOGS: failed to post logs after increment');
+          }
+        } catch (e) {
+          console.warn('[MISSION] POST-LOGS: error posting logs after increment:', e && e.message ? e.message : e);
+        }
       }
     },
     onEntry: (entry) => {

@@ -24,6 +24,17 @@ function processMissionEnd(type, game) {
   }
   const numericGame = parseInt(targetGame, 10);
   const result = state.recordResult(numericGame, type);
+  // Post logs to Discord and output CLI status
+  try {
+    const posted = postLogs(numericGame);
+    if (posted && posted.ok) {
+      console.log(`[MISSION] ${type.toUpperCase()}: posted logs for game ${posted.game}`);
+    } else {
+      console.warn(`[MISSION] ${type.toUpperCase()}: failed to post logs for game ${numericGame}`);
+    }
+  } catch (e) {
+    console.warn(`[MISSION] ${type.toUpperCase()}: error posting logs for game ${numericGame}:`, e && e.message ? e.message : e);
+  }
   return { ok: true, game: numericGame, type, result };
 }
 

@@ -938,14 +938,14 @@ async function startSquadronTracker() {
         }
 
         const msgLines = [];
-        msgLines.push(`📊 Squadron tracker update (${new Date().toLocaleString()})`);
+        msgLines.push(`• Squadron tracker update (${new Date().toLocaleString()})`);
 
-        // Total points change (site-reported and calculated)
+        // Squadron ponts change (site-reported and calculated)
         const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
-        if (pointsDelta != null && pointsDelta !== 0) {
-          msgLines.push(`• Total points: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
+        //if (pointsDelta != null && pointsDelta !== 0) {
+          //msgLines.push(`• Squadron ponts: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
           // Defer emitting event until after W/L inference so we can unify into one event
-        }
+        //}
 
         // Prepare interval stats for persistence
         let gainedPoints = 0;
@@ -1051,7 +1051,8 @@ async function startSquadronTracker() {
             : '± 0 points';
           const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
           const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
-          msgLines.push(`• Session: ${pointsChangeStr}; W/L ${wlSummary}; ${timeSummary}; session Δ ${sessionDeltaStr}; start ${startStr}; interval: ${intervalSummary}`);
+          msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (Δ ${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
+          msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
 
           // Helpers for monospace alignment
           const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
@@ -1075,7 +1076,7 @@ async function startSquadronTracker() {
           if (removed.length) {
             msgLines.push('• Departures:');
             msgLines.push(...buildLines(removed, '-'));
-            // Events: member leave (delta reflects squadron total points change)
+            // Events: member leave (delta reflects squadron Squadron ponts change)
             for (const r of removed) {
               const member = {
                 'Player': safeName(r),
@@ -1093,7 +1094,7 @@ async function startSquadronTracker() {
           if (added.length) {
             msgLines.push('• New members:');
             msgLines.push(...buildLines(added, '+'));
-            // Events: member join (delta reflects squadron total points change)
+            // Events: member join (delta reflects squadron Squadron ponts change)
             for (const r of added) {
               const member = {
                 'Player': safeName(r),
