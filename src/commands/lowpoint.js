@@ -332,13 +332,13 @@ module.exports = {
         return true;
       }
       if (id === 'lp_issue') {
-        const res = await issuer.issueRolesInGuild(interaction.guild);
+        const res = await issuer.issueRolesInGuild(interaction.guild, { preferredChannelId: interaction.channelId });
         const payload = await this.buildPanel(interaction.guild);
         await interaction.update({ ...payload, content: `Synced. Added: ${res.added}. Removed: ${res.removed}.` });
         return true;
       }
       if (id === 'lp_remove') {
-        const res = await issuer.removeRoleInGuild(interaction.guild);
+        const res = await issuer.removeRoleInGuild(interaction.guild, { preferredChannelId: interaction.channelId });
         const payload = await this.buildPanel(interaction.guild);
         await interaction.update({ ...payload, content: `Removed from ${res.removed} member(s).` });
         return true;

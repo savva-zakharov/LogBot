@@ -1,7 +1,7 @@
 // src/lowPointsIssuer.js
 const fs = require('fs');
 const path = require('path');
-const { getClient } = require('./discordBot');
+const { getClient, sendMessage } = require('./discordBot');
 const { bestMatchPlayer, toNumber } = require('./nameMatch');
 
 function readSettings() {
@@ -48,6 +48,7 @@ function getConfig() {
     matchMaxNormD: Number.isFinite(lp.matchMaxNormD) ? lp.matchMaxNormD : 0.35,
     memberRoleId: typeof lp.memberRoleId === 'string' ? lp.memberRoleId : null,
     memberRoleName: typeof lp.memberRoleName === 'string' ? lp.memberRoleName : null,
+    logChannelId: typeof lp.logChannelId === 'string' ? lp.logChannelId : null,
   };
 }
 
@@ -127,7 +128,7 @@ async function resolveRole(guild, roleId, roleName) {
   return null;
 }
 
-async function issueRolesInGuild(guild) {
+async function issueRolesInGuild(guild, options = {}) {
   const cfg = getConfig();
   const role = await resolveRole(guild, cfg.roleId, cfg.roleName);
   if (!role) return { added: 0, removed: 0, totalCandidates: 0, roleMissing: true };
@@ -139,7 +140,7 @@ async function issueRolesInGuild(guild) {
   }
 
   const allRows = getAllRows();
-  const candidates = new Map(); // key: memberId, value: true
+  const candidates = new Map(); // key: memberId, value: { display, player }
   const matchSamples = [];
   try { await guild.members.fetch(); } catch (_) {}
 
@@ -164,7 +165,8 @@ async function issueRolesInGuild(guild) {
       const below = rating < cfg.threshold;
       accepted = qualityOk && below;
       if (accepted) {
-        candidates.set(m.id, true);
+        const playerName = bm.row.Player || bm.row.player || null;
+        candidates.set(m.id, { display, player: playerName });
       }
       if (cfg.debug && matchSamples.length < 10) {
         matchSamples.push(`[MATCH ${accepted ? 'ACCEPT' : 'REJECT'}] member="${display}" -> player="${bm.row.Player || bm.row.player}" rating=${rating} ${below ? '(< thr)' : '(>= thr)'} tier=${bm.tier ?? '?'} normD=${(bm.normD ?? 0).toFixed(3)}`);
@@ -181,14 +183,19 @@ async function issueRolesInGuild(guild) {
 
   let added = 0;
   let removed = 0;
+  const addedMembers = [];
+  const removedMembers = [];
   // Add role to all candidates missing it
-  for (const [memberId] of candidates) {
+  for (const [memberId, info] of candidates) {
     try {
       const m = guild.members.cache.get(memberId) || await guild.members.fetch(memberId);
       if (!m) continue;
       if (!m.roles.cache.has(role.id)) {
         await m.roles.add(role, `Below low-points threshold ${cfg.threshold}`);
         added++;
+        const disp = (info && info.display) || m.nickname || m.user?.username || (m.user ? `${m.user.username}#${m.user.discriminator}` : String(memberId));
+        const pl = info && info.player ? String(info.player) : '';
+        addedMembers.push(pl ? `${disp} -> ${pl}` : disp);
       }
     } catch (_) {}
   }
@@ -198,26 +205,68 @@ async function issueRolesInGuild(guild) {
       if (m.roles.cache.has(role.id) && !candidates.has(m.id)) {
         await m.roles.remove(role, `No longer below threshold ${cfg.threshold}`);
         removed++;
+        const disp = m.nickname || m.user?.username || (m.user ? `${m.user.username}#${m.user.discriminator}` : String(m.id));
+        // try to resolve matched player name for clarity
+        let pl = '';
+        try {
+          const bm2 = bestMatchPlayer(allRows, disp);
+          if (bm2 && bm2.row) pl = String(bm2.row.Player || bm2.row.player || '');
+        } catch (_) {}
+        removedMembers.push(pl ? `${disp} -> ${pl}` : disp);
       }
     } catch (_) {}
   }
   console.log(`[LowPoints] Guild="${guild.name}" sync-complete added=${added} removed=${removed}`);
+  if (added || removed) {
+    const fmtList = (arr) => {
+      if (!arr.length) return '(none)';
+      const maxShow = 25;
+      const shown = arr.slice(0, maxShow);
+      const suffix = arr.length > maxShow ? ` ... (+${arr.length - maxShow} more)` : '';
+      return shown.join(', ') + suffix;
+    };
+    const lines = [];
+    lines.push(`LowPoints sync for guild "${guild.name}"`);
+    lines.push(`Role: ${role.name}`);
+    lines.push(`Threshold: ${cfg.threshold}`);
+    lines.push(`Eligible matched: ${candidates.size}`);
+    lines.push(`Added (${added}): ${fmtList(addedMembers)}`);
+    lines.push(`Removed (${removed}): ${fmtList(removedMembers)}`);
+    await sendMessage(lines.join('\n'));
+  }
   return { added, removed, totalCandidates: candidates.size, roleMissing: false };
 }
 
-async function removeRoleInGuild(guild) {
+async function removeRoleInGuild(guild, options = {}) {
   const cfg = getConfig();
   const role = await resolveRole(guild, cfg.roleId, cfg.roleName);
   if (!role) return { removed: 0, roleMissing: true };
   try { await guild.members.fetch(); } catch (_) {}
   let removed = 0;
+  const removedMembers = [];
+  const allRows = getAllRows();
   for (const [, m] of guild.members.cache) {
     try {
       if (m.roles.cache.has(role.id)) {
         await m.roles.remove(role, 'Low-points role removal');
         removed++;
+        const disp = m.nickname || m.user?.username || (m.user ? `${m.user.username}#${m.user.discriminator}` : String(m.id));
+        let pl = '';
+        try {
+          const bm2 = bestMatchPlayer(allRows, disp);
+          if (bm2 && bm2.row) pl = String(bm2.row.Player || bm2.row.player || '');
+        } catch (_) {}
+        removedMembers.push(pl ? `${disp} -> ${pl}` : disp);
       }
     } catch (_) {}
+  }
+  if (removed) {
+    const fmtList = (arr) => arr.length ? arr.slice(0, 40).join(', ') + (arr.length > 40 ? ` ... (+${arr.length - 40} more)` : '') : '(none)';
+    const lines = [];
+    lines.push(`LowPoints role cleared for guild "${guild.name}"`);
+    lines.push(`Role: ${role.name}`);
+    lines.push(`Removed (${removed}): ${fmtList(removedMembers)}`);
+    await sendMessage(lines.join('\n'));
   }
   return { removed, roleMissing: false };
 }
