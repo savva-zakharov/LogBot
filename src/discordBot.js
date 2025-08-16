@@ -291,6 +291,9 @@ async function resolveChannel() {
 async function init(settings) {
   const token = settings.discordBotToken;
   desiredChannelName = settings.discordChannel || '#general';
+  // Initialize optional channels from settings
+  desiredLogsChannelName = settings.discordLogsChannel || desiredLogsChannelName || '';
+  desiredWinLossChannelName = settings.discordWinLossChannell || desiredWinLossChannelName || '';
   appClientId = settings.clientId || process.env.CLIENT_ID || null;
   desiredGuildId = settings.guildId || process.env.GUILD_ID || null;
   if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -559,6 +562,11 @@ async function postMergedSummary() {
     const sent = await ch.send({ content });
     mergedSummaryMessageId = sent.id;
     mergedSummaryLastAt = now;
+    // Also post to logs channel if configured (no edit/merge semantics)
+    try {
+      const logsCh = await ensureLogsChannel();
+      if (logsCh && (!ch || logsCh.id !== ch.id)) { await logsCh.send({ content }); }
+    } catch (_) {}
     return sent;
   } catch (e) {
     console.error('❌ Discord: Failed to post merged summary:', e && e.message ? e.message : e);
@@ -637,6 +645,15 @@ async function sendMessage(content) {
 // Optional secondary channels: logs and win/loss
 async function ensureLogsChannel() {
   if (!client) return null;
+  // If no desired name has been set yet, attempt to read from settings.json lazily
+  if (!desiredLogsChannelName) {
+    try {
+      const s = loadSettings();
+      if (s && typeof s.discordLogsChannel === 'string' && s.discordLogsChannel.trim()) {
+        desiredLogsChannelName = s.discordLogsChannel;
+      }
+    } catch (_) {}
+  }
   if (!logsChannel && desiredLogsChannelName) {
     try { logsChannel = await resolveChannelByRaw(desiredLogsChannelName); } catch (_) {}
   }
@@ -697,6 +714,26 @@ async function postWinLossNotice(type, gameId) {
   }
 }
 
+// Send arbitrary content to the dedicated win/loss channel, if configured
+async function sendWinLossMessage(content) {
+  const ch = await ensureWinLossChannel();
+  if (!ch) {
+    console.warn('⚠️ Discord: sendWinLossMessage called but no win/loss channel resolved.');
+    return null;
+  }
+  try {
+    let text = String(content == null ? '' : content);
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('```')) {
+      text = '```\n' + text + '\n```';
+    }
+    return await ch.send({ content: text, allowedMentions: { parse: [] } });
+  } catch (e) {
+    console.warn('⚠️ Discord: failed to send win/loss message:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 async function postGameSummary(gameId) {
   if (!client) return;
   const ch = await ensureTargetChannel();
@@ -728,4 +765,4 @@ async function postGameSummary(gameId) {
 
 function getClient() { return client; }
 
-module.exports = { init, postGameSummary, postMergedSummary, postSummaryToLogs, postWinLossNotice, sendMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };
+module.exports = { init, postGameSummary, postMergedSummary, postSummaryToLogs, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };

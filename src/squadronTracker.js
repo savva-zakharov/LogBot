@@ -20,6 +20,8 @@ const HTML_REQUEST_HEADERS = {
 // Lazy accessor to avoid circular dependency at module load, memoized
 let __discordSendChecked = false;
 let __discordSendFn = null;
+let __discordWinLossChecked = false;
+let __discordWinLossFn = null;
 
 // --- Session state (W/L and starting points) ---
 // Resets at daily cutoff. In-memory only.
@@ -87,7 +89,7 @@ function getSquadronDataDateKeyOrNull() {
     if (!fs.existsSync(file)) return null;
     try {
       const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
-      // Legacy: array-based
+      // Legacy array support
       if (obj && Array.isArray(obj.squadronSnapshots)) {
         const arr = obj.squadronSnapshots;
         const last = arr.length ? arr[arr.length - 1] : null;
@@ -96,7 +98,7 @@ function getSquadronDataDateKeyOrNull() {
           if (!isNaN(d.getTime())) return dateKeyUTC(d);
         }
       }
-      // New: single-snapshot object with ts at root
+      // New single snapshot
       if (obj && obj.ts) {
         const d = new Date(obj.ts);
         if (!isNaN(d.getTime())) return dateKeyUTC(d);
@@ -205,6 +207,25 @@ function getDiscordSend() {
     } catch (_) { __discordSendFn = null; }
   }
   return __discordSendFn;
+}
+
+// Prefer posting squadron tracker updates to the dedicated win/loss channel if configured
+function getDiscordWinLossSend() {
+  if (!__discordWinLossChecked) {
+    __discordWinLossChecked = true;
+    try {
+      const mod = require('./discordBot');
+      // Configure win/loss channel from settings.json if present
+      try {
+        const s = loadSettings();
+        if (s && typeof s.discordWinLossChannell === 'string' && s.discordWinLossChannell.trim()) {
+          try { if (typeof mod.setWinLossChannel === 'function') mod.setWinLossChannel(s.discordWinLossChannell); } catch (_) {}
+        }
+      } catch (_) {}
+      __discordWinLossFn = (typeof mod.sendWinLossMessage === 'function') ? mod.sendWinLossMessage : null;
+    } catch (_) { __discordWinLossFn = null; }
+  }
+  return __discordWinLossFn;
 }
 
 // --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
@@ -1082,6 +1103,9 @@ async function startSquadronTracker() {
 
           // Compute gained/lost counts across common members by comparing Personal clan rating
           try {
+            // Track detailed per-player rating changes
+            const increasedMembers = [];
+            const decreasedMembers = [];
             prevMap.forEach((prevMember, name) => {
               const currMember = currMap.get(name);
               if (!currMember) return;
@@ -1090,20 +1114,111 @@ async function startSquadronTracker() {
               const prevRating = toNum(prevRatingRaw);
               const currRating = toNum(currRatingRaw);
               if (Number.isFinite(prevRating) && Number.isFinite(currRating)) {
-                if (currRating > prevRating) gainedPoints += 1;
-                else if (currRating < prevRating) lostPoints += 1;
+                const delta = currRating - prevRating;
+                if (delta > 0) {
+                  gainedPoints += 1;
+                  increasedMembers.push({
+                    player: name,
+                    from: prevRating,
+                    to: currRating,
+                    delta,
+                  });
+                } else if (delta < 0) {
+                  lostPoints += 1;
+                  decreasedMembers.push({
+                    player: name,
+                    from: prevRating,
+                    to: currRating,
+                    delta,
+                  });
+                }
               }
             });
+            // Expose in outer scope for later event logging
+            captureOnce.__lastIncreasedMembers = increasedMembers;
+            captureOnce.__lastDecreasedMembers = decreasedMembers;
           } catch (_) {}
 
-          // Infer matches won/lost from counts (mirror Python thresholds)
-          if (gainedPoints > 4 && gainedPoints < 9) matchesWon = 1;
-          else if (gainedPoints > 12 && gainedPoints < 17) matchesWon = 2;
-          else if (gainedPoints > 20) matchesWon = 3;
+          // Improved inference of matches won/lost based on per-player point-change bands
+          //  - Uses known/derived deltas by player rating band (from shared table)
+          //  - Infers (wins, losses) per player from their rating delta, then aggregates across players
+          //  - Approximates team matches by dividing by 8 (typical team size)
+          //  - Falls back to legacy count-based heuristic if uncertain
 
-          if (lostPoints > 4 && lostPoints < 9) matchesLost = 1;
-          else if (lostPoints > 12 && lostPoints < 17) matchesLost = 2;
-          else if (lostPoints > 20) matchesLost = 3;
+          // Helper: map player's rating to expected per-game win/loss deltas
+          const bandFor = (pts) => {
+            const p = Number(pts);
+            if (!Number.isFinite(p)) return { win: null, loss: null };
+            if (p <= 800) return { win: 32, loss: -1 };
+            if (p < 1500) return { win: 20, loss: -8 }; // heuristic gap fill
+            if (p < 1600) return { win: 16, loss: -16 };
+            if (p < 1700) return { win: 12, loss: -24 }; // ratio ~2:1
+            if (p < 1800) return { win: 8,  loss: -28 }; // ratio ~3.5:1
+            if (p < 1850) return { win: 5,  loss: -30 }; // ratio ~6:1
+            if (p < 1865) return { win: 4,  loss: -28 };
+            if (p < 2000) return { win: 3,  loss: -29 };
+            return { win: 1, loss: -32 }; // 2000+
+          };
+
+          // Helper: find a small (w,l) explaining delta with given per-game deltas
+          const inferWL = (delta, win, loss) => {
+            const tol = 1; // allow small variance ±1
+            if (!Number.isFinite(delta) || !win || !loss) return null;
+            let best = null;
+            for (let w = 0; w <= 5; w++) {
+              for (let l = 0; l <= 5; l++) {
+                const v = w * win + l * loss;
+                const err = Math.abs(v - delta);
+                if (err <= tol) {
+                  const total = w + l;
+                  if (!best || err < best.err || (err === best.err && (total < best.total || (total === best.total && w > best.w)))) {
+                    best = { w, l, err, total };
+                  }
+                }
+              }
+            }
+            return best ? { wins: best.w, losses: best.l, err: best.err } : null;
+          };
+
+          // Use detailed per-player deltas if available
+          let aggWins = 0;
+          let aggLosses = 0;
+          let inferredPlayers = 0;
+          try {
+            const changed = [];
+            for (const [name, prevMember] of prevMap.entries()) {
+              const currMember = currMap.get(name);
+              if (!currMember) continue;
+              const from = toNum((prevMember['Personal clan rating'] || prevMember['rating'] || prevMember['Points'] || '').toString());
+              const to = toNum((currMember['Personal clan rating'] || currMember['rating'] || currMember['Points'] || '').toString());
+              const delta = to - from;
+              if (!delta) continue;
+              const { win, loss } = bandFor(Math.min(from, to));
+              const est = inferWL(delta, win, loss);
+              if (est) {
+                aggWins += est.wins;
+                aggLosses += est.losses;
+                inferredPlayers++;
+              }
+            }
+          } catch (_) {}
+
+          if (inferredPlayers > 0) {
+            // Approximate team matches by dividing by 8 and rounding
+            matchesWon = Math.max(0, Math.round(aggWins / 8));
+            matchesLost = Math.max(0, Math.round(aggLosses / 8));
+          }
+
+          // Fallback heuristic (legacy) if nothing inferred
+          if ((matchesWon | matchesLost) === 0) {
+            if (gainedPoints > 4 && gainedPoints < 9) matchesWon = 1;
+            else if (gainedPoints > 12 && gainedPoints < 17) matchesWon = 2;
+            else if (gainedPoints > 20) matchesWon = 3;
+
+            if (lostPoints > 4 && lostPoints < 9) matchesLost = 1;
+            else if (lostPoints > 12 && lostPoints < 17) matchesLost = 2;
+            else if (lostPoints > 20) matchesLost = 3;
+          }
 
           // Initialize/advance session state
           const now = new Date();
@@ -1130,6 +1245,9 @@ async function startSquadronTracker() {
           // Emit a single unified points_change event enriched with W/L and interval info
           try {
             if (pointsDelta != null && pointsDelta !== 0) {
+              // Cap per-player arrays to avoid oversized entries
+              const inc = Array.isArray(captureOnce.__lastIncreasedMembers) ? captureOnce.__lastIncreasedMembers.slice(0, 50) : [];
+              const dec = Array.isArray(captureOnce.__lastDecreasedMembers) ? captureOnce.__lastDecreasedMembers.slice(0, 50) : [];
               appendEvent({
                 type: 'points_change',
                 delta: pointsDelta,
@@ -1142,11 +1260,20 @@ async function startSquadronTracker() {
                 matchesLost,
                 gainedPlayers: gainedPoints,
                 lostPlayers: lostPoints,
+                membersIncreased: inc,
+                membersDecreased: dec,
                 dateKey: __session.dateKey,
               });
+              // Emit individual events for each changed member
+              for (const e of inc) {
+                appendEvent({ type: 'member_points_change', direction: 'up', ...e, dateKey: __session.dateKey });
+              }
+              for (const e of dec) {
+                appendEvent({ type: 'member_points_change', direction: 'down', ...e, dateKey: __session.dateKey });
+              }
             }
           } catch (_) {}
-
+          
           // Compose a session summary line akin to Python's tracker output
           const hh = String(now.getUTCHours()).padStart(2, '0');
           const mm = String(now.getUTCMinutes()).padStart(2, '0');
@@ -1161,7 +1288,7 @@ async function startSquadronTracker() {
             : '± 0 points';
           const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
           const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
-          msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (Δ ${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
+          msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
           msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
 
           // Helpers for monospace alignment
@@ -1223,9 +1350,15 @@ async function startSquadronTracker() {
 
         const composed = msgLines.join('\n');
         console.log(composed);
-        const send = getDiscordSend();
-        if (send) {
-          try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
+        // Prefer dedicated win/loss channel if configured; fallback to default channel
+        const sendWL = getDiscordWinLossSend();
+        if (sendWL) {
+          try { await sendWL(composed); } catch (_) { /* ignore */ }
+        } else {
+          const send = getDiscordSend();
+          if (send) {
+            try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
+          }
         }
       } catch (e) {
         console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);
