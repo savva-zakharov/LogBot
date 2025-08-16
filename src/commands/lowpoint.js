@@ -1,5 +1,5 @@
 // src/commands/lowpoint.js
-const { MessageFlags } = require('discord.js');
+const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const issuer = require('../lowPointsIssuer');
 
 module.exports = {
@@ -56,11 +56,56 @@ module.exports = {
           { type: 3, name: 'value', description: 'Role name or ID', required: true }, // STRING
         ],
       },
+      {
+        type: 1,
+        name: 'panel',
+        description: 'Show Low Points control panel with interactive buttons',
+      },
     ],
+  },
+  async buildPanel(guild) {
+    const cfg = issuer.getConfig();
+    const roleDisp = cfg.roleId || cfg.roleName || '(not set)';
+    const limiterDisp = cfg.memberRoleId || cfg.memberRoleName || '(none)';
+    const eligible = guild ? await issuer.computeEligibleCount(guild) : 0;
+    const assigned = guild ? await issuer.countAssigned(guild) : 0;
+    const em = new EmbedBuilder()
+      .setTitle('Low Points Control Panel')
+      .setDescription('Manage the low-points role. Use /lowpoint set, /lowpoint role, /lowpoint memberrole to change values.')
+      .setColor(cfg.enabled ? 0x3ba55d : 0x808080)
+      .addFields(
+        { name: 'Threshold', value: String(cfg.threshold), inline: true },
+        { name: 'Role', value: roleDisp, inline: true },
+        { name: 'Limiter Role', value: limiterDisp, inline: true },
+        { name: 'Enabled', value: String(!!cfg.enabled), inline: true },
+        { name: 'Eligible Now', value: String(eligible), inline: true },
+        { name: 'Assigned Now', value: String(assigned), inline: true },
+      );
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_issue').setLabel('Sync').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('lp_set_thr').setLabel('Set Threshold').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_role').setLabel('Set Role').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_limiter').setLabel('Set Limiter').setStyle(ButtonStyle.Primary),
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_start').setLabel('Start Auto').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_stop').setLabel('Stop Auto').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_refresh').setLabel('Refresh ui').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary)
+    );
+    const row3 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_remove').setLabel('Remove All').setStyle(ButtonStyle.Danger),
+    );
+    return { embeds: [em], components: [row1, row2, row3] };
   },
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     try {
+      if (sub === 'panel') {
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+        return;
+      }
       if (sub === 'set') {
         const val = interaction.options.getInteger('value') ?? 1300;
         const thr = Number(val);
@@ -198,5 +243,136 @@ module.exports = {
         }
       } catch (_) {}
     }
+  },
+  async handleComponent(interaction) {
+    // Handle button clicks and modal submissions for low-points panel
+    if (!(interaction.isButton() || interaction.isModalSubmit())) return false;
+    const id = interaction.customId || '';
+    if (!(id.startsWith('lp_') || id === 'lp_thr_modal')) return false;
+    try {
+      if (interaction.isButton() && id === 'lp_set_thr') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder()
+          .setCustomId('lp_thr_modal')
+          .setTitle('Set Low-Points Threshold');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_thr_value')
+          .setLabel('Threshold (integer)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('e.g., 1300')
+          .setValue(String(cfg.threshold || 1300));
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_thr_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_thr_value') || '').trim();
+        const thr = Number(raw);
+        if (!Number.isFinite(thr) || thr <= 0) {
+          await interaction.reply({ content: 'Invalid threshold. Please enter a positive integer.', flags: MessageFlags.Ephemeral });
+          return true;
+        }
+        issuer.saveConfig({ threshold: Math.floor(thr) });
+        await interaction.reply({ content: `Threshold set to ${Math.floor(thr)}. Use the panel\'s Refresh to update.`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_set_role') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder().setCustomId('lp_role_modal').setTitle('Set Low-Points Role');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_role_value')
+          .setLabel('Role name or ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('e.g., 123456789012345678 or @RoleName')
+          .setValue(String(cfg.roleId || cfg.roleName || ''));
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_role_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_role_value') || '').trim();
+        const cleaned = raw.replace(/^<@&?(\d+)>$/, '$1');
+        const isId = /^\d{10,}$/.test(cleaned);
+        const payload = isId ? { roleId: cleaned, roleName: null } : { roleName: raw, roleId: null };
+        issuer.saveConfig(payload);
+        await interaction.reply({ content: `Low-points role set to ${isId ? `ID ${payload.roleId}` : `name "${payload.roleName}"`}. Use Issue Sync to apply, then Refresh.`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_set_limiter') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder().setCustomId('lp_limiter_modal').setTitle('Set Limiter Role');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_limiter_value')
+          .setLabel('Role name or ID (optional to clear)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder('Leave empty to clear')
+          .setValue(String(cfg.memberRoleId || cfg.memberRoleName || ''));
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_limiter_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_limiter_value') || '').trim();
+        if (!raw) {
+          issuer.saveConfig({ memberRoleId: null, memberRoleName: null });
+          await interaction.reply({ content: 'Limiter role cleared. Use Refresh to update.', flags: MessageFlags.Ephemeral });
+          return true;
+        }
+        const cleaned = raw.replace(/^<@&?(\d+)>$/, '$1');
+        const isId = /^\d{10,}$/.test(cleaned);
+        const payload = isId ? { memberRoleId: cleaned, memberRoleName: null } : { memberRoleName: raw, memberRoleId: null };
+        issuer.saveConfig(payload);
+        await interaction.reply({ content: `Limiter role set to ${isId ? `ID ${payload.memberRoleId}` : `name "${payload.memberRoleName}"`}. Use Issue Sync to apply, then Refresh.`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (id === 'lp_issue') {
+        const res = await issuer.issueRolesInGuild(interaction.guild);
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: `Synced. Added: ${res.added}. Removed: ${res.removed}.` });
+        return true;
+      }
+      if (id === 'lp_remove') {
+        const res = await issuer.removeRoleInGuild(interaction.guild);
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: `Removed from ${res.removed} member(s).` });
+        return true;
+      }
+      if (id === 'lp_start') {
+        issuer.saveConfig({ enabled: true });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: 'Auto-issuing enabled.' });
+        return true;
+      }
+      if (id === 'lp_stop') {
+        issuer.saveConfig({ enabled: false });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: 'Auto-issuing disabled.' });
+        return true;
+      }
+      if (id === 'lp_list') {
+        const cfg = issuer.getConfig();
+        const rows = issuer.getRowsBelowThreshold(cfg.threshold);
+        const toNum = (v) => { const s = String(v ?? '').replace(/[^0-9]/g, ''); return s ? parseInt(s, 10) : 0; };
+        rows.sort((a,b) => toNum(a['Personal clan rating'] ?? a.rating) - toNum(b['Personal clan rating'] ?? b.rating));
+        const lines = rows.slice(0, 40).map(r => `${r.Player || r.player || '(unknown)'} — ${toNum(r['Personal clan rating'] ?? r.rating)}`);
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: '```\n' + (lines.join('\n') || 'No members below threshold') + '\n```' });
+        return true;
+      }
+      if (id === 'lp_refresh') {
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.update({ ...payload, content: 'Refreshed.' });
+        return true;
+      }
+    } catch (e) {
+      try { await interaction.reply({ content: 'Error handling action.', flags: MessageFlags.Ephemeral }); } catch (_) {}
+    }
+    return false;
   }
 };

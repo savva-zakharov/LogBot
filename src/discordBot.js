@@ -229,6 +229,17 @@ async function init(settings) {
   // Generic command dispatcher
   client.on('interactionCreate', async (interaction) => {
     try {
+      // Route component interactions for lowpoint panel (buttons + modals)
+      if (interaction.isButton() || interaction.isModalSubmit()) {
+        const id = interaction.customId || '';
+        if (id.startsWith('lp_') || id === 'lp_thr_modal') {
+          const lowpoint = commands.get('lowpoint');
+          if (lowpoint && typeof lowpoint.handleComponent === 'function') {
+            const handled = await lowpoint.handleComponent(interaction);
+            if (handled) return;
+          }
+        }
+      }
       if (!interaction.isChatInputCommand()) return;
       const cmd = commands.get(interaction.commandName);
       if (!cmd) return;

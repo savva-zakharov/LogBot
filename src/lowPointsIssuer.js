@@ -13,6 +13,20 @@ function readSettings() {
   } catch (_) { return {}; }
 }
 
+async function countAssigned(guild) {
+  try {
+    const cfg = getConfig();
+    const role = await resolveRole(guild, cfg.roleId, cfg.roleName);
+    if (!role) return 0;
+    try { await guild.members.fetch(); } catch (_) {}
+    let count = 0;
+    for (const [, m] of guild.members.cache) {
+      try { if (m.roles?.cache?.has(role.id)) count++; } catch (_) {}
+    }
+    return count;
+  } catch (_) { return 0; }
+}
+
 function writeSettings(obj) {
   const file = path.join(process.cwd(), 'settings.json');
   try {
@@ -67,6 +81,35 @@ function getAllRows() {
 function getRowsBelowThreshold(threshold) {
   const rows = getAllRows();
   return rows.filter(r => toNumber(r['Personal clan rating'] ?? r.rating) < threshold);
+}
+
+async function computeEligibleCount(guild) {
+  try {
+    const cfg = getConfig();
+    const allRows = getAllRows();
+    if (!guild) return 0;
+    try { await guild.members.fetch(); } catch (_) {}
+    // Optional limiter pool
+    let baseRole = null;
+    if (cfg.memberRoleId || cfg.memberRoleName) {
+      try { baseRole = await resolveRole(guild, cfg.memberRoleId, cfg.memberRoleName); } catch (_) {}
+    }
+    const pool = baseRole ? guild.members.cache.filter(m => m.roles?.cache?.has(baseRole.id)) : guild.members.cache;
+    let count = 0;
+    for (const [, m] of pool) {
+      const display = m.nickname || m.user?.username || '';
+      if (!display) continue;
+      const bm = bestMatchPlayer(allRows, display);
+      if (!bm || !bm.row) continue;
+      const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
+      if (!qualityOk) continue;
+      const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
+      if (rating < cfg.threshold) count++;
+    }
+    return count;
+  } catch (_) {
+    return 0;
+  }
 }
 
 async function resolveRole(guild, roleId, roleName) {
@@ -196,6 +239,8 @@ module.exports = {
   getConfig,
   saveConfig,
   getRowsBelowThreshold,
+  computeEligibleCount,
+  countAssigned,
   issueRolesInGuild,
   removeRoleInGuild,
   autoIssueAfterSnapshot,
