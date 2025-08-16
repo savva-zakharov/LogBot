@@ -38,6 +38,15 @@
     .toggle-btn { background: #1e1e1e; color: #bbb; border: 1px solid #444; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
     .toggle-btn:hover { background: #2a2a2a; color: #fff; }
     .collapsed { display: none !important; }
+    .game-switcher { display: flex; align-items: center; gap: 6px; }
+    .status-switcher { display: flex; align-items: center; gap: 6px; }
+    .btn-alive { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
+    .btn-alive:hover { background: #1b5e20; }
+    .btn-destroyed { background: #c62828; border-color: #8e0000; color: #ffebee; }
+    .btn-destroyed:hover { background: #8e0000; }
+    .btn-neutral { background: #3a3a3a; border-color: #555; color: #ddd; }
+    .btn-neutral:hover { background: #2f2f2f; }
+    .btn.selected { outline: 2px solid #90CAF9; }
   </style>
   <script>
     let rows = [];
@@ -49,6 +58,7 @@
     const ws = new WebSocket('ws://localhost:3001');
     let gameMeta = { squadNo: '', gc: '', ac: '', game: null };
     const OUTPUT_ORDER = ['Medium','Heavy','Light','SPG','Fighter','Attacker','Bomber','Heli','SPAA'];
+    let statusFilter = 'all';
 
     async function fetchGames() {
       const [gamesResp, currentResp] = await Promise.all([
@@ -58,6 +68,37 @@
       const games = await gamesResp.json();
       const current = (await currentResp.json()).currentGame;
       return { games, current };
+    }
+
+    // Change selected game by +/- 1 within available list
+    async function changeGameBy(delta) {
+      try {
+        const gameSel = document.getElementById('filterGame');
+        const { games, current } = await fetchGames();
+        if (!Array.isArray(games) || games.length === 0) return;
+        const sorted = games.slice().sort((a,b) => a-b);
+        let curVal = gameSel.value;
+        let curNum;
+        if (curVal === 'current') curNum = Number(current);
+        else if (curVal === 'all') curNum = Number(current);
+        else curNum = Number(curVal);
+        if (!Number.isFinite(curNum)) curNum = Number(current);
+        let idx = sorted.findIndex(g => Number(g) === curNum);
+        if (idx < 0) idx = 0;
+        let nextIdx = Math.min(sorted.length - 1, Math.max(0, idx + (delta || 0)));
+        const nextGame = String(sorted[nextIdx]);
+        // Update selector and persist
+        gameSel.value = nextGame;
+        localStorage.setItem('selectedGame', nextGame);
+        // Refresh data
+        await fetchRowsForSelectedGame();
+        await fetchSummariesForSelectedGame();
+        await fetchAllSummaries();
+        await fetchMetaForSelectedGame();
+        await fetchResults();
+        await fetchMergedSummary();
+        applyFiltersAndRender();
+      } catch (_) {}
     }
 
     async function fetchMetaForSelectedGame() {
@@ -266,10 +307,8 @@
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
           await fetchAllSummaries();
-      await fetchResults();
-      await fetchMergedSummary();
-      await fetchResults();
-      await fetchMergedSummary();
+          await fetchResults();
+          await fetchMergedSummary();
           applyFiltersAndRender();
         } else {
           console.error('Failed to record result:', data && data.error);
@@ -301,7 +340,7 @@
       const squadron = document.getElementById('filterSquadron').value;
       const player = document.getElementById('filterPlayer').value;
       const vehicle = document.getElementById('filterVehicle').value;
-      const status = document.getElementById('filterStatus').value;
+      const status = statusFilter;
       const type = document.getElementById('filterType').value;
 
       const filtered = rows.filter(r => (
@@ -447,13 +486,12 @@
       await fetchMergedSummary();
 
       // Initialize status and type filters
-      document.getElementById('filterStatus').value = 'all';
       document.getElementById('filterType').value = 'all';
 
       applyFiltersAndRender();
 
       // Wire events
-      ['filterGame', 'filterSquadron', 'filterPlayer', 'filterVehicle', 'filterStatus', 'filterType'].forEach(id => {
+      ['filterGame', 'filterSquadron', 'filterPlayer', 'filterVehicle', 'filterType'].forEach(id => {
         document.getElementById(id).addEventListener('change', async (e) => {
           if (id === 'filterGame') {
             localStorage.setItem('selectedGame', e.target.value);
@@ -471,6 +509,35 @@
       const postBtn = document.getElementById('btnPostLogs');
       if (postBtn) postBtn.addEventListener('click', postLogs);
       document.getElementById('btnSaveMeta').addEventListener('click', saveMetaForSelectedGame);
+      const prevBtn = document.getElementById('btnPrevGame');
+      const nextBtn = document.getElementById('btnNextGame');
+      if (prevBtn) prevBtn.addEventListener('click', () => changeGameBy(-1));
+      if (nextBtn) nextBtn.addEventListener('click', () => changeGameBy(1));
+      // Wire status buttons
+      const bAlive = document.getElementById('btnStatusAlive');
+      const bDestroyed = document.getElementById('btnStatusDestroyed');
+      const bReset = document.getElementById('btnStatusReset');
+      function reflectStatusButtons() {
+        const sel = (v) => v === statusFilter;
+        if (bAlive) bAlive.classList.toggle('selected', sel('active'));
+        if (bDestroyed) bDestroyed.classList.toggle('selected', sel('destroyed'));
+        if (bReset) bReset.classList.toggle('selected', sel('all'));
+      }
+      window.setStatusFilter = function(v) {
+        statusFilter = v;
+        localStorage.setItem('statusFilter', v);
+        reflectStatusButtons();
+        applyFiltersAndRender();
+      };
+      if (bAlive) bAlive.addEventListener('click', () => setStatusFilter('active'));
+      if (bDestroyed) bDestroyed.addEventListener('click', () => setStatusFilter('destroyed'));
+      if (bReset) bReset.addEventListener('click', () => setStatusFilter('all'));
+      // Initialize from saved
+      try {
+        const saved = localStorage.getItem('statusFilter');
+        statusFilter = (saved === 'active' || saved === 'destroyed' || saved === 'all') ? saved : 'all';
+      } catch (_) { statusFilter = 'all'; }
+      reflectStatusButtons();
     }
 
     ws.onmessage = async (ev) => {
@@ -495,6 +562,18 @@
           applyFiltersAndRender();
         } else if (data.type === 'match' || data.type === 'destroyed' || data.type === 'update') {
           // If current selected game is active, refresh rows
+          await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
+          await fetchMetaForSelectedGame();
+          await fetchResults();
+          await fetchMergedSummary();
+          applyFiltersAndRender();
+        } else if (data.type === 'reset') {
+          // On reset, switch to current and refresh all views
+          const gameSel = document.getElementById('filterGame');
+          gameSel.value = 'current';
+          localStorage.setItem('selectedGame', 'current');
           await fetchRowsForSelectedGame();
           await fetchSummariesForSelectedGame();
           await fetchAllSummaries();
@@ -530,7 +609,40 @@
         console.error('Error posting logs:', e);
       }
     }
+
+    // Reset state: clear entries and reset game counter (preserve telemetry)
+    async function resetState() {
+      try {
+        const resp = await fetch('/api/reset', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) {
+          console.error('Failed to reset:', data && data.error);
+          return;
+        }
+        // Switch to current game and refresh all views
+        const gameSel = document.getElementById('filterGame');
+        if (gameSel) {
+          gameSel.value = 'current';
+          localStorage.setItem('selectedGame', 'current');
+        }
+        await fetchRowsForSelectedGame();
+        await fetchSummariesForSelectedGame();
+        await fetchAllSummaries();
+        await fetchMetaForSelectedGame();
+        await fetchResults();
+        await fetchMergedSummary();
+        applyFiltersAndRender();
+      } catch (e) {
+        console.error('Error resetting state:', e);
+      }
+    }
+
     window.addEventListener('load', init);
+    // Wire reset button after load as well
+    window.addEventListener('load', function(){
+      const rb = document.getElementById('btnReset');
+      if (rb) rb.addEventListener('click', resetState);
+    });
   </script>
 </head>
 <body>
@@ -545,18 +657,23 @@
       <button id="btnWin" class="btn btn-win">Record Win</button>
       <button id="btnLoss" class="btn btn-loss">Record Loss</button>
       <button id="btnPostLogs">Post Logs</button>
+      <button id="btnReset" class="btn">Reset</button>
     </div>
     <h2 class="section-title">Current Game</h2>
     <div class="filters">
-      <select id="filterGame"></select>
+      <div class="game-switcher">
+        <button id="btnPrevGame" class="btn" title="Previous game" type="button">◀</button>
+        <select id="filterGame"></select>
+        <button id="btnNextGame" class="btn" title="Next game" type="button">▶</button>
+      </div>
       <select id="filterSquadron"><option value="all">All Squadrons</option></select>
       <select id="filterPlayer"><option value="all">All Players</option></select>
       <select id="filterVehicle"><option value="all">All Vehicles</option></select>
-      <select id="filterStatus">
-        <option value="all">All Status</option>
-        <option value="active">Active</option>
-        <option value="destroyed">Destroyed</option>
-      </select>
+      <div class="status-switcher">
+        <button id="btnStatusAlive" class="btn btn-alive" type="button" title="Show Active">Active</button>
+        <button id="btnStatusDestroyed" class="btn btn-destroyed" type="button" title="Show Destroyed">Destroyed</button>
+        <button id="btnStatusReset" class="btn btn-neutral" type="button" title="Show All">Both</button>
+      </div>
       <select id="filterType">
         <option value="all">All Types</option>
         <option value="light tank">Light Tank</option>

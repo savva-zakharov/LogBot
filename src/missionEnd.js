@@ -24,19 +24,7 @@ function processMissionEnd(type, game) {
   }
   const numericGame = parseInt(targetGame, 10);
   const result = state.recordResult(numericGame, type);
-  // Post logs to Discord and output CLI status
-  try {
-    // Post a compact win/loss notice to the dedicated channel (if configured)
-    try { discord.postWinLossNotice(type, numericGame); } catch (_) {}
-    const posted = postLogs(numericGame);
-    if (posted && posted.ok) {
-      console.log(`[MISSION] ${type.toUpperCase()}: posted logs for game ${posted.game}`);
-    } else {
-      console.warn(`[MISSION] ${type.toUpperCase()}: failed to post logs for game ${numericGame}`);
-    }
-  } catch (e) {
-    console.warn(`[MISSION] ${type.toUpperCase()}: error posting logs for game ${numericGame}:`, e && e.message ? e.message : e);
-  }
+  // Do not auto-post to Discord on result record. Posting is now manual via /api/post-logs.
   return { ok: true, game: numericGame, type, result };
 }
 
@@ -46,10 +34,8 @@ function processMissionEnd(type, game) {
  * @returns {{ ok: boolean, game: number }}
  */
 function postLogs(game) {
-  // For merged behavior, ignore per-game and post/edit the total summary instead
+  // Post/edit the merged summary instead of per-game summaries
   try { discord.postMergedSummary(); } catch (_) {}
-  // Also post the current game's summary into the dedicated logs channel (if configured)
-  try { discord.postSummaryToLogs(game); } catch (_) {}
   // Retain response shape for compatibility; report current game for UI context
   const numericGame = parseInt((game == null || game === 'current' || game === 'all') ? state.getCurrentGame() : game, 10);
   return { ok: true, game: numericGame };

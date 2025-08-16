@@ -1,0 +1,561 @@
+{
+  "entries": [
+    {
+      "ts": "2025-08-16T17:48:39.958Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:48:55.703Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:49:10.716Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:49:25.725Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:49:40.732Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:49:55.741Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:50:10.753Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:50:25.766Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:50:40.772Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:50:55.787Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:51:10.799Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:51:25.810Z",
+      "dr_era5_hist": null,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:52:15.189Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:52:30.873Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:52:45.876Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:53:00.879Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:53:15.884Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:53:30.894Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:53:45.896Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:54:00.897Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:54:15.899Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:54:30.907Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:54:45.915Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:55:00.916Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:55:15.918Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369
+    },
+    {
+      "ts": "2025-08-16T17:55:25.714Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:55:41.426Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:55:56.435Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38369,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:56:11.439Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "web"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:56:26.441Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:56:41.446Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:56:56.458Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:57:11.464Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:57:26.467Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:57:41.477Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:57:56.491Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:58:11.498Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:58:26.501Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:58:41.504Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:58:56.507Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:59:11.512Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:59:26.520Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:59:41.533Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T17:59:56.535Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:00:11.548Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:00:26.555Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:00:41.559Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:00:56.563Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:01:11.571Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:01:26.580Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:01:41.586Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:01:56.595Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:02:11.599Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:02:26.606Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:02:41.609Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:02:56.613Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:03:11.625Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:03:26.640Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:03:41.644Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:03:56.656Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:04:11.657Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:04:26.670Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:04:41.671Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:04:56.686Z",
+      "dr_era5_hist": 38365,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:05:11.693Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "api"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:05:26.707Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:05:41.716Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:05:56.722Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:06:11.723Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:06:26.727Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:06:41.730Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:06:56.733Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    },
+    {
+      "ts": "2025-08-16T18:07:04.028Z",
+      "dr_era5_hist": 38357,
+      "squadron_rating": 38361,
+      "diff": {
+        "present": true,
+        "first": "unknown"
+      }
+    }
+  ]
+}

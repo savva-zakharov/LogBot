@@ -1252,7 +1252,7 @@ async function startSquadronTracker() {
                 type: 'points_change',
                 delta: pointsDelta,
                 from: prevTotal,
-                to: newTotal,
+                  to: newTotal,
                 place: squadronPlace ?? null,
                 totalPointsAbove: totalPointsAbove ?? null,
                 totalPointsBelow: totalPointsBelow ?? null,
@@ -1264,13 +1264,7 @@ async function startSquadronTracker() {
                 membersDecreased: dec,
                 dateKey: __session.dateKey,
               });
-              // Emit individual events for each changed member
-              for (const e of inc) {
-                appendEvent({ type: 'member_points_change', direction: 'up', ...e, dateKey: __session.dateKey });
-              }
-              for (const e of dec) {
-                appendEvent({ type: 'member_points_change', direction: 'down', ...e, dateKey: __session.dateKey });
-              }
+              
             }
           } catch (_) {}
           

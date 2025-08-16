@@ -128,11 +128,28 @@ let desiredGuildId = null; // Optional guild to scope operations
 let appClientId = null; // Optional application client id
 // Loaded command modules keyed by command name
 const commands = new Map();
-// Track per-game summary message IDs so we can edit instead of posting new
-const summaryMessages = new Map(); // key: gameId (Number), value: messageId (String)
 // Track merged summary last message to edit-if-recent
 let mergedSummaryMessageId = null;
 let mergedSummaryLastAt = 0; // ms epoch
+// Persisted reference to allow editing across restarts
+const SUMMARY_REF_FILE = path.join(process.cwd(), '.merged_summary_ref.json');
+
+function loadMergedSummaryRef() {
+  try {
+    const raw = fs.readFileSync(SUMMARY_REF_FILE, 'utf8');
+    const j = JSON.parse(raw || '{}');
+    if (j && j.channelId && j.messageId) {
+      return { channelId: String(j.channelId), messageId: String(j.messageId) };
+    }
+  } catch (_) {}
+  return null;
+}
+
+function saveMergedSummaryRef(ref) {
+  try {
+    fs.writeFileSync(SUMMARY_REF_FILE, JSON.stringify({ channelId: ref.channelId, messageId: ref.messageId }, null, 2), 'utf8');
+  } catch (_) {}
+}
 
 function stripHash(name) {
   if (!name) return '';
@@ -538,35 +555,48 @@ function formatMergedSummaryText() {
   }
 }
 
-// Post or edit the merged summary message (edit if recently posted)
+// Post or edit the merged summary message (always try edit; persist ref across restarts)
 async function postMergedSummary() {
-  const ch = await ensureTargetChannel();
+  // Prefer logs channel; fallback to default target channel
+  let ch = await ensureLogsChannel();
+  if (!ch) ch = await ensureTargetChannel();
   if (!ch) {
-    console.warn('⚠️ Discord: No target channel for merged summary.');
+    console.warn('⚠️ Discord: No channel available for merged summary.');
     return null;
   }
   const content = formatMergedSummaryText();
-  const now = Date.now();
-  const RECENT_MS = 10 * 60 * 1000; // 10 minutes window
   try {
-    if (mergedSummaryMessageId && (now - mergedSummaryLastAt) <= RECENT_MS) {
+    // Try persisted reference first (survives restarts and channel switches)
+    const persisted = loadMergedSummaryRef();
+    if (persisted && persisted.channelId === ch.id) {
+      try {
+        const existing = await ch.messages.fetch(persisted.messageId);
+        if (existing) {
+          const edited = await existing.edit({ content });
+          mergedSummaryMessageId = existing.id;
+          mergedSummaryLastAt = Date.now();
+          return edited;
+        }
+      } catch (_) { /* proceed to try in-memory or send new */ }
+    }
+    // Try in-memory id next (same-process subsequent calls)
+    if (mergedSummaryMessageId) {
       try {
         const msg = await ch.messages.fetch(mergedSummaryMessageId);
         if (msg) {
-          await msg.edit({ content });
-          mergedSummaryLastAt = now;
-          return msg;
+          const edited = await msg.edit({ content });
+          mergedSummaryLastAt = Date.now();
+          // Ensure persisted ref is up to date
+          saveMergedSummaryRef({ channelId: ch.id, messageId: msg.id });
+          return edited;
         }
-      } catch (_) { /* fallthrough to send new */ }
+      } catch (_) { /* fallthrough to send */ }
     }
+    // Otherwise, send a new message and persist reference
     const sent = await ch.send({ content });
     mergedSummaryMessageId = sent.id;
-    mergedSummaryLastAt = now;
-    // Also post to logs channel if configured (no edit/merge semantics)
-    try {
-      const logsCh = await ensureLogsChannel();
-      if (logsCh && (!ch || logsCh.id !== ch.id)) { await logsCh.send({ content }); }
-    } catch (_) {}
+    mergedSummaryLastAt = Date.now();
+    saveMergedSummaryRef({ channelId: ch.id, messageId: sent.id });
     return sent;
   } catch (e) {
     console.error('❌ Discord: Failed to post merged summary:', e && e.message ? e.message : e);
@@ -574,39 +604,7 @@ async function postMergedSummary() {
   }
 }
 
-// Build a single text block for editing an existing message
-function formatSummaryText(gameId) {
-  const lines = [];
-  lines.push(`Game ${gameId} summary:`);
-  const summaries = state.getSquadronSummaries(gameId) || [];
-  // Exclude only the FIRST configured squadron from settings.json
-  let excludeSquadrons = new Set();
-  try {
-    const settings = loadSettings();
-    const keys = Object.keys(settings.squadrons || {});
-    const first = keys.length ? String(keys[0]) : '';
-    const cleanedFirst = first ? first.replace(/[^A-Za-z0-9]/g, '') : '';
-    if (cleanedFirst) excludeSquadrons = new Set([cleanedFirst]);
-  } catch (_) {}
-  if (!summaries.length) {
-    lines.push('(no entries)');
-  } else {
-    summaries
-      .filter(s => s.game === Number(gameId))
-      .filter(s => !excludeSquadrons.has(s.squadron))
-      .forEach(s => lines.push(s.line));
-  }
-  let content = lines.join('\n');
-  const wrapperOverhead = 8; // length of "```\n" + "\n```"
-  const maxLen = 2000 - wrapperOverhead;
-  if (content.length > maxLen) {
-    // Keep tail (most recent updates)
-    content = content.slice(content.length - maxLen);
-    const cutIdx = content.indexOf('\n');
-    if (cutIdx > 0) content = content.slice(cutIdx + 1);
-  }
-  return '```\n' + content + '\n```';
-}
+// (per-game summary formatting removed)
 
 // Post or update a single message per game id
 async function ensureTargetChannel() {
@@ -687,18 +685,7 @@ async function setWinLossChannel(raw) {
   } catch (_) { return null; }
 }
 
-// Post a summary to the dedicated logs channel, if configured
-async function postSummaryToLogs(gameId) {
-  const ch = await ensureLogsChannel();
-  if (!ch) return null;
-  try {
-    const content = formatSummaryText(gameId);
-    return await ch.send({ content });
-  } catch (e) {
-    console.warn('⚠️ Discord: failed to post to logs channel:', e && e.message ? e.message : e);
-    return null;
-  }
-}
+// (per-game summary posting removed)
 
 // Post a compact win/loss notice to the dedicated win/loss channel, if configured
 async function postWinLossNotice(type, gameId) {
@@ -734,35 +721,8 @@ async function sendWinLossMessage(content) {
   }
 }
 
-async function postGameSummary(gameId) {
-  if (!client) return;
-  const ch = await ensureTargetChannel();
-  if (!ch) {
-    console.warn('⚠️ Discord: No target channel resolved; skipping post.');
-    return;
-  }
-  try {
-    const text = formatSummaryText(gameId);
-    const key = Number(gameId);
-    const existingId = summaryMessages.get(key);
-    if (existingId) {
-      try {
-        const msg = await ch.messages.fetch(existingId);
-        if (msg) {
-          await msg.edit({ content: text });
-          return;
-        }
-      } catch (_) {
-        // If edit fails, fall through to sending a new message
-      }
-    }
-    const sent = await ch.send({ content: text });
-    summaryMessages.set(key, sent.id);
-  } catch (e) {
-    console.error('❌ Discord: Failed to post summary:', e && e.message ? e.message : e);
-  }
-}
+// (per-game summary posting removed)
 
 function getClient() { return client; }
 
-module.exports = { init, postGameSummary, postMergedSummary, postSummaryToLogs, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };
+module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };

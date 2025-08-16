@@ -8,6 +8,30 @@ const { OUTPUT_ORDER, CATEGORY_TO_OUTPUT } = require('./config');
 const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
 try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
 
+// Reset in-memory data and file while preserving telemetry cursors
+function resetData() {
+  try {
+    const preservedTelemetry = { lastEvtId: state.telemetry.lastEvtId || 0, lastDmgId: state.telemetry.lastDmgId || 0 };
+    // Build fresh structure
+    const initialData = {
+      _gameState: { currentGame: 0, lastGameIncrementTime: 0 },
+      _telemetry: { lastEvtId: preservedTelemetry.lastEvtId, lastDmgId: preservedTelemetry.lastDmgId },
+      _meta: {}
+    };
+    state.data = initialData;
+    state.currentGame = 0;
+    state.lastGameIncrementTime = 0;
+    state.telemetry = { ...preservedTelemetry };
+    // Persist
+    fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(state.data, null, 2), 'utf8');
+    console.log('🧹 State reset: cleared games/results/meta, preserved telemetry cursors');
+    return { ok: true, currentGame: state.currentGame, telemetry: { ...state.telemetry } };
+  } catch (e) {
+    console.error('Failed to reset state:', e);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
 function getResultsMap() {
   try {
     const m = state.data._results || {};
@@ -339,6 +363,8 @@ function setTelemetryCursors({ lastEvtId, lastDmgId }) {
   persistState();
 }
 
+ 
+
 // --- Per-game metadata (Squad No, GC, AC) ---
 function getGameMeta(gameId) {
   try {
@@ -388,4 +414,5 @@ module.exports = {
   setTelemetryCursors,
   getGameMeta,
   setGameMeta,
+  resetData,
 };

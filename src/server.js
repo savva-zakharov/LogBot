@@ -132,6 +132,16 @@ function startServer() {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
             }
+        } else if (pathname === '/api/reset' && req.method === 'POST') {
+            try {
+                const payload = state.resetData();
+                broadcast({ type: 'reset', message: 'State has been reset', data: payload });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(payload));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Failed to reset state' }));
+            }
         } else if (pathname === '/') {
             const htmlPath = path.join(__dirname, '../index.html');
             fs.readFile(htmlPath, (err, data) => {
