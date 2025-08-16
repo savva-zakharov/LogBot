@@ -778,33 +778,7 @@ function ensureParsedDataFile() {
   return file;
 }
 
-function calculateManualPoints(rows) {
-  try {
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    // Normalize and collect Personal clan rating as integers
-    const values = rows.map(r => {
-      const raw = r['Personal clan rating'] ?? r['personal clan rating'] ?? r['PersonalClanRating'] ?? r['rating'];
-      if (raw == null) return null;
-      const cleaned = String(raw).replace(/[^0-9]/g, '');
-      if (!cleaned) return null;
-      const n = parseInt(cleaned, 10);
-      return Number.isFinite(n) ? n : null;
-    }).filter(v => v != null);
-    if (!values.length) return null;
-    values.sort((a, b) => b - a);
-    const top20 = values.slice(0, 20);
-    const rest = values.slice(20);
-    const sum = (arr) => arr.reduce((acc, v) => acc + v, 0);
-    const topSum = sum(top20);
-    const restSum = sum(rest);
-    const contribution = rest.length ? (restSum / 20) : 0;
-    const total = topSum + contribution;
-    // Round to nearest integer to match site display conventions
-    return Math.round(total);
-  } catch (_) {
-    return null;
-  }
-}
+// Removed manual points calculation; we rely on API-derived points now.
 
 function readLastSnapshot(file) {
   try {
@@ -976,7 +950,7 @@ async function startSquadronTracker() {
     let totalPointsAbove = null;
     let totalPointsBelow = null;
 
-    // Prepare snapshot and fetch HTML first (primary data source)
+    // Prepare snapshot and fetch HTML first (for members list only; totals from API)
     let snapshot = {
       ts: Date.now(),
       data: { headers: [], rows: [] },
@@ -993,18 +967,12 @@ async function startSquadronTracker() {
         if (parsed && Array.isArray(parsed.rows)) {
           snapshot.data = parsed;
           snapshot.membersCaptured = true;
-          // Compute manual total from member ratings as primary
-          try {
-            const manual = calculateManualPoints(parsed.rows);
-            if (typeof manual === 'number' && Number.isFinite(manual)) {
-              snapshot.totalPoints = manual;
-            }
-          } catch (_) {}
+          // Note: we no longer compute manual totals; totalPoints will be set from API below
         }
       }
     } catch (_) {}
 
-    // Optionally fetch leaderboard context (place/above/below) without relying on API points
+    // Fetch leaderboard context and total points from API
     try {
       if (primaryTag) {
         const api = await findOnLeaderboardViaApi(primaryTag);
@@ -1015,6 +983,11 @@ async function startSquadronTracker() {
           snapshot.squadronPlace = squadronPlace;
           snapshot.totalPointsAbove = totalPointsAbove;
           snapshot.totalPointsBelow = totalPointsBelow;
+          // Set snapshot totalPoints from API-derived points
+          const apiPts = api.found && typeof api.found.points === 'number' ? api.found.points : null;
+          if (Number.isFinite(apiPts)) {
+            snapshot.totalPoints = apiPts;
+          }
         }
       }
     } catch (_) {}
