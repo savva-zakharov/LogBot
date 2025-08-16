@@ -8,8 +8,13 @@ function readLatestSquadronSnapshot() {
     const file = path.join(process.cwd(), 'squadron_data.json');
     const raw = fs.readFileSync(file, 'utf8');
     const obj = JSON.parse(raw);
-    const arr = Array.isArray(obj.squadronSnapshots) ? obj.squadronSnapshots : [];
-    return arr.length ? arr[arr.length - 1] : null;
+    // Legacy array format
+    if (Array.isArray(obj.squadronSnapshots)) {
+      const arr = obj.squadronSnapshots;
+      return arr.length ? arr[arr.length - 1] : null;
+    }
+    // New single-snapshot format: the object itself is the snapshot
+    return obj && typeof obj === 'object' && Object.keys(obj).length ? obj : null;
   } catch (_) {
     return null;
   }

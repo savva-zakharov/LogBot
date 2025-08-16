@@ -4,6 +4,7 @@ const path = require('path');
 const https = require('https');
 const cheerio = require('cheerio');
 const { loadSettings } = require('./config');
+const { autoIssueAfterSnapshot } = require('./lowPointsIssuer');
 
 // --- Module constants ---
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -29,6 +30,98 @@ const __session = {
   wins: 0,
   losses: 0,
 };
+
+// --- Daily archive of squadron_data.json at UTC midnight ---
+function ensureLogsDir() {
+  const dir = path.join(process.cwd(), 'logs');
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  return dir;
+}
+
+function archiveSquadronData(dateKeyOverride = null) {
+  try {
+    const src = path.join(process.cwd(), 'squadron_data.json');
+    if (!fs.existsSync(src)) return;
+    // If file exists but empty/invalid, still rotate to avoid carrying over
+    const dateKey = dateKeyOverride || dateKeyUTC();
+    const logsDir = ensureLogsDir();
+    let dest = path.join(logsDir, `squadron_data-${dateKey}.json`);
+    // Avoid overwrite if already present
+    if (fs.existsSync(dest)) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      dest = path.join(logsDir, `squadron_data-${dateKey}-${ts}.json`);
+    }
+    try { fs.renameSync(src, dest); }
+    catch (_) { try { fs.copyFileSync(src, dest); fs.unlinkSync(src); } catch (_) {} }
+    // Recreate a fresh file for the new day (single-snapshot format: empty object)
+    try { fs.writeFileSync(src, JSON.stringify({}, null, 2), 'utf8'); } catch (_) {}
+    console.log(`[SEASON] Archived squadron_data.json to ${dest}`);
+  } catch (e) {
+    console.warn(`[SEASON] Failed to archive squadron_data.json: ${e && e.message ? e.message : e}`);
+  }
+}
+
+function msUntilNextUtcMidnight() {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+  return next.getTime() - now.getTime();
+}
+
+let __archiveTimer = null;
+function scheduleDailyArchive() {
+  try { if (__archiveTimer) clearTimeout(__archiveTimer); } catch (_) {}
+  const delay = Math.max(1000, msUntilNextUtcMidnight());
+  __archiveTimer = setTimeout(() => {
+    try { archiveSquadronData(); } catch (_) {}
+    // Re-schedule for the next midnight
+    scheduleDailyArchive();
+  }, delay);
+  console.log(`[SEASON] Daily archive scheduled in ${(delay / 1000 / 60).toFixed(1)} minutes`);
+}
+
+// Determine the UTC date key of the data inside squadron_data.json.
+// Prefer the last snapshot ts; fall back to file mtime if no snapshots.
+function getSquadronDataDateKeyOrNull() {
+  try {
+    const file = path.join(process.cwd(), 'squadron_data.json');
+    if (!fs.existsSync(file)) return null;
+    try {
+      const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+      // Legacy: array-based
+      if (obj && Array.isArray(obj.squadronSnapshots)) {
+        const arr = obj.squadronSnapshots;
+        const last = arr.length ? arr[arr.length - 1] : null;
+        if (last && last.ts) {
+          const d = new Date(last.ts);
+          if (!isNaN(d.getTime())) return dateKeyUTC(d);
+        }
+      }
+      // New: single-snapshot object with ts at root
+      if (obj && obj.ts) {
+        const d = new Date(obj.ts);
+        if (!isNaN(d.getTime())) return dateKeyUTC(d);
+      }
+    } catch (_) {}
+    // Fallback: file mtime
+    try {
+      const st = fs.statSync(file);
+      const d = st && st.mtime ? new Date(st.mtime) : null;
+      if (d && !isNaN(d.getTime())) return dateKeyUTC(d);
+    } catch (_) {}
+  } catch (_) {}
+  return null;
+}
+
+// Archive immediately if the current data file belongs to a previous UTC date.
+function archiveIfStale() {
+  try {
+    const curKey = dateKeyUTC();
+    const fileKey = getSquadronDataDateKeyOrNull();
+    if (fileKey && fileKey < curKey) {
+      archiveSquadronData(fileKey);
+    }
+  } catch (_) {}
+}
 
 // Helper: get UTC date key YYYY-MM-DD
 function dateKeyUTC(d = new Date()) {
@@ -648,17 +741,17 @@ function pruneSnapshot(snapshot) {
 function ensureParsedDataFile() {
   const file = path.join(process.cwd(), 'squadron_data.json');
   if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [] }, null, 2), 'utf8');
+    fs.writeFileSync(file, JSON.stringify({}, null, 2), 'utf8');
   } else {
     // If exists but not object, coerce
     try {
       const raw = fs.readFileSync(file, 'utf8');
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.squadronSnapshots)) {
-        fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [] }, null, 2), 'utf8');
+      if (!parsed || typeof parsed !== 'object') {
+        fs.writeFileSync(file, JSON.stringify({}, null, 2), 'utf8');
       }
     } catch (_) {
-      fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [] }, null, 2), 'utf8');
+      fs.writeFileSync(file, JSON.stringify({}, null, 2), 'utf8');
     }
   }
   return file;
@@ -695,46 +788,27 @@ function calculateManualPoints(rows) {
 function readLastSnapshot(file) {
   try {
     const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const arr = Array.isArray(obj.squadronSnapshots) ? obj.squadronSnapshots : [];
-    return arr.length ? arr[arr.length - 1] : null;
+    // Legacy array support
+    if (obj && Array.isArray(obj.squadronSnapshots)) {
+      return obj.squadronSnapshots.length ? obj.squadronSnapshots[obj.squadronSnapshots.length - 1] : null;
+    }
+    // New single snapshot
+    return obj && typeof obj === 'object' && Object.keys(obj).length ? obj : null;
   } catch (_) { return null; }
 }
 
 function appendSnapshot(file, snapshot) {
+  // New behavior: always write a single latest snapshot (overwrite file)
   try {
-    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!Array.isArray(obj.squadronSnapshots)) obj.squadronSnapshots = [];
     const pruned = pruneSnapshot(snapshot);
-    // Overwrite last snapshot if same calendar day, else append
-    const toDateKey = (ts) => {
-      try { const d = new Date(ts); return `${d.getUTCFullYear()}-${(d.getUTCMonth()+1).toString().padStart(2,'0')}-${d.getUTCDate().toString().padStart(2,'0')}`; } catch (_) { return null; }
-    };
-    const toUtcMinutes = (ts) => {
-      try { const d = new Date(ts); return d.getUTCHours() * 60 + d.getUTCMinutes(); } catch (_) { return null; }
-    };
-    const CUTOFF_MIN = DAILY_CUTOFF_MIN; // 23:30 UTC
-    const last = obj.squadronSnapshots.length ? obj.squadronSnapshots[obj.squadronSnapshots.length - 1] : null;
-    const lastKey = last ? toDateKey(last.ts) : null;
-    const curKey = toDateKey(pruned.ts);
-    if (last && lastKey && curKey && lastKey === curKey) {
-      const lastMin = toUtcMinutes(last.ts);
-      const curMin = toUtcMinutes(pruned.ts);
-      // Before cutoff: always overwrite today's snapshot
-      if (curMin != null && curMin < CUTOFF_MIN) {
-        obj.squadronSnapshots[obj.squadronSnapshots.length - 1] = pruned;
-      } else if (curMin != null) {
-        // At or after cutoff: only overwrite once if previous was before cutoff; otherwise lock (do nothing)
-        if (lastMin == null || lastMin < CUTOFF_MIN) {
-          obj.squadronSnapshots[obj.squadronSnapshots.length - 1] = pruned;
-        } // else: keep the existing post-cutoff snapshot
-      }
-    } else {
-      obj.squadronSnapshots.push(pruned);
-    }
-    fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
+    fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
+    try { autoIssueAfterSnapshot(); } catch (_) {}
   } catch (_) {
-    const pruned = pruneSnapshot(snapshot);
-    fs.writeFileSync(file, JSON.stringify({ squadronSnapshots: [pruned] }, null, 2), 'utf8');
+    try {
+      const pruned = pruneSnapshot(snapshot);
+      fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
+      try { autoIssueAfterSnapshot(); } catch (_) {}
+    } catch (_) {}
   }
 }
 
@@ -851,6 +925,10 @@ async function startSquadronTracker() {
   const { squadronPageUrl } = loadSettings();
   // Initialize season schedule on startup (best-effort)
   try { await initSeasonSchedule(); } catch (_) {}
+  // If the data file belongs to a previous UTC date, archive it immediately
+  try { archiveIfStale(); } catch (_) {}
+  // Then schedule daily archive of squadron_data.json at UTC midnight
+  try { scheduleDailyArchive(); } catch (_) {}
   if (!squadronPageUrl) {
     console.log('ℹ️ Squadron tracker disabled: no SQUADRON_PAGE_URL configured.');
     return { enabled: false };

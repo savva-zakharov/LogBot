@@ -560,4 +560,6 @@ async function postGameSummary(gameId) {
   }
 }
 
-module.exports = { init, postGameSummary, postMergedSummary, sendMessage };
+function getClient() { return client; }
+
+module.exports = { init, postGameSummary, postMergedSummary, sendMessage, getClient };
