@@ -25,10 +25,14 @@ async function main() {
   // 1. Initial configuration setup / interactive wizard
   const argv = process.argv.slice(2);
   const forceSetup = argv.includes('-setup') || argv.includes('--setup');
-  const disableWTScrape = argv.includes('--nowtscrape');
-  const disableWebServer = argv.includes('--nowebserver');
-  const disableDiscordBot = argv.includes('--nodiscordbot');
-  const disableWebScrape = argv.includes('--nowebscrape');
+  // --server is equivalent to --nowtscrape and --nowebserver
+  const serverFlag = argv.includes('--server');
+  // --client is equivalent to --nodiscordbot and --nowebscrape
+  const clientFlag = argv.includes('--client');
+  const disableWTScrape = serverFlag || argv.includes('--nowtscrape');
+  const disableWebServer = serverFlag || argv.includes('--nowebserver');
+  const disableDiscordBot = clientFlag || argv.includes('--nodiscordbot');
+  const disableWebScrape = clientFlag || argv.includes('--nowebscrape');
   const cfgPath = path.join(process.cwd(), 'settings.json');
   const cfgMissing = !fs.existsSync(cfgPath);
   if (forceSetup || cfgMissing) {
