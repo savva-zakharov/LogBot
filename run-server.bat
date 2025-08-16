@@ -16,7 +16,7 @@ where npx >NUL 2>&1
 if %ERRORLEVEL%==0 (
   npx nodemon index.js -- --server
 ) else (
-  echo npx not found; starting without nodemon (auto-reload disabled).
+  echo npx not found; starting without nodemon (auto-reload disabled)
   node index.js --server
 )
 
