@@ -641,7 +641,12 @@
     // Wire reset button after load as well
     window.addEventListener('load', function(){
       const rb = document.getElementById('btnReset');
-      if (rb) rb.addEventListener('click', resetState);
+      if (rb) rb.addEventListener('click', function(){
+        const msg = 'This will clear entries and reset the game counter. Are you sure you want to reset?';
+        if (confirm(msg)) {
+          resetState();
+        }
+      });
     });
   </script>
 </head>

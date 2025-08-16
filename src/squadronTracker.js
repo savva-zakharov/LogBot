@@ -1150,8 +1150,15 @@ async function startSquadronTracker() {
             const p = Number(pts);
             if (!Number.isFinite(p)) return { win: null, loss: null };
             if (p <= 800) return { win: 32, loss: -1 };
-            if (p < 1500) return { win: 20, loss: -8 }; // heuristic gap fill
-            if (p < 1600) return { win: 16, loss: -16 };
+            if (p < 1100) return { win: 30, loss: -2 };
+            if (p < 1200) return { win: 28, loss: -4 };
+            if (p < 1300) return { win: 26, loss: -6 };
+            if (p < 1400) return { win: 24, loss: -8 };
+            if (p < 1450) return { win: 22, loss: -10 };
+            if (p < 1500) return { win: 20, loss: -16 }; // heuristic gap fill
+            if (p < 1550) return { win: 18, loss: -17 };
+            if (p < 1600) return { win: 16, loss: -18 };
+            if (p < 1650) return { win: 14, loss: -20 };
             if (p < 1700) return { win: 12, loss: -24 }; // ratio ~2:1
             if (p < 1800) return { win: 8,  loss: -28 }; // ratio ~3.5:1
             if (p < 1850) return { win: 5,  loss: -30 }; // ratio ~6:1

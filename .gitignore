@@ -19,6 +19,7 @@ yarn-error.log*
 squadron_events.json
 squadron_data.json
 sqbr.txt
+poll_metrics.json
 
 
 # Setttings

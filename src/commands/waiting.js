@@ -4,6 +4,7 @@ const path = require('path');
 const { MessageFlags } = require('discord.js');
 const waitingTracker = require('../waitingTracker');
 const { bestMatchPlayer, toNumber } = require('../nameMatch');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 
 function readLatestSquadronSnapshot() {
   try {
@@ -45,6 +46,19 @@ module.exports = {
     }
     const snap = readLatestSquadronSnapshot();
     const rows = snap && snap.data && Array.isArray(snap.data.rows) ? snap.data.rows : [];
+    const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
+    const threshold = Number.isFinite(cfg.threshold) ? cfg.threshold : 1300;
+
+    // Build Top 20 set from snapshot
+    const top20Names = new Set();
+    try {
+      const ranked = rows
+        .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || '' }))
+        .filter(x => x.name)
+        .sort((a, b) => b.rating - a.rating)
+        .slice(0, 20);
+      for (const x of ranked) top20Names.add(String(x.name).toLowerCase());
+    } catch (_) {}
 
     const out = [];
     for (const w of waiters) {
@@ -54,13 +68,18 @@ module.exports = {
         if (gm) display = gm.nickname || gm.user?.username || display;
       } catch (_) {}
       let rating = 'N/A';
+      let matchedName = '';
       if (rows.length && display) {
         const found = bestMatchPlayer(rows, display);
         if (found && found.row) {
           rating = found.row['Personal clan rating'] ?? found.row.rating ?? 'N/A';
+          matchedName = String(found.row.Player || found.row.player || '');
         }
       }
-      out.push({ name: display, seconds: w.seconds, rating: toNumber(rating) });
+      const numRating = toNumber(rating);
+      const isLow = Number.isFinite(numRating) && numRating > 0 ? (numRating < threshold) : false;
+      const isTop = matchedName ? top20Names.has(matchedName.toLowerCase()) : false;
+      out.push({ name: display, seconds: w.seconds, rating: numRating, isLow, isTop });
     }
 
     // Sort by waiting longest first
@@ -81,7 +100,8 @@ module.exports = {
       const gap1 = ' '.repeat(maxPrefix - prefix.length);
       const durPad = ' '.repeat(maxDur - dur.length);
       const rating = String(x.rating).padStart(ratingWidth, ' ');
-      return `${prefix}${gap1} — ${durPad}${dur} — ${rating}`;
+      const flags = `${x.isTop ? ' ⭐' : ''}${x.isLow ? ' ⚠️' : ''}`;
+      return `${prefix}${gap1} — ${durPad}${dur} — ${rating}${flags}`;
     });
     const header = 'Waiting in voice channel:';
     const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
