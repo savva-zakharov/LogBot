@@ -28,6 +28,87 @@ function appendEvent(message, meta = {}) {
   } catch (_) {}
 }
 
+// Generic channel resolver by raw input (ID, guildId/channelId, name, or Server Name#channel)
+async function resolveChannelByRaw(desiredRaw) {
+  if (!client) return null;
+  const desired = (desiredRaw || 'general').trim();
+  const desiredName = stripHash(desired).toLowerCase();
+  let desiredGuildName = null;
+  if (desired.includes('#') && !desired.startsWith('#') && !isSnowflake(desired)) {
+    const idx = desired.lastIndexOf('#');
+    desiredGuildName = desired.slice(0, idx).trim().toLowerCase();
+  }
+  try {
+    // 1) Direct channel ID
+    if (isSnowflake(stripHash(desired))) {
+      try {
+        const byId = await client.channels.fetch(stripHash(desired));
+        if (byId && (byId.type === ChannelType.GuildText || byId.type === ChannelType.GuildAnnouncement || typeof byId.send === 'function')) return byId;
+      } catch (_) {}
+    }
+    // 1b) guildId/channelId
+    if (/^\d{10,}\/[0-9]{10,}$/.test(desired)) {
+      const [gId, cId] = desired.split('/');
+      try {
+        const guild = await client.guilds.fetch(gId);
+        if (guild) {
+          const channel = await client.channels.fetch(cId);
+          if (channel && channel.guild && channel.guild.id === guild.id && (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)) return channel;
+        }
+      } catch (_) {}
+    }
+    // 2) If a guildId is provided, try restricting there first
+    if (desiredGuildId && isSnowflake(desiredGuildId)) {
+      try {
+        const guild = await client.guilds.fetch(desiredGuildId);
+        if (guild) {
+          await guild.channels.fetch();
+          // Try exact id inside this guild
+          let found = guild.channels.cache.get(desired);
+          if (found && (found.type === ChannelType.GuildText || found.type === ChannelType.GuildAnnouncement || typeof found.send === 'function')) return found;
+          // Try by name
+          found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement) && c.name.toLowerCase() === desiredName);
+          if (found) return found;
+        }
+      } catch (_) {}
+    }
+    // 3) Otherwise search across guilds (optionally filtered by desiredGuildName)
+    for (const [, guild] of client.guilds.cache) {
+      await guild.channels.fetch();
+      if (desiredGuildName && guild.name.toLowerCase() !== desiredGuildName) continue;
+      let found = guild.channels.cache.find(c => c && (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement) && c.name.toLowerCase() === desiredName);
+      if (found) return found;
+      found = guild.channels.cache.get(desired);
+      if (found && (found.type === ChannelType.GuildText || found.type === ChannelType.GuildAnnouncement || typeof found.send === 'function')) return found;
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Hot-reload: change target text channel at runtime
+async function setDiscordChannel(raw) {
+  try {
+    desiredChannelName = raw || desiredChannelName || '#general';
+    // Force re-resolve on next send; also attempt immediate resolve
+    targetChannel = null;
+    targetChannel = await resolveChannel();
+    if (targetChannel) return targetChannel.id;
+  } catch (_) {}
+  return null;
+}
+
+// Hot-reload: change waiting voice channel at runtime
+async function reconfigureWaitingVoiceChannel(raw) {
+  try {
+    const id = await resolveVoiceChannelId(raw);
+    if (id) {
+      waitingTracker.setTargetChannelId(id);
+      return id;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const state = require('./state');
@@ -37,8 +118,12 @@ const waitingTracker = require('./waitingTracker');
 
 let client = null;
 let targetChannel = null;
+let logsChannel = null;
+let winLossChannel = null;
 let ready = false;
 let desiredChannelName = null; // '#general', 'general', '1234567890', 'guildId/channelId', 'Server Name#channel'
+let desiredLogsChannelName = null; // same formats as above
+let desiredWinLossChannelName = null; // same formats as above
 let desiredGuildId = null; // Optional guild to scope operations
 let appClientId = null; // Optional application client id
 // Loaded command modules keyed by command name
@@ -229,13 +314,20 @@ async function init(settings) {
   // Generic command dispatcher
   client.on('interactionCreate', async (interaction) => {
     try {
-      // Route component interactions for lowpoint panel (buttons + modals)
+      // Route component interactions for lowpoint/settings panels (buttons + modals)
       if (interaction.isButton() || interaction.isModalSubmit()) {
         const id = interaction.customId || '';
         if (id.startsWith('lp_') || id === 'lp_thr_modal') {
           const lowpoint = commands.get('lowpoint');
           if (lowpoint && typeof lowpoint.handleComponent === 'function') {
             const handled = await lowpoint.handleComponent(interaction);
+            if (handled) return;
+          }
+        }
+        if (id.startsWith('cfg_') || id === 'cfg_modal_dc' || id === 'cfg_modal_wvc' || id === 'cfg_modal_url') {
+          const settingsCmd = commands.get('settings');
+          if (settingsCmd && typeof settingsCmd.handleComponent === 'function') {
+            const handled = await settingsCmd.handleComponent(interaction);
             if (handled) return;
           }
         }
@@ -542,6 +634,69 @@ async function sendMessage(content) {
   }
 }
 
+// Optional secondary channels: logs and win/loss
+async function ensureLogsChannel() {
+  if (!client) return null;
+  if (!logsChannel && desiredLogsChannelName) {
+    try { logsChannel = await resolveChannelByRaw(desiredLogsChannelName); } catch (_) {}
+  }
+  return logsChannel;
+}
+
+async function ensureWinLossChannel() {
+  if (!client) return null;
+  if (!winLossChannel && desiredWinLossChannelName) {
+    try { winLossChannel = await resolveChannelByRaw(desiredWinLossChannelName); } catch (_) {}
+  }
+  return winLossChannel;
+}
+
+// Hot-apply setters for optional channels
+async function setLogsChannel(raw) {
+  try {
+    desiredLogsChannelName = raw || desiredLogsChannelName || '';
+    logsChannel = null;
+    logsChannel = await resolveChannelByRaw(desiredLogsChannelName);
+    return logsChannel ? logsChannel.id : null;
+  } catch (_) { return null; }
+}
+
+async function setWinLossChannel(raw) {
+  try {
+    desiredWinLossChannelName = raw || desiredWinLossChannelName || '';
+    winLossChannel = null;
+    winLossChannel = await resolveChannelByRaw(desiredWinLossChannelName);
+    return winLossChannel ? winLossChannel.id : null;
+  } catch (_) { return null; }
+}
+
+// Post a summary to the dedicated logs channel, if configured
+async function postSummaryToLogs(gameId) {
+  const ch = await ensureLogsChannel();
+  if (!ch) return null;
+  try {
+    const content = formatSummaryText(gameId);
+    return await ch.send({ content });
+  } catch (e) {
+    console.warn('⚠️ Discord: failed to post to logs channel:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// Post a compact win/loss notice to the dedicated win/loss channel, if configured
+async function postWinLossNotice(type, gameId) {
+  const ch = await ensureWinLossChannel();
+  if (!ch) return null;
+  try {
+    const t = (type || '').toLowerCase() === 'win' ? 'WIN' : 'LOSS';
+    const text = `Game ${Number(gameId)}: ${t}`;
+    return await ch.send({ content: '```\n' + text + '\n```' });
+  } catch (e) {
+    console.warn('⚠️ Discord: failed to post win/loss notice:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 async function postGameSummary(gameId) {
   if (!client) return;
   const ch = await ensureTargetChannel();
@@ -573,4 +728,4 @@ async function postGameSummary(gameId) {
 
 function getClient() { return client; }
 
-module.exports = { init, postGameSummary, postMergedSummary, sendMessage, getClient };
+module.exports = { init, postGameSummary, postMergedSummary, postSummaryToLogs, postWinLossNotice, sendMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };

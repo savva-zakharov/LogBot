@@ -43,7 +43,9 @@ async function runSetupWizard() {
     const discordChannel = (await ask(rl, `Discord Channel (ID, name, or guildId/channelId) [${current.discordChannel || '#general'}]: `)).trim() || current.discordChannel || '#general';
     const clientId = (await ask(rl, `Discord Application Client ID (optional) [${current.clientId || ''}]: `)).trim() || current.clientId || '';
     const guildId = (await ask(rl, `Default Discord Guild ID (optional) [${current.guildId || ''}]: `)).trim() || current.guildId || '';
-    const waitingVoiceChannel = (await ask(rl, `Waiting Voice Channel ID (optional) [${current.waitingVoiceChannel || process.env.WAITING_VOICE_CHANNEL || ''}]: `)).trim() || current.waitingVoiceChannel || process.env.WAITING_VOICE_CHANNEL || '';
+    const waitingVoiceChannel = (await ask(rl, `Waiting Voice Channel ID (optional) [${current.waitingVoiceChannel || ''}]: `)).trim() || current.waitingVoiceChannel || '';
+    const discordLogsChannel = (await ask(rl, `Discord Logs Channel (ID or mention) [${current.discordLogsChannel || ''}]: `)).trim() || current.discordLogsChannel || '';
+    const discordWinLossChannell = (await ask(rl, `Discord Win/Loss Channel (ID or mention) [${current.discordWinLossChannell || ''}]: `)).trim() || current.discordWinLossChannell || '';
 
     // Determine previous single-value defaults for user and squad
     const currentPlayers = current.players && typeof current.players === 'object' ? current.players : {};
@@ -71,10 +73,10 @@ async function runSetupWizard() {
         : { bg: '#0F3011', fg: '#9CCC65' };
     }
 
-    // Persist players/squadrons (non-secrets) in settings.json
-    const jsonCfg = { players, squadrons };
+    // Persist non-secrets (and selected runtime settings) in settings.json
+    const jsonCfg = { players, squadrons, discordChannel, waitingVoiceChannel, squadronPageUrl, discordLogsChannel, discordWinLossChannell };
     fs.writeFileSync(cfgPath, JSON.stringify(jsonCfg, null, 2), 'utf8');
-    console.log(`\n✅ Settings saved to ${cfgPath} (players, squadrons)`);
+    console.log(`\n✅ Settings saved to ${cfgPath} (players, squadrons, discordChannel, waitingVoiceChannel, squadronPageUrl, discordLogsChannel, discordWinLossChannell)`);
 
     // Create a plaintext template for /sqbbr if missing
     try {
@@ -98,24 +100,21 @@ async function runSetupWizard() {
       }
     } catch (_) {}
 
-    // Persist secrets and ports in settings.env
+    // Persist secrets and ports in settings.env (do not include channel/url settings)
     const envLines = [
       `# LogBot settings (secrets and ports)`,
       `TELEMETRY_URL=${telemetryUrl}`,
-      `SQUADRON_PAGE_URL=${squadronPageUrl}`,
       `PORT=${port}`,
       `WS_PORT=${wsPort}`,
       `DISCORD_BOT_TOKEN=${discordBotToken}`,
-      `DISCORD_CHANNEL=${discordChannel}`,
       `CLIENT_ID=${clientId}`,
       `GUILD_ID=${guildId}`,
-      `WAITING_VOICE_CHANNEL=${waitingVoiceChannel}`,
       ''
     ];
     fs.writeFileSync(envPath, envLines.join('\n'), 'utf8');
     console.log(`✅ Secrets and ports saved to ${envPath}`);
     // Return merged view (as loadSettings would)
-    return { ...current, ...jsonCfg, telemetryUrl, squadronPageUrl, port, wsPort, discordBotToken, discordChannel, clientId, guildId, waitingVoiceChannel };
+    return { ...current, ...jsonCfg, telemetryUrl, port, wsPort, discordBotToken, clientId, guildId };
   } finally {
     rl.close();
   }

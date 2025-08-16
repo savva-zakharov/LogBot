@@ -26,6 +26,8 @@ function processMissionEnd(type, game) {
   const result = state.recordResult(numericGame, type);
   // Post logs to Discord and output CLI status
   try {
+    // Post a compact win/loss notice to the dedicated channel (if configured)
+    try { discord.postWinLossNotice(type, numericGame); } catch (_) {}
     const posted = postLogs(numericGame);
     if (posted && posted.ok) {
       console.log(`[MISSION] ${type.toUpperCase()}: posted logs for game ${posted.game}`);
@@ -46,6 +48,8 @@ function processMissionEnd(type, game) {
 function postLogs(game) {
   // For merged behavior, ignore per-game and post/edit the total summary instead
   try { discord.postMergedSummary(); } catch (_) {}
+  // Also post the current game's summary into the dedicated logs channel (if configured)
+  try { discord.postSummaryToLogs(game); } catch (_) {}
   // Retain response shape for compatibility; report current game for UI context
   const numericGame = parseInt((game == null || game === 'current' || game === 'all') ? state.getCurrentGame() : game, 10);
   return { ok: true, game: numericGame };

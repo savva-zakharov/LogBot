@@ -30,7 +30,7 @@ const CATEGORY_TO_OUTPUT = {
 
 // Settings loader: reads settings.json and settings.env, with env taking precedence
 function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '' };
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '', discordLogsChannel: '', discordWinLossChannell: '' };
   try {
     const cwd = process.cwd();
     const envPath = path.join(cwd, 'settings.env');
@@ -51,11 +51,16 @@ function loadSettings() {
         squadrons: parsed.squadrons || {},
         telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
         discordBotToken: typeof parsed.discordBotToken === 'string' ? parsed.discordBotToken : defaults.discordBotToken,
+        // Always from settings.json for these three
         discordChannel: typeof parsed.discordChannel === 'string' ? parsed.discordChannel : defaults.discordChannel,
+        // New JSON-only channels
+        discordLogsChannel: typeof parsed.discordLogsChannel === 'string' ? parsed.discordLogsChannel : defaults.discordLogsChannel,
+        discordWinLossChannell: typeof parsed.discordWinLossChannell === 'string' ? parsed.discordWinLossChannell : defaults.discordWinLossChannell,
         clientId: typeof parsed.clientId === 'string' ? parsed.clientId : defaults.clientId,
         guildId: typeof parsed.guildId === 'string' ? parsed.guildId : defaults.guildId,
         port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
         wsPort: (typeof parsed.wsPort === 'number' && Number.isFinite(parsed.wsPort)) ? parsed.wsPort : defaults.wsPort,
+        // Always from settings.json for these three
         squadronPageUrl: typeof parsed.squadronPageUrl === 'string' ? parsed.squadronPageUrl : defaults.squadronPageUrl,
         waitingVoiceChannel: typeof parsed.waitingVoiceChannel === 'string' ? parsed.waitingVoiceChannel
           : (typeof parsed.waitingVoiceChannelId === 'string' ? parsed.waitingVoiceChannelId : defaults.waitingVoiceChannel),
@@ -64,26 +69,28 @@ function loadSettings() {
       const envOverrides = {
         telemetryUrl: envMap.TELEMETRY_URL || process.env.TELEMETRY_URL,
         discordBotToken: envMap.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN,
-        discordChannel: envMap.DISCORD_CHANNEL || process.env.DISCORD_CHANNEL,
         clientId: envMap.CLIENT_ID || process.env.CLIENT_ID,
         guildId: envMap.GUILD_ID || process.env.GUILD_ID,
         port: parsePort(envMap.PORT || process.env.PORT),
         wsPort: parsePort(envMap.WS_PORT || process.env.WS_PORT),
-        squadronPageUrl: envMap.SQUADRON_PAGE_URL || process.env.SQUADRON_PAGE_URL,
-        waitingVoiceChannel: envMap.WAITING_VOICE_CHANNEL || process.env.WAITING_VOICE_CHANNEL,
+        // Do not allow env to override these three anymore
       };
       return {
         players: base.players,
         squadrons: base.squadrons,
         telemetryUrl: envOverrides.telemetryUrl || base.telemetryUrl || defaults.telemetryUrl,
         discordBotToken: (envOverrides.discordBotToken !== undefined ? envOverrides.discordBotToken : base.discordBotToken) || defaults.discordBotToken,
-        discordChannel: envOverrides.discordChannel || base.discordChannel || defaults.discordChannel,
+        // Always from JSON
+        discordChannel: base.discordChannel || defaults.discordChannel,
+        discordLogsChannel: base.discordLogsChannel || defaults.discordLogsChannel,
+        discordWinLossChannell: base.discordWinLossChannell || defaults.discordWinLossChannell,
         clientId: (envOverrides.clientId !== undefined ? envOverrides.clientId : base.clientId) || defaults.clientId,
         guildId: (envOverrides.guildId !== undefined ? envOverrides.guildId : base.guildId) || defaults.guildId,
         port: Number.isFinite(envOverrides.port) ? envOverrides.port : base.port,
         wsPort: Number.isFinite(envOverrides.wsPort) ? envOverrides.wsPort : base.wsPort,
-        squadronPageUrl: envOverrides.squadronPageUrl || base.squadronPageUrl || defaults.squadronPageUrl,
-        waitingVoiceChannel: (envOverrides.waitingVoiceChannel !== undefined ? envOverrides.waitingVoiceChannel : base.waitingVoiceChannel) || defaults.waitingVoiceChannel,
+        // Always from JSON
+        squadronPageUrl: base.squadronPageUrl || defaults.squadronPageUrl,
+        waitingVoiceChannel: base.waitingVoiceChannel || defaults.waitingVoiceChannel,
       };
     }
   } catch (_) {}
