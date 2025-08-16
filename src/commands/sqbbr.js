@@ -1,5 +1,5 @@
 // src/commands/sqbbr.js
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -38,13 +38,27 @@ module.exports = {
         }
       } catch (_) {}
       const text = raw && String(raw).trim().length ? String(raw) : 'SQBBR message is not configured. Create sqbbr.txt in the project root and put your message inside.';
-      const wrapped = text.trim().startsWith('```') ? text : '```\n' + text + '\n```';
-      const prefix = todaysBr ? `Today's BR is ${todaysBr}` : `Today's BR is unknown`;
-      const content = `${prefix}\n${wrapped}`;
+      // Normalize: strip surrounding code fences if present to avoid nesting
+      let body = String(text).trim();
+      if (body.startsWith('```')) {
+        // drop the first fence line (may include language tag)
+        const nl = body.indexOf('\n');
+        if (nl !== -1) body = body.slice(nl + 1);
+        // drop trailing fence if present
+        if (body.endsWith('```')) body = body.slice(0, -3);
+        // trim residual newlines/whitespace
+        body = body.replace(/^\n+|\n+$/g, '').trimEnd();
+      }
+      const prefixLine = todaysBr ? `Today's BR is ${todaysBr}` : `Today's BR is unknown`;
+      // Build a single embed with green border; include header + code-blocked body in description
+      const embed = new EmbedBuilder()
+        .setTitle(`${prefixLine} `)
+        .setDescription(`\u0060\u0060\u0060${body}\n\u0060\u0060\u0060`)
+        .setColor(0x57F287);
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content, allowedMentions: { parse: [] } });
+        await interaction.followUp({ embeds: [embed], allowedMentions: { parse: [] } });
       } else {
-        await interaction.reply({ content, allowedMentions: { parse: [] } });
+        await interaction.reply({ embeds: [embed], allowedMentions: { parse: [] } });
       }
     } catch (e) {
       try {

@@ -272,19 +272,51 @@ async function initSeasonSchedule() {
       return;
     }
     console.log(`[SEASON] og:description length: ${metaDesc.length}`);
+    // Prepare a cleaned version for EN parsing: strip Cyrillic, normalize dashes and whitespace
+    const metaDescEn = String(metaDesc)
+      // Replace en/em dashes and long dashes with a simple hyphen
+      .replace(/[–—−]/g, '-')
+      // Remove Cyrillic characters entirely
+      .replace(/[\u0400-\u04FF]+/g, '')
+      // Collapse excessive whitespace
+      .replace(/[\t\r\f\v]+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    // Strip any introductory header line ending with ':' before the schedule list
+    const stripHeaderPrefix = (s) => {
+      try {
+        const text = String(s || '');
+        const colon = text.indexOf(':');
+        if (colon !== -1) {
+          const firstParen = text.indexOf('(');
+          // Only treat it as a header if the colon appears early and before any date parens
+          if (colon < 200 && (firstParen === -1 || colon < firstParen)) {
+            return text.slice(colon + 1).trim();
+          }
+        }
+        return text;
+      } catch (_) { return String(s || ''); }
+    };
+    const metaDescStripped = stripHeaderPrefix(metaDesc);
+    const metaDescEnStripped = stripHeaderPrefix(metaDescEn);
     // Extract schedule-like snippets from the description; support EN/RU markers and a (dd.mm — dd.mm) date range
     const lines = [];
     const pushMatch = (m) => { const s = (m && m[0] ? m[0] : '').trim(); if (s) lines.push(s); };
     // Patterns that include a date range in parens and either 'week' or 'Until the end of season' (EN/RU)
     const reWeek = /(\bweek\b[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
-    const reWeekRu = /(недел[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     const reUntil = /(Until the end of season[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
-    const reUntilRu = /(До\s+конца\s+сезона[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     let m;
-    while ((m = reWeek.exec(metaDesc))) pushMatch(m);
-    while ((m = reWeekRu.exec(metaDesc))) pushMatch(m);
-    while ((m = reUntil.exec(metaDesc))) pushMatch(m);
-    while ((m = reUntilRu.exec(metaDesc))) pushMatch(m);
+    // Apply EN patterns to cleaned text to avoid interference from Cyrillic
+    while ((m = reWeek.exec(metaDescEnStripped))) pushMatch(m);
+    // Apply RU patterns to original text (if present)
+    // Note: RU patterns may have been removed; keep EN parsing robust regardless
+    if (typeof reWeekRu !== 'undefined') {
+      while ((m = reWeekRu.exec(metaDescStripped))) pushMatch(m);
+    }
+    while ((m = reUntil.exec(metaDescEnStripped))) pushMatch(m);
+    if (typeof reUntilRu !== 'undefined') {
+      while ((m = reUntilRu.exec(metaDescStripped))) pushMatch(m);
+    }
     // Deduplicate while preserving order
     const seen = new Set();
     const scheduleLines = lines.filter(l => { if (seen.has(l)) return false; seen.add(l); return true; });
