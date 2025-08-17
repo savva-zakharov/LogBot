@@ -133,6 +133,8 @@ let mergedSummaryMessageId = null;
 let mergedSummaryLastAt = 0; // ms epoch
 // Persisted reference to allow editing across restarts
 const SUMMARY_REF_FILE = path.join(process.cwd(), '.merged_summary_ref.json');
+// Persist and manage multiple references keyed by an arbitrary id (e.g., windowKey)
+const SESSION_SUMMARY_REF_FILE = path.join(process.cwd(), '.session_summary_refs.json');
 
 function loadMergedSummaryRef() {
   try {
@@ -148,6 +150,22 @@ function loadMergedSummaryRef() {
 function saveMergedSummaryRef(ref) {
   try {
     fs.writeFileSync(SUMMARY_REF_FILE, JSON.stringify({ channelId: ref.channelId, messageId: ref.messageId }, null, 2), 'utf8');
+  } catch (_) {}
+}
+
+function loadSessionSummaryRefs() {
+  try {
+    const raw = fs.readFileSync(SESSION_SUMMARY_REF_FILE, 'utf8');
+    const j = JSON.parse(raw || '{}');
+    if (j && typeof j === 'object') return j;
+  } catch (_) {}
+  return {};
+}
+
+function saveSessionSummaryRefs(map) {
+  try {
+    const obj = map && typeof map === 'object' ? map : {};
+    fs.writeFileSync(SESSION_SUMMARY_REF_FILE, JSON.stringify(obj, null, 2), 'utf8');
   } catch (_) {}
 }
 
@@ -666,6 +684,46 @@ async function ensureWinLossChannel() {
   return winLossChannel;
 }
 
+// Post or edit a single message in the win/loss channel keyed by an arbitrary key (e.g., windowKey)
+async function postOrEditWinLossByKey(key, content) {
+  const ch = await ensureWinLossChannel();
+  if (!ch) return null;
+  const map = loadSessionSummaryRefs();
+  const entry = map && map[key] ? map[key] : null;
+  try {
+    if (entry && entry.channelId === ch.id && entry.messageId) {
+      try {
+        const msg = await ch.messages.fetch(entry.messageId);
+        if (msg) {
+          const edited = await msg.edit({ content: String(content == null ? '' : content) });
+          return edited;
+        }
+      } catch (_) { /* fallthrough to send new */ }
+    }
+    // Send new message and persist mapping
+    const sent = await ch.send({ content: String(content == null ? '' : content), allowedMentions: { parse: [] } });
+    map[key] = { channelId: ch.id, messageId: sent.id };
+    saveSessionSummaryRefs(map);
+    return sent;
+  } catch (e) {
+    console.warn('⚠️ Discord: postOrEditWinLossByKey failed:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// Clear the stored reference for a key (e.g., when a window ends)
+function clearWinLossByKey(key) {
+  try {
+    const map = loadSessionSummaryRefs();
+    if (map && map[key]) {
+      delete map[key];
+      saveSessionSummaryRefs(map);
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 // Hot-apply setters for optional channels
 async function setLogsChannel(raw) {
   try {
@@ -725,4 +783,4 @@ async function sendWinLossMessage(content) {
 
 function getClient() { return client; }
 
-module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel };
+module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey };

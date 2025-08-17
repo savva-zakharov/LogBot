@@ -1,5 +1,5 @@
 // src/commands/lowpoint.js
-const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder } = require('discord.js');
 const issuer = require('../lowPointsIssuer');
 
 module.exports = {
@@ -427,25 +427,20 @@ module.exports = {
       }
       if (id === 'lp_list') {
         const details = await issuer.listBelowDetails(interaction.guild);
-        const maxShow = 25;
         const fmtInc = (e) => `${e.display}${e.player ? ` -> ${e.player}` : ''} (${e.rating})`;
         const fmtExc = (e) => `${e.display}${e.player ? ` -> ${e.player}` : ''} (${e.rating}) [${e.reasons.join(', ')}]`;
-        const incShown = details.included.slice(0, maxShow).map(fmtInc);
-        const excShown = details.excluded.slice(0, maxShow).map(fmtExc);
-        const incMore = details.included.length > maxShow ? `\n... (+${details.included.length - maxShow} more)` : '';
-        const excMore = details.excluded.length > maxShow ? `\n... (+${details.excluded.length - maxShow} more)` : '';
         const lines = [];
+        lines.push(`Matched below-threshold members in guild "${interaction.guild.name}":`);
+        lines.push('');
         lines.push(`Included (candidates): ${details.included.length}`);
-        lines.push(incShown.length ? incShown.join('\n') + incMore : '(none)');
+        lines.push(...(details.included.map(fmtInc)));
         lines.push('');
         lines.push(`Excluded: ${details.excluded.length}`);
-        lines.push(excShown.length ? excShown.join('\n') + excMore : '(none)');
-        let content = lines.join('\n');
-        const wrapperOverhead = 8;
-        const maxLen = 2000 - wrapperOverhead;
-        if (content.length > maxLen) content = content.slice(0, maxLen);
+        lines.push(...(details.excluded.map(fmtExc)));
+        const fullText = lines.join('\n');
+        const file = new AttachmentBuilder(Buffer.from(fullText, 'utf8'), { name: 'lowpoints_list.txt' });
         const payload = await this.buildPanel(interaction.guild);
-        await interaction.update({ ...payload, content: '```\n' + content + '\n```' });
+        await interaction.update({ ...payload, content: `Attached full list. Included: ${details.included.length}. Excluded: ${details.excluded.length}.`, files: [file] });
         return true;
       }
       if (id === 'lp_refresh') {

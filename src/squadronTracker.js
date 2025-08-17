@@ -22,6 +22,9 @@ let __discordSendChecked = false;
 let __discordSendFn = null;
 let __discordWinLossChecked = false;
 let __discordWinLossFn = null;
+let __discordWLUpdateChecked = false;
+let __discordWLUpdateFn = null;
+let __discordWLClearFn = null;
 
 // --- Session state (W/L and starting points) ---
 // Resets at daily cutoff. In-memory only.
@@ -31,7 +34,118 @@ const __session = {
   startingPoints: null,      // number
   wins: 0,
   losses: 0,
+  windowKey: null,           // e.g., 2025-08-17|EU or 2025-08-17|US
 };
+
+// --- Session window helpers (US: 02:00–10:00 UTC, EU: 14:00–22:00 UTC) ---
+function utcMinutes(date) {
+  return date.getUTCHours() * 60 + date.getUTCMinutes();
+}
+
+// Given a Date, return the active window { label, start, end, key } or null if outside windows
+function getCurrentWindow(now = new Date()) {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(now.getUTCDate()).padStart(2, '0');
+  const baseKey = `${y}-${m}-${d}`;
+  const mins = utcMinutes(now);
+  const mkDate = (h, min) => new Date(Date.UTC(y, now.getUTCMonth(), now.getUTCDate(), h, min, 0, 0));
+  // US window: 02:00–10:00
+  const usStart = mkDate(2, 0);
+  const usEnd = mkDate(10, 0);
+  // EU window: 14:00–22:00
+  const euStart = mkDate(14, 0);
+  const euEnd = mkDate(22, 0);
+  if (mins >= 120 && mins < 600) {
+    return { label: 'US', start: usStart, end: usEnd, key: `${baseKey}|US` };
+  }
+  if (mins >= 14 * 60 && mins < 22 * 60) {
+    return { label: 'EU', start: euStart, end: euEnd, key: `${baseKey}|EU` };
+  }
+  return null;
+}
+
+function parseWindowKey(windowKey) {
+  if (!windowKey || typeof windowKey !== 'string') return null;
+  const [dateKey, label] = windowKey.split('|');
+  if (!dateKey || !label) return null;
+  const [y, m, d] = dateKey.split('-').map(x => parseInt(x, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const mk = (h, min) => new Date(Date.UTC(y, m - 1, d, h, min, 0, 0));
+  if (label === 'US') return { label, start: mk(2, 0), end: mk(10, 0), key: windowKey };
+  if (label === 'EU') return { label, start: mk(14, 0), end: mk(22, 0), key: windowKey };
+  return null;
+}
+
+function isWithinWindow(ts, window) {
+  if (!window) return false;
+  const t = ts instanceof Date ? ts : new Date(ts);
+  return t >= window.start && t < window.end;
+}
+
+// Build summary lines using points_change events within the window
+function buildWindowSummaryLines(events, window) {
+  const lines = [];
+  let cumWins = 0;
+  let cumLosses = 0;
+  let sessionDelta = 0;
+  const pad = (n) => String(n).padStart(2, '0');
+  for (const ev of events) {
+    const d = new Date(ev.ts);
+    const hhmm = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+    const delta = Number(ev.delta || 0);
+    sessionDelta += delta;
+    cumWins += Number(ev.matchesWon || 0);
+    cumLosses += Number(ev.matchesLost || 0);
+    const ptsStr = (delta >= 0 ? `+ ${delta} points` : `- ${Math.abs(delta)} points`).padEnd(13, ' ');
+    const wlStr = `${cumWins}/${cumLosses}`.padEnd(6, ' ');
+    const timeStr = hhmm.padEnd(7, ' ');
+    const sessStr = String(sessionDelta).padEnd(9, ' ');
+    let matchText = 'no matches';
+    const won = Number(ev.matchesWon || 0);
+    const lost = Number(ev.matchesLost || 0);
+    if (won > 0) matchText = `${won} match${won > 1 ? 'es' : ''} won`;
+    else if (lost > 0) matchText = `${lost} match${lost > 1 ? 'es' : ''} lost`;
+    lines.push(`${ptsStr} ${wlStr} ${timeStr} ${sessStr} ${matchText}`);
+  }
+  return lines;
+}
+
+// Build full summary content string for a window (title + body). If empty, include placeholder
+function buildWindowSummaryContent(window) {
+  if (!window) return '';
+  const events = readEventsFile();
+  const within = events.filter(ev => ev && ev.type === 'points_change' && isWithinWindow(ev.ts, window));
+  within.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const lines = buildWindowSummaryLines(within, window);
+  const d = window.start;
+  const dd = d.getUTCDate();
+  const mm = d.getUTCMonth() + 1;
+  const yyyy = d.getUTCFullYear();
+  const startLine = `${window.label} Session Start - ${dd}/${mm}/${yyyy}`;
+  const body = lines.length ? lines.join('\n') : '(no entries yet)';
+  return ['```', startLine, body, '```'].join('\n');
+}
+
+async function postWindowSummary(window) {
+  try {
+    if (!window) return;
+    const events = readEventsFile();
+    // Filter points_change events in this window
+    const within = events.filter(ev => ev && ev.type === 'points_change' && isWithinWindow(ev.ts, window));
+    if (!within.length) return;
+    // Sort chronologically
+    within.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+    const lines = buildWindowSummaryLines(within, window);
+    const title = `${window.label} session summary ${window.start.toISOString().slice(0,16).replace('T',' ')}–${window.end.toISOString().slice(11,16)} UTC`;
+    const body = lines.join('\n');
+    const sendWL = getDiscordWinLossSend();
+    const send = getDiscordSend();
+    const content = [title, '```', body, '```'].join('\n');
+    if (typeof sendWL === 'function') await sendWL(content);
+    else if (typeof send === 'function') await send(content);
+  } catch (_) {}
+}
 
 // --- Daily archive of squadron_data.json at UTC midnight ---
 function ensureLogsDir() {
@@ -143,59 +257,48 @@ function rebuildSessionFromEvents() {
   try {
     const events = readEventsFile();
     if (!events.length) return;
-    const today = dateKeyUTC();
+    const now = new Date();
+    const window = getCurrentWindow(now);
+    if (!window) { return; }
 
-    // Find the latest session_start or session_reset for today
+    // Only consider events within this window
     let startingPoints = null;
-    let startedAt = null;
+    let startedAt = window.start;
     let wins = 0, losses = 0;
 
     for (let i = 0; i < events.length; i++) {
       const ev = events[i];
       const ets = ev.ts ? new Date(ev.ts) : null;
-      const key = ets ? dateKeyUTC(ets) : null;
-      if (key !== today) continue;
+      if (!ets || !isWithinWindow(ets, window)) continue;
       if (ev.type === 'session_start' || ev.type === 'session_reset') {
-        startingPoints = typeof ev.startingPoints === 'number' ? ev.startingPoints : startingPoints;
+        if (typeof ev.startingPoints === 'number') startingPoints = ev.startingPoints;
         startedAt = ets || startedAt;
-        wins = 0; losses = 0; // reset from start
+        wins = 0; losses = 0;
       } else if (ev.type === 'w_l_update') {
-        // Legacy support: earlier versions emitted a separate W/L event
         const w = Number(ev.matchesWon || 0);
         const l = Number(ev.matchesLost || 0);
         if (Number.isFinite(w)) wins += w;
         if (Number.isFinite(l)) losses += l;
       } else if (ev.type === 'points_change') {
-        // New unified event may include matchesWon/matchesLost
         const w = Number(ev.matchesWon || 0);
         const l = Number(ev.matchesLost || 0);
         if (Number.isFinite(w)) wins += w;
         if (Number.isFinite(l)) losses += l;
-      }
-    }
-
-    // If no explicit session_start, infer starting points from first points_change today
-    if (startingPoints == null) {
-      const firstPointsChange = events.find(ev => {
-        const ets = ev.ts ? new Date(ev.ts) : null;
-        const key = ets ? dateKeyUTC(ets) : null;
-        return key === today && ev.type === 'points_change' && typeof ev.from === 'number';
-      });
-      if (firstPointsChange && typeof firstPointsChange.from === 'number') {
-        startingPoints = firstPointsChange.from;
-        startedAt = firstPointsChange.ts ? new Date(firstPointsChange.ts) : new Date();
+        if (startingPoints == null && typeof ev.from === 'number') startingPoints = ev.from;
       }
     }
 
     if (startingPoints != null) {
-      __session.dateKey = today;
-      __session.startedAt = startedAt || new Date();
+      __session.dateKey = dateKeyUTC(window.start);
+      __session.startedAt = startedAt || window.start;
       __session.startingPoints = startingPoints;
       __session.wins = wins;
       __session.losses = losses;
+      __session.windowKey = window.key;
     }
   } catch (_) { /* ignore */ }
 }
+
 function getDiscordSend() {
   if (!__discordSendChecked) {
     __discordSendChecked = true;
@@ -224,6 +327,19 @@ function getDiscordWinLossSend() {
     } catch (_) { __discordWinLossFn = null; }
   }
   return __discordWinLossFn;
+}
+
+// Updater for win/loss channel message by key (e.g., session window key)
+function getDiscordWinLossUpdater() {
+  if (!__discordWLUpdateChecked) {
+    __discordWLUpdateChecked = true;
+    try {
+      const mod = require('./discordBot');
+      __discordWLUpdateFn = (typeof mod.postOrEditWinLossByKey === 'function') ? mod.postOrEditWinLossByKey : null;
+      __discordWLClearFn = (typeof mod.clearWinLossByKey === 'function') ? mod.clearWinLossByKey : null;
+    } catch (_) { __discordWLUpdateFn = null; __discordWLClearFn = null; }
+  }
+  return { updateByKey: __discordWLUpdateFn, clearByKey: __discordWLClearFn };
 }
 
 // --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
@@ -1198,24 +1314,69 @@ async function startSquadronTracker() {
             else if (lostPoints > 20) matchesLost = 3;
           }
 
-          // Initialize/advance session state
+          // Initialize/advance session state with window awareness
           const now = new Date();
           const y = now.getUTCFullYear();
           const m = String(now.getUTCMonth() + 1).padStart(2, '0');
           const d = String(now.getUTCDate()).padStart(2, '0');
           const todayKey = `${y}-${m}-${d}`;
-          if (__session.dateKey !== todayKey || __session.startedAt == null || __session.startingPoints == null) {
+          const activeWindow = getCurrentWindow(now);
+          // Handle window end (we had a windowKey but are now outside any window)
+          if (!activeWindow && __session.windowKey) {
+            try {
+              const { clearByKey } = getDiscordWinLossUpdater();
+              if (typeof clearByKey === 'function') clearByKey(__session.windowKey);
+            } catch (_) {}
+            try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: __session.windowKey, dateKey: __session.dateKey }); } catch (_) {}
+            __session.startedAt = null;
+            __session.dateKey = todayKey;
+            __session.startingPoints = null;
+            __session.wins = 0;
+            __session.losses = 0;
+            __session.windowKey = null;
+          }
+          // Handle new window start or first init inside a window
+          if (activeWindow && __session.windowKey !== activeWindow.key) {
             __session.startedAt = now;
             __session.dateKey = todayKey;
             __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
             __session.wins = 0;
             __session.losses = 0;
-            // Persist a session_start event for reconstruction
+            __session.windowKey = activeWindow.key;
+            // Persist and post initial summary for this window
             try {
               if (__session.startingPoints != null) {
-                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey });
+                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey, windowKey: __session.windowKey });
               }
             } catch (_) {}
+            try {
+              const { updateByKey } = getDiscordWinLossUpdater();
+              let posted = null;
+              if (typeof updateByKey === 'function') {
+                try { posted = await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow)); } catch (_) { posted = null; }
+              }
+              if (!posted) {
+                const content = buildWindowSummaryContent(activeWindow);
+                const sendWL = getDiscordWinLossSend();
+                if (typeof sendWL === 'function') {
+                  try { await sendWL(content); posted = true; } catch (_) { posted = null; }
+                }
+                if (!posted) {
+                  const send = getDiscordSend();
+                  if (typeof send === 'function') {
+                    try { await send(content); } catch (_) {}
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+          // If in a window but session fields missing, ensure they are initialized
+          if (activeWindow && (__session.startingPoints == null || __session.startedAt == null)) {
+            __session.startedAt = now;
+            __session.dateKey = todayKey;
+            __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
+            __session.wins = __session.wins | 0;
+            __session.losses = __session.losses | 0;
           }
           __session.wins += matchesWon;
           __session.losses += matchesLost;
@@ -1241,8 +1402,15 @@ async function startSquadronTracker() {
                 membersIncreased: inc,
                 membersDecreased: dec,
                 dateKey: __session.dateKey,
+                windowKey: __session.windowKey || null,
               });
-              
+              // Live-update the session summary message for the active window
+              try {
+                if (activeWindow && __session.windowKey === activeWindow.key) {
+                  const { updateByKey } = getDiscordWinLossUpdater();
+                  if (typeof updateByKey === 'function') await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow));
+                }
+              } catch (_) {}
             }
           } catch (_) {}
           
