@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 const { loadSettings } = require('./config');
 const { autoIssueAfterSnapshot } = require('./lowPointsIssuer');
 
@@ -367,6 +370,270 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   });
 }
 
+// Stealth Puppeteer fallback for HTML fetching
+async function fetchViaStealth(url) {
+  let browser = null;
+  try {
+    const send = getDiscordSend();
+    if (typeof send === 'function') { try { await send(`Using stealth fetch for: ${url}`); } catch (_) {} }
+    // Read optional debug wait configuration
+    const __cfg = (() => { try { return loadSettings() || {}; } catch (_) { return {}; } })();
+    const extraWaitMs = (() => {
+      const v = Number(process.env.CF_DEBUG_WAIT_MS || (__cfg && __cfg.stealthDebugWaitMs));
+      if (!Number.isFinite(v) || v <= 0) return 0;
+      return Math.min(300000, Math.max(0, v)); // cap 5 minutes
+    })();
+    const manualPauseSec = (() => {
+      const v = Number(process.env.STEALTH_PAUSE_SECS || (__cfg && __cfg.stealthManualPauseSeconds));
+      if (!Number.isFinite(v) || v <= 0) return 0;
+      return Math.min(600, Math.max(0, v)); // cap 10 minutes
+    })();
+    const profileDir = path.join(__dirname, '..', '.puppeteer_profile');
+    const launchArgs = [
+      '--no-sandbox',
+      '--lang=en-US,en;q=0.9',
+      '--window-size=1280,800',
+    ];
+    const proxy = process.env.HTTP_PROXY || process.env.http_proxy || process.env.HTTPS_PROXY || process.env.https_proxy;
+    if (proxy) launchArgs.push(`--proxy-server=${proxy}`);
+    browser = await puppeteer.launch({
+      headless: false,
+      userDataDir: profileDir,
+      args: launchArgs,
+    });
+    const page = await browser.newPage();
+    try {
+      page.setDefaultNavigationTimeout(90_000);
+      await page.setJavaScriptEnabled(true);
+      try { await page.setBypassCSP(true); } catch (_) {}
+      // Subtle client hints and language/platform spoofing (stealth covers most, but add a bit more)
+      try {
+        await page.evaluateOnNewDocument(() => {
+          try { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); } catch {}
+          try { Object.defineProperty(navigator, 'platform', { get: () => 'Win32' }); } catch {}
+          try { Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 }); } catch {}
+          try { Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 }); } catch {}
+        });
+      } catch (_) {}
+      // Randomize UA and viewport slightly per attempt
+      const uas = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      ];
+      const ua = uas[Math.floor(Math.random() * uas.length)];
+      await page.setUserAgent(ua);
+      const vp = { width: Math.floor(1200 + Math.random() * 240), height: Math.floor(720 + Math.random() * 180), deviceScaleFactor: 1 };
+      await page.setViewport(vp);
+      await page.setExtraHTTPHeaders({
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
+        'sec-ch-ua': '"Chromium";v="124", "Not-A.Brand";v="24", "Google Chrome";v="124"',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-ch-ua-mobile': '?0',
+        'Referer': (() => { try { const u = new URL(url); return `${u.origin}/`; } catch { return undefined; } })(),
+      });
+      try { await page.emulateTimezone('Europe/London'); } catch (_) {}
+
+      // Capture page events for diagnostics
+      const diag = { console: [], pageerrors: [], failed: [] };
+      try {
+        page.on('console', msg => { try { diag.console.push(`[${msg.type()}] ${msg.text()}`); } catch {} });
+        page.on('pageerror', err => { try { diag.pageerrors.push(String(err && err.message || err)); } catch {} });
+        page.on('requestfailed', req => { try { diag.failed.push(`${req.method()} ${req.url()} -> ${req.failure() && req.failure().errorText}`); } catch {} });
+      } catch (_) {}
+
+      // Warm up origin first to establish cookies/session before hitting deep path
+      let origin;
+      try { const u = new URL(url); origin = `${u.protocol}//${u.hostname}/`; } catch (_) { origin = null; }
+      if (origin) {
+        try {
+          await page.goto(origin, { waitUntil: 'networkidle2', timeout: 60000 });
+          await page.waitForTimeout(5000);
+        } catch (_) {}
+      }
+
+      // Navigate to target and wait longer for network to settle
+      let lastStatus = null;
+      try {
+        page.on('response', res => { try { if (res.url() === url) lastStatus = res.status(); } catch (_) {} });
+      } catch (_) {}
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+      // If target responded with 403 once, try a single soft reload after a short wait
+      if (lastStatus === 403) {
+        await page.waitForTimeout(7000);
+        try { await page.reload({ waitUntil: 'networkidle2', timeout: 60000 }); } catch (_) {}
+      }
+
+      // Add a delay after navigation to reduce detection/fingerprinting and allow CF to settle
+      const baseWait = 15000 + (extraWaitMs || 0);
+      try { console.log(`ℹ️ Stealth: post-nav wait ${baseWait} ms (extra=${extraWaitMs})`); } catch (_) {}
+      await page.waitForTimeout(baseWait);
+
+      // Optional manual pause to examine the page/challenge
+      if (manualPauseSec > 0) {
+        try {
+          await page.bringToFront();
+          if (typeof send === 'function') { try { await send(`Stealth manual pause: waiting ${manualPauseSec}s to examine page...`); } catch (_) {} }
+        } catch (_) {}
+        await page.waitForTimeout(manualPauseSec * 1000);
+      }
+
+      // Try to accept cookie/consent banners automatically
+      try {
+        await page.evaluate(() => {
+          const texts = ['accept all', 'agree', 'consent', 'allow all', 'accept'];
+          const buttons = Array.from(document.querySelectorAll('button, input[type=button], input[type=submit]'));
+          for (const b of buttons) {
+            const t = (b.innerText || b.value || '').trim().toLowerCase();
+            if (!t) continue;
+            if (texts.some(x => t.includes(x))) { try { b.click(); } catch (_) {} }
+          }
+        });
+      } catch (_) {}
+
+      // Human-like interactions to help some anti-bot systems
+      try {
+        const w = (await page.viewport()).width;
+        const h = (await page.viewport()).height;
+        await page.mouse.move(Math.floor(w * 0.3), Math.floor(h * 0.3), { steps: 15 });
+        await page.waitForTimeout(400);
+        await page.mouse.move(Math.floor(w * 0.7), Math.floor(h * 0.6), { steps: 20 });
+        await page.waitForTimeout(400);
+        await page.mouse.move(Math.floor(w * 0.5), Math.floor(h * 0.2), { steps: 12 });
+        await page.waitForTimeout(400);
+        await page.mouse.wheel({ deltaY: 400 });
+        await page.waitForTimeout(600);
+        await page.mouse.wheel({ deltaY: -200 });
+      } catch (_) {}
+
+      // Cloudflare/Challenge detection loop with extended waits
+      const maxWaitMs = 60000;
+      const start = Date.now();
+      let content = await page.content();
+      const challengeRe = /(challenge-platform|__cf_chl|Just a moment|cf-please-wait|turnstile|cf-challenge)/i;
+      let reloads = 0;
+      while (challengeRe.test(content) && (Date.now() - start) < maxWaitMs) {
+        if (typeof send === 'function') { try { await send('Challenge detected. Waiting to clear...'); } catch (_) {} }
+        await page.waitForTimeout(5000);
+        if (++reloads % 3 === 0) {
+          // Periodically try a soft reload
+          try { await page.reload({ waitUntil: 'networkidle2', timeout: 60000 }); } catch (_) {}
+          await page.waitForTimeout(5000);
+        }
+        content = await page.content();
+      }
+      if (challengeRe.test(content)) {
+        if (typeof send === 'function') { try { await send('Challenge appears unresolved after extended wait. Capturing debug snapshot.'); } catch (_) {} }
+        // Save debug artifacts to help diagnose
+        try {
+          const ts = new Date().toISOString().replace(/[:.]/g, '-');
+          const base = path.join(__dirname, '..');
+          const shot = path.join(base, `cf_debug_${ts}.png`);
+          const htmlPath = path.join(base, `cf_debug_${ts}.html`);
+          const logPath = path.join(base, `cf_debug_${ts}.log`);
+          await page.screenshot({ path: shot, fullPage: true });
+          fs.writeFileSync(htmlPath, content || '');
+          const logBody = [
+            '--- Console ---',
+            ...diag.console.slice(-50),
+            '--- PageErrors ---',
+            ...diag.pageerrors.slice(-50),
+            '--- RequestFailed ---',
+            ...diag.failed.slice(-100),
+          ].join('\n');
+          fs.writeFileSync(logPath, logBody);
+        } catch (_) {}
+        // One retry with a slightly different UA
+        try {
+          await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36');
+          await page.reload({ waitUntil: 'networkidle2', timeout: 60000 });
+          await page.waitForTimeout(8000);
+          content = await page.content();
+        } catch (_) {}
+        // If still challenged, request manual solve from user and wait up to 3 minutes
+        if (challengeRe.test(content)) {
+          try {
+            if (typeof send === 'function') { await send('Manual intervention requested: bring the opened window to front and solve the challenge within 3 minutes.'); }
+          } catch (_) {}
+          try { await page.bringToFront(); } catch (_) {}
+          const manualStart = Date.now();
+          while (challengeRe.test(content) && (Date.now() - manualStart) < 180_000) {
+            await page.waitForTimeout(5000);
+            content = await page.content();
+          }
+          // If still challenged, try a mobile UA fallback in a fresh page within the same browser
+          if (challengeRe.test(content)) {
+            try { if (typeof send === 'function') await send('Trying mobile UA fallback...'); } catch (_) {}
+            let mPage = null;
+            try {
+              mPage = await browser.newPage();
+              await mPage.setJavaScriptEnabled(true);
+              await mPage.setBypassCSP(true).catch(() => {});
+              const mUA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+              await mPage.setUserAgent(mUA);
+              await mPage.setViewport({ width: 412, height: 892, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+              await mPage.setExtraHTTPHeaders({
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-User': '?1',
+                'Sec-Fetch-Dest': 'document',
+                'sec-ch-ua': '"Chromium";v="124", "Not.A/Brand";v="24", "Google Chrome";v="124"',
+                'sec-ch-ua-platform': '"Android"',
+                'sec-ch-ua-mobile': '?1',
+                'Referer': (() => { try { const u = new URL(url); return `${u.origin}/`; } catch { return undefined; } })(),
+              });
+              let origin;
+              try { const u = new URL(url); origin = `${u.protocol}//${u.hostname}/`; } catch (_) { origin = null; }
+              if (origin) {
+                try { await mPage.goto(origin, { waitUntil: 'networkidle2', timeout: 60000 }); await mPage.waitForTimeout(4000); } catch (_) {}
+              }
+              await mPage.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+              await mPage.waitForTimeout(8000);
+              let mContent = await mPage.content();
+              // quick cookie accept attempt
+              try { await mPage.evaluate(() => { const b = Array.from(document.querySelectorAll('button')).find(x => /accept|agree|consent/i.test(x.innerText||'')); if (b) b.click(); }); } catch (_) {}
+              await mPage.waitForTimeout(4000);
+              mContent = await mPage.content();
+              if (!/(challenge-platform|__cf_chl|Just a moment|cf-please-wait|turnstile|cf-challenge)/i.test(mContent)) {
+                try { if (typeof send === 'function') await send('Mobile UA fallback succeeded.'); } catch (_) {}
+                try { await mPage.close(); } catch (_) {}
+                return mContent;
+              }
+            } catch (_) {}
+            try { if (mPage) await mPage.close(); } catch (_) {}
+          }
+        }
+      }
+      return content || null;
+    } finally {
+      try { await page.close(); } catch (_) {}
+      try { await browser.close(); } catch (_) {}
+    }
+  } catch (e) {
+    try { if (browser) await browser.close(); } catch (_) {}
+    const send = getDiscordSend();
+    if (typeof send === 'function') { try { await send(`Stealth fetch failed for: ${url}`); } catch (_) {} }
+    return null;
+  }
+}
+
+async function fetchTextWithFallback(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const html = await fetchText(url, timeoutMs);
+  if (html) return html;
+  // Fallback to stealth browser
+  return await fetchViaStealth(url);
+}
+
 // Simple text fetcher (for HTML)
 function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve) => {
@@ -496,7 +763,7 @@ async function initSeasonSchedule() {
   const url = 'https://forum.warthunder.com/t/season-schedule-for-squadron-battles/4446';
   try {
     console.log(`[SEASON] Fetching schedule from: ${url}`);
-    const raw = await fetchText(url);
+    const raw = await fetchTextWithFallback(url);
     if (!raw) {
       console.warn('[SEASON] No HTML received from forum URL. Aborting schedule init.');
       return;
@@ -884,6 +1151,19 @@ function pruneSnapshot(snapshot) {
   return safe;
 }
 
+// Determine if a snapshot has useful signal to persist
+function snapshotHasSignal(snap) {
+  try {
+    const rows = snap && snap.data && Array.isArray(snap.data.rows) ? snap.data.rows : [];
+    const headers = snap && snap.data && Array.isArray(snap.data.headers) ? snap.data.headers : [];
+    const total = snap && typeof snap.totalPoints === 'number' ? snap.totalPoints : null;
+    if (rows.length > 0) return true;
+    if (headers.length > 0 && rows.length > 0) return true; // redundant but explicit
+    if (Number.isFinite(total)) return true;
+  } catch (_) {}
+  return false;
+}
+
 function ensureParsedDataFile() {
   const file = path.join(process.cwd(), 'squadron_data.json');
   if (!fs.existsSync(file)) {
@@ -921,11 +1201,20 @@ function appendSnapshot(file, snapshot) {
   // New behavior: always write a single latest snapshot (overwrite file)
   try {
     const pruned = pruneSnapshot(snapshot);
+    // Only persist if we have useful data; otherwise keep existing snapshot
+    if (!snapshotHasSignal(pruned)) {
+      console.warn('⚠️ Skipping snapshot write: no useful data (empty rows and no totalPoints).');
+      return;
+    }
     fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
     try { autoIssueAfterSnapshot(); } catch (_) {}
   } catch (_) {
     try {
       const pruned = pruneSnapshot(snapshot);
+      if (!snapshotHasSignal(pruned)) {
+        console.warn('⚠️ Skipping snapshot write (retry path): no useful data.');
+        return;
+      }
       fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
       try { autoIssueAfterSnapshot(); } catch (_) {}
     } catch (_) {}
@@ -1155,7 +1444,7 @@ async function startSquadronTracker() {
         // We already fetched members above for HTML-first; if empty, attempt a retry once
         if ((!snapshot.data || !Array.isArray(snapshot.data.rows) || !snapshot.data.rows.length)) {
           try {
-            const raw = await fetchText(squadronPageUrl);
+            const raw = await fetchTextWithFallback(squadronPageUrl);
             if (raw) {
               const parsed = parseSquadronWithCheerio(raw);
               if (parsed && Array.isArray(parsed.rows)) {

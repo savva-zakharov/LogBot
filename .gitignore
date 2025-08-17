@@ -37,6 +37,8 @@ settings.env.bak
 .env.*
 .DS_Store
 
+.puppeteer_profile/
+
 # IDE
 .vscode/
 classification_batch_results*
