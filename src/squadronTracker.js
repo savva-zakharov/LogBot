@@ -1556,7 +1556,7 @@ async function startSquadronTracker() {
 
           // Helper: find a small (w,l) explaining delta with given per-game deltas
           const inferWL = (delta, win, loss) => {
-            const tol = 1; // allow small variance ±1
+            const tol = 0; // allow small variance ±1
             if (!Number.isFinite(delta) || !win || !loss) return null;
             let best = null;
             for (let w = 0; w <= 5; w++) {
