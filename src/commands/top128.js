@@ -89,13 +89,27 @@ module.exports = {
       lines.push(`${prefix}${gap} — ${rating}`);
     });
 
-    const blocks = chunkIntoCodeBlocks(lines.join('\n'));
-    if (blocks.length === 1) {
-      await interaction.reply({ content: blocks[0] });
-    } else {
-      await interaction.reply({ content: blocks[0] });
-      for (let i = 1; i < blocks.length; i++) {
-        await interaction.followUp({ content: blocks[i] });
+    const text = lines.join('\n');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const name = `top128-${ts}.txt`;
+
+    // Prefer sending as a file attachment to avoid message length limits
+    try {
+      await interaction.reply({
+        content: 'Attached is the Top 128 list as a text file.',
+        files: [{ attachment: Buffer.from(text, 'utf8'), name }],
+      });
+      return;
+    } catch (_) {
+      // Fallback: chunk into code blocks if file sending fails
+      const blocks = chunkIntoCodeBlocks(text);
+      if (blocks.length === 1) {
+        await interaction.reply({ content: blocks[0] });
+      } else {
+        await interaction.reply({ content: blocks[0] });
+        for (let i = 1; i < blocks.length; i++) {
+          await interaction.followUp({ content: blocks[i] });
+        }
       }
     }
   }
