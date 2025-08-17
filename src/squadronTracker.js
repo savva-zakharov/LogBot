@@ -347,6 +347,11 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, res => {
       if (res.statusCode !== 200) {
+        // Notify Discord default channel about non-200 responses
+        try {
+          const send = getDiscordSend();
+          if (typeof send === 'function') send(`fetchJson: non-200 (${res.statusCode}) for ${url}`);
+        } catch (_) {}
         res.resume();
         return resolve(null);
       }
@@ -371,6 +376,11 @@ function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const req = https.get(options, res => {
       if (res.statusCode !== 200) {
         console.warn(`⚠️ fetchText: non-200 (${res.statusCode}) for ${url}`);
+        // Notify Discord default channel about non-200 responses
+        try {
+          const send = getDiscordSend();
+          if (typeof send === 'function') send(`fetchText: non-200 (${res.statusCode}) for ${url}`);
+        } catch (_) {}
         res.resume();
         return resolve(null);
       }
@@ -530,8 +540,9 @@ async function initSeasonSchedule() {
     // Extract schedule-like snippets from the description; support EN/RU markers and a (dd.mm — dd.mm) date range
     const lines = [];
     const pushMatch = (m) => { const s = (m && m[0] ? m[0] : '').trim(); if (s) lines.push(s); };
-    // Patterns that include a date range in parens and either 'week' or 'Until the end of season' (EN/RU)
-    const reWeek = /(\bweek\b[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
+    // Patterns that include a date range in parens and either 'week' (optionally prefixed by an ordinal like '1st') or 'Until the end of season' (EN/RU)
+    // Preserve leading ordinals such as "1", "1st", "2nd", "3rd", "4th" before the word 'week'
+    const reWeek = /((?:\b\d+\s*(?:st|nd|rd|th)?\s*)?\bweek\b[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     const reUntil = /(Until the end of season[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     let m;
     // Apply EN patterns to cleaned text to avoid interference from Cyrillic

@@ -17,7 +17,9 @@
     "cheerio": "^1.1.2",
     "discord-voice": "^2.0.6",
     "discord.js": "^14.21.0",
-    "puppeteer": "^22.15.0"
+    "puppeteer": "^22.15.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",

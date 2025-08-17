@@ -86,14 +86,6 @@ async function runSetupWizard() {
           ? String(current.sqbbr)
           : [
               'This is your SQBBR message file (sqbbr.txt).',
-              'Edit this file to change the response of the /sqbbr command.',
-              '',
-              'Example:',
-              'Hello pilots,',
-              'This is the squadron briefing.',
-              '- Be on time',
-              '- Bring your best vehicles',
-              'GL & HF!',
             ].join('\n');
         fs.writeFileSync(txtPath, template + (template.endsWith('\n') ? '' : '\n'), 'utf8');
         console.log(`✅ Created ${txtPath}`);
