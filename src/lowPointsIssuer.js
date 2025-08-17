@@ -13,6 +13,105 @@ function readSettings() {
   } catch (_) { return {}; }
 }
 
+// Build a detailed listing of matched members in Discord that are below threshold,
+// splitting into included (would be candidates) and excluded with reasons.
+async function listBelowDetails(guild) {
+  const cfg = getConfig();
+  const allRows = getAllRows();
+  const result = { included: [], excluded: [] };
+  try { await guild.members.fetch(); } catch (_) {}
+  // Optional limiter
+  let baseRole = null;
+  if (cfg.memberRoleId || cfg.memberRoleName) {
+    try { baseRole = await resolveRole(guild, cfg.memberRoleId, cfg.memberRoleName); } catch (_) {}
+  }
+  const pool = baseRole ? guild.members.cache.filter(m => m.roles?.cache?.has(baseRole.id)) : guild.members.cache;
+  // Excluded role IDs and name map
+  let excludedRoleIds = new Set();
+  const roleNames = new Map();
+  try {
+    await guild.roles.fetch();
+    guild.roles.cache.forEach(r => { if (r?.id) roleNames.set(r.id, r.name || r.id); });
+    const byName = new Map();
+    guild.roles.cache.forEach(r => { if (r?.name) byName.set(r.name.toLowerCase(), r.id); });
+    excludedRoleIds = new Set(
+      (cfg.excludeRoles || []).map(v => {
+        const s = String(v).trim();
+        if (/^\d{10,}$/.test(s)) return s;
+        const id = byName.get(s.toLowerCase());
+        return id || null;
+      }).filter(Boolean)
+    );
+  } catch (_) {}
+
+  for (const [, m] of pool) {
+    const display = m.nickname || m.user?.username || '';
+    if (!display) continue;
+    const bm = bestMatchPlayer(allRows, display);
+    if (!bm || !bm.row) continue;
+    const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
+    if (!qualityOk) continue;
+    const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
+    if (!(rating < cfg.threshold)) continue;
+    // Evaluate reasons
+    let withinGrace = false;
+    try {
+      const dojStr = bm.row['Date of entry'] || bm.row['date of entry'] || bm.row['Date'] || '';
+      const doj = parseDateOfEntry(dojStr);
+      const days = daysSince(doj);
+      withinGrace = (days != null) && (days < cfg.graceDays);
+    } catch (_) { withinGrace = false; }
+    let excludedByRole = false;
+    let matchedExcludedRoles = [];
+    try {
+      if (m.roles?.cache && excludedRoleIds.size) {
+        for (const [rid] of m.roles.cache) {
+          if (excludedRoleIds.has(rid)) { excludedByRole = true; matchedExcludedRoles.push(roleNames.get(rid) || rid); }
+        }
+      }
+    } catch (_) { excludedByRole = false; }
+
+    const entry = {
+      memberId: m.id,
+      display,
+      player: String(bm.row.Player || bm.row.player || ''),
+      rating,
+      reasons: [],
+    };
+    if (withinGrace) entry.reasons.push('grace');
+    if (excludedByRole) entry.reasons.push(`excludedRole:${matchedExcludedRoles.join('|')}`);
+    if (entry.reasons.length) result.excluded.push(entry);
+    else result.included.push(entry);
+  }
+  // Sort for readability
+  result.included.sort((a, b) => a.rating - b.rating);
+  result.excluded.sort((a, b) => a.rating - b.rating);
+  return result;
+}
+
+// Helpers for join-date grace period
+function parseDateOfEntry(s) {
+  try {
+    const str = String(s || '').trim();
+    const m = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (!m) return null;
+    const d = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const y = parseInt(m[3], 10);
+    if (!(d >= 1 && d <= 31 && mo >= 1 && mo <= 12)) return null;
+    return new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0));
+  } catch (_) { return null; }
+}
+
+function daysSince(dateUtc) {
+  try {
+    if (!(dateUtc instanceof Date) || isNaN(dateUtc.getTime())) return null;
+    const now = new Date();
+    const ms = now.getTime() - dateUtc.getTime();
+    return Math.floor(ms / (24 * 60 * 60 * 1000));
+  } catch (_) { return null; }
+}
+
 async function countAssigned(guild) {
   try {
     const cfg = getConfig();
@@ -38,6 +137,14 @@ function writeSettings(obj) {
 function getConfig() {
   const s = readSettings();
   const lp = s.lowPoints || {};
+  // Normalize excludeRoles: accept IDs or names as strings; merge from possible legacy arrays
+  const excludeRolesRaw = [];
+  if (Array.isArray(lp.excludeRoles)) excludeRolesRaw.push(...lp.excludeRoles);
+  if (Array.isArray(lp.excludeRoleIds)) excludeRolesRaw.push(...lp.excludeRoleIds);
+  if (Array.isArray(lp.excludeRoleNames)) excludeRolesRaw.push(...lp.excludeRoleNames);
+  const excludeRoles = excludeRolesRaw
+    .map(v => (v == null ? null : String(v).trim()))
+    .filter(v => !!v);
   return {
     enabled: !!lp.enabled,
     threshold: Number.isFinite(lp.threshold) ? lp.threshold : 1300,
@@ -49,6 +156,9 @@ function getConfig() {
     memberRoleId: typeof lp.memberRoleId === 'string' ? lp.memberRoleId : null,
     memberRoleName: typeof lp.memberRoleName === 'string' ? lp.memberRoleName : null,
     logChannelId: typeof lp.logChannelId === 'string' ? lp.logChannelId : null,
+    // Support both spellings: gracePeroid (as requested) and gracePeriod
+    graceDays: Number.isFinite(lp.gracePeroid) ? lp.gracePeroid : (Number.isFinite(lp.gracePeriod) ? lp.gracePeriod : 30),
+    excludeRoles,
   };
 }
 
@@ -90,6 +200,21 @@ async function computeEligibleCount(guild) {
     const allRows = getAllRows();
     if (!guild) return 0;
     try { await guild.members.fetch(); } catch (_) {}
+    // Build excluded role ID set
+    let excludedRoleIds = new Set();
+    try {
+      await guild.roles.fetch();
+      const byName = new Map();
+      guild.roles.cache.forEach(r => { if (r?.name) byName.set(r.name.toLowerCase(), r.id); });
+      excludedRoleIds = new Set(
+        (cfg.excludeRoles || []).map(v => {
+          const s = String(v).trim();
+          if (/^\d{10,}$/.test(s)) return s; // looks like ID
+          const id = byName.get(s.toLowerCase());
+          return id || null;
+        }).filter(Boolean)
+      );
+    } catch (_) {}
     // Optional limiter pool
     let baseRole = null;
     if (cfg.memberRoleId || cfg.memberRoleName) {
@@ -98,6 +223,14 @@ async function computeEligibleCount(guild) {
     const pool = baseRole ? guild.members.cache.filter(m => m.roles?.cache?.has(baseRole.id)) : guild.members.cache;
     let count = 0;
     for (const [, m] of pool) {
+      // Skip excluded members
+      try {
+        if (m.roles?.cache && excludedRoleIds.size) {
+          let skip = false;
+          for (const [rid] of m.roles.cache) { if (excludedRoleIds.has(rid)) { skip = true; break; } }
+          if (skip) continue;
+        }
+      } catch (_) {}
       const display = m.nickname || m.user?.username || '';
       if (!display) continue;
       const bm = bestMatchPlayer(allRows, display);
@@ -105,7 +238,13 @@ async function computeEligibleCount(guild) {
       const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
       if (!qualityOk) continue;
       const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
-      if (rating < cfg.threshold) count++;
+      if (rating >= cfg.threshold) continue;
+      // Grace period check based on join date in snapshot
+      const dojStr = bm.row['Date of entry'] || bm.row['date of entry'] || bm.row['Date'] || '';
+      const doj = parseDateOfEntry(dojStr);
+      const days = daysSince(doj);
+      if (days != null && days < cfg.graceDays) continue; // skip if within grace period
+      count++;
     }
     return count;
   } catch (_) {
@@ -143,6 +282,21 @@ async function issueRolesInGuild(guild, options = {}) {
   const candidates = new Map(); // key: memberId, value: { display, player }
   const matchSamples = [];
   try { await guild.members.fetch(); } catch (_) {}
+  // Build excluded role ID set
+  let excludedRoleIds = new Set();
+  try {
+    await guild.roles.fetch();
+    const byName = new Map();
+    guild.roles.cache.forEach(r => { if (r?.name) byName.set(r.name.toLowerCase(), r.id); });
+    excludedRoleIds = new Set(
+      (cfg.excludeRoles || []).map(v => {
+        const s = String(v).trim();
+        if (/^\d{10,}$/.test(s)) return s;
+        const id = byName.get(s.toLowerCase());
+        return id || null;
+      }).filter(Boolean)
+    );
+  } catch (_) {}
 
   const totalMembers = guild.members.cache.size;
   let basePool = [];
@@ -153,6 +307,14 @@ async function issueRolesInGuild(guild, options = {}) {
   }
   const baseCount = baseRole ? basePool.size : totalMembers;
   for (const [, m] of basePool) {
+    // Skip excluded members
+    try {
+      if (m.roles?.cache && excludedRoleIds.size) {
+        let skip = false;
+        for (const [rid] of m.roles.cache) { if (excludedRoleIds.has(rid)) { skip = true; break; } }
+        if (skip) continue;
+      }
+    } catch (_) {}
     const display = m.nickname || m.user?.username || '';
     if (!display) continue;
     const bm = bestMatchPlayer(allRows, display);
@@ -163,20 +325,28 @@ async function issueRolesInGuild(guild, options = {}) {
       // threshold gate
       const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
       const below = rating < cfg.threshold;
-      accepted = qualityOk && below;
+      // grace period gate
+      let withinGrace = false;
+      try {
+        const dojStr = bm.row['Date of entry'] || bm.row['date of entry'] || bm.row['Date'] || '';
+        const doj = parseDateOfEntry(dojStr);
+        const days = daysSince(doj);
+        withinGrace = (days != null) && (days < cfg.graceDays);
+      } catch (_) { withinGrace = false; }
+      accepted = qualityOk && below && !withinGrace;
       if (accepted) {
         const playerName = bm.row.Player || bm.row.player || null;
         candidates.set(m.id, { display, player: playerName });
       }
       if (cfg.debug && matchSamples.length < 10) {
-        matchSamples.push(`[MATCH ${accepted ? 'ACCEPT' : 'REJECT'}] member="${display}" -> player="${bm.row.Player || bm.row.player}" rating=${rating} ${below ? '(< thr)' : '(>= thr)'} tier=${bm.tier ?? '?'} normD=${(bm.normD ?? 0).toFixed(3)}`);
+        matchSamples.push(`[MATCH ${accepted ? 'ACCEPT' : 'REJECT'}] member="${display}" -> player="${bm.row.Player || bm.row.player}" rating=${rating} ${below ? '(< thr)' : '(>= thr)'} tier=${bm.tier ?? '?'} normD=${(bm.normD ?? 0).toFixed(3)} graceDays=${cfg.graceDays}`);
       }
     } else if (cfg.debug && matchSamples.length < 10) {
       matchSamples.push(`[NO-MATCH] member="${display}"`);
     }
   }
 
-  console.log(`[LowPoints] Guild="${guild.name}" role="${role.name}" threshold=${cfg.threshold} snapshotRows=${allRows.length} members=${totalMembers} basePool=${baseCount}${baseRole ? ` baseRole="${baseRole.name}"` : ''} matched=${candidates.size} maxTier=${cfg.matchMaxTier} maxNormD=${cfg.matchMaxNormD}`);
+  console.log(`[LowPoints] Guild="${guild.name}" role="${role.name}" threshold=${cfg.threshold} snapshotRows=${allRows.length} members=${totalMembers} basePool=${baseCount}${baseRole ? ` baseRole="${baseRole.name}"` : ''} matched=${candidates.size} maxTier=${cfg.matchMaxTier} maxNormD=${cfg.matchMaxNormD} graceDays=${cfg.graceDays}`);
   if (cfg.debug && matchSamples.length) {
     for (const line of matchSamples) console.log(`[LowPoints] ${line}`);
   }
@@ -202,6 +372,14 @@ async function issueRolesInGuild(guild, options = {}) {
   // Remove role from members who are not candidates anymore
   for (const [, m] of guild.members.cache) {
     try {
+      // Skip excluded members entirely (do not add or remove roles)
+      let isExcluded = false;
+      try {
+        if (m.roles?.cache && excludedRoleIds.size) {
+          for (const [rid] of m.roles.cache) { if (excludedRoleIds.has(rid)) { isExcluded = true; break; } }
+        }
+      } catch (_) { isExcluded = false; }
+      if (isExcluded) continue;
       if (m.roles.cache.has(role.id) && !candidates.has(m.id)) {
         await m.roles.remove(role, `No longer below threshold ${cfg.threshold}`);
         removed++;
@@ -290,6 +468,7 @@ module.exports = {
   getRowsBelowThreshold,
   computeEligibleCount,
   countAssigned,
+  listBelowDetails,
   issueRolesInGuild,
   removeRoleInGuild,
   autoIssueAfterSnapshot,

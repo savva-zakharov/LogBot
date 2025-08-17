@@ -65,36 +65,43 @@ module.exports = {
   },
   async buildPanel(guild) {
     const cfg = issuer.getConfig();
+    const exclDisp = (cfg.excludeRoles && cfg.excludeRoles.length)
+      ? cfg.excludeRoles.join(', ').slice(0, 256)
+      : '(none)';
     const roleDisp = cfg.roleId || cfg.roleName || '(not set)';
     const limiterDisp = cfg.memberRoleId || cfg.memberRoleName || '(none)';
     const eligible = guild ? await issuer.computeEligibleCount(guild) : 0;
     const assigned = guild ? await issuer.countAssigned(guild) : 0;
     const em = new EmbedBuilder()
       .setTitle('Low Points Control Panel')
-      .setDescription('Manage the low-points role. Use /lowpoint set, /lowpoint role, /lowpoint memberrole to change values.')
+      .setDescription('Manage the low-points role. Use the buttons below to change settings, issue  or remove the roles or enable auto-issuing.')
       .setColor(cfg.enabled ? 0x3ba55d : 0x808080)
       .addFields(
         { name: 'Threshold', value: String(cfg.threshold), inline: true },
         { name: 'Role', value: roleDisp, inline: true },
-        { name: 'Limiter Role', value: limiterDisp, inline: true },
-        { name: 'Enabled', value: String(!!cfg.enabled), inline: true },
+        { name: 'Eligible Role', value: limiterDisp, inline: true },
+        { name: 'Auto Enabled', value: String(!!cfg.enabled), inline: true },
         { name: 'Eligible Now', value: String(eligible), inline: true },
         { name: 'Assigned Now', value: String(assigned), inline: true },
+        { name: 'Grace Days', value: String(cfg.graceDays ?? 30), inline: true },
+        { name: 'Excluded Roles', value: exclDisp, inline: false },
       );
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('lp_issue').setLabel('Sync').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('lp_set_thr').setLabel('Set Threshold').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('lp_set_role').setLabel('Set Role').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('lp_set_limiter').setLabel('Set Limiter').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_remove').setLabel('Remove All').setStyle(ButtonStyle.Danger),
     );
     const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_set_thr').setLabel('Set Threshold').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_role').setLabel('Set Role').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_limiter').setLabel('Set Included Role').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_grace').setLabel('Set Grace').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_excluded').setLabel('Set Excluded Roles').setStyle(ButtonStyle.Primary),
+    );
+    const row3 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('lp_start').setLabel('Start Auto').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('lp_stop').setLabel('Stop Auto').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('lp_refresh').setLabel('Refresh ui').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary)
-    );
-    const row3 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('lp_remove').setLabel('Remove All').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary),
     );
     return { embeds: [em], components: [row1, row2, row3] };
   },
@@ -250,6 +257,69 @@ module.exports = {
     const id = interaction.customId || '';
     if (!(id.startsWith('lp_') || id === 'lp_thr_modal')) return false;
     try {
+      // Open modal to edit excluded roles
+      if (interaction.isButton() && id === 'lp_set_excluded') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder()
+          .setCustomId('lp_excluded_modal')
+          .setTitle('Set Excluded Roles');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_excluded_value')
+          .setLabel('Comma-separated role IDs or names')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setPlaceholder('e.g., 123456789012345678, Officer, Veteran')
+          .setValue(Array.isArray(cfg.excludeRoles) && cfg.excludeRoles.length ? cfg.excludeRoles.join(', ') : '');
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      // Save excluded roles from modal
+      if (interaction.isModalSubmit() && id === 'lp_excluded_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_excluded_value') || '').trim();
+        let list = [];
+        if (raw.length) {
+          list = raw.split(',').map(s => s.trim()).filter(s => s.length);
+        }
+        // De-dupe while preserving order
+        const seen = new Set();
+        const cleaned = [];
+        for (const v of list) { const k = v.toLowerCase(); if (!seen.has(k)) { seen.add(k); cleaned.push(v); } }
+        issuer.saveConfig({ excludeRoles: cleaned });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.reply({ ...payload, content: `Excluded roles updated (${cleaned.length} item(s)).`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_set_grace') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder()
+          .setCustomId('lp_grace_modal')
+          .setTitle('Set Low-Points Grace Period');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_grace_value')
+          .setLabel('Grace period (days)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('e.g., 30')
+          .setValue(String(cfg.graceDays ?? 30));
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_grace_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_grace_value') || '').trim();
+        const days = Number(raw);
+        if (!Number.isFinite(days) || days <= 0) {
+          await interaction.reply({ content: 'Invalid grace period. Please enter a positive integer number of days.', flags: MessageFlags.Ephemeral });
+          return true;
+        }
+        issuer.saveConfig({ gracePeroid: Math.floor(days) });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.reply({ ...payload, content: `Grace period set to ${Math.floor(days)} day(s).`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
       if (interaction.isButton() && id === 'lp_set_thr') {
         const cfg = issuer.getConfig();
         const modal = new ModalBuilder()
@@ -356,13 +426,26 @@ module.exports = {
         return true;
       }
       if (id === 'lp_list') {
-        const cfg = issuer.getConfig();
-        const rows = issuer.getRowsBelowThreshold(cfg.threshold);
-        const toNum = (v) => { const s = String(v ?? '').replace(/[^0-9]/g, ''); return s ? parseInt(s, 10) : 0; };
-        rows.sort((a,b) => toNum(a['Personal clan rating'] ?? a.rating) - toNum(b['Personal clan rating'] ?? b.rating));
-        const lines = rows.slice(0, 40).map(r => `${r.Player || r.player || '(unknown)'} — ${toNum(r['Personal clan rating'] ?? r.rating)}`);
+        const details = await issuer.listBelowDetails(interaction.guild);
+        const maxShow = 25;
+        const fmtInc = (e) => `${e.display}${e.player ? ` -> ${e.player}` : ''} (${e.rating})`;
+        const fmtExc = (e) => `${e.display}${e.player ? ` -> ${e.player}` : ''} (${e.rating}) [${e.reasons.join(', ')}]`;
+        const incShown = details.included.slice(0, maxShow).map(fmtInc);
+        const excShown = details.excluded.slice(0, maxShow).map(fmtExc);
+        const incMore = details.included.length > maxShow ? `\n... (+${details.included.length - maxShow} more)` : '';
+        const excMore = details.excluded.length > maxShow ? `\n... (+${details.excluded.length - maxShow} more)` : '';
+        const lines = [];
+        lines.push(`Included (candidates): ${details.included.length}`);
+        lines.push(incShown.length ? incShown.join('\n') + incMore : '(none)');
+        lines.push('');
+        lines.push(`Excluded: ${details.excluded.length}`);
+        lines.push(excShown.length ? excShown.join('\n') + excMore : '(none)');
+        let content = lines.join('\n');
+        const wrapperOverhead = 8;
+        const maxLen = 2000 - wrapperOverhead;
+        if (content.length > maxLen) content = content.slice(0, maxLen);
         const payload = await this.buildPanel(interaction.guild);
-        await interaction.update({ ...payload, content: '```\n' + (lines.join('\n') || 'No members below threshold') + '\n```' });
+        await interaction.update({ ...payload, content: '```\n' + content + '\n```' });
         return true;
       }
       if (id === 'lp_refresh') {

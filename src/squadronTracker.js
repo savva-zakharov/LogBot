@@ -53,11 +53,9 @@ function archiveSquadronData(dateKeyOverride = null) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       dest = path.join(logsDir, `squadron_data-${dateKey}-${ts}.json`);
     }
-    try { fs.renameSync(src, dest); }
-    catch (_) { try { fs.copyFileSync(src, dest); fs.unlinkSync(src); } catch (_) {} }
-    // Recreate a fresh file for the new day (single-snapshot format: empty object)
-    try { fs.writeFileSync(src, JSON.stringify({}, null, 2), 'utf8'); } catch (_) {}
-    console.log(`[SEASON] Archived squadron_data.json to ${dest}`);
+    // Copy the current file to logs, keeping the original in place
+    try { fs.copyFileSync(src, dest); } catch (_) {}
+    console.log(`[SEASON] Archived (copied) squadron_data.json to ${dest}`);
   } catch (e) {
     console.warn(`[SEASON] Failed to archive squadron_data.json: ${e && e.message ? e.message : e}`);
   }
