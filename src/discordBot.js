@@ -111,6 +111,7 @@ async function reconfigureWaitingVoiceChannel(raw) {
 
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
+const webhookManager = require('./webhookManager');
 const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
 const { buildMergedSummary } = require('./summaryFormatter');
@@ -346,6 +347,17 @@ async function init(settings) {
     partials: [Partials.Channel]
   });
 
+  // Track webhook usage to refresh inactivity timer
+  try {
+    client.on('messageCreate', (message) => {
+      try {
+        if (message && message.webhookId) {
+          webhookManager.markUsed(message.webhookId);
+        }
+      } catch (_) {}
+    });
+  } catch (_) {}
+
   // Load command modules from src/commands
   loadCommands();
 
@@ -390,6 +402,8 @@ async function init(settings) {
 
   client.once('ready', async () => {
     ready = true;
+    // Initialize webhook manager with client for cleanup duties
+    try { webhookManager.init(client); } catch (_) {}
     try { await client.guilds.fetch(); } catch (_) {}
     // Start waiting tracker if configured
     try {
