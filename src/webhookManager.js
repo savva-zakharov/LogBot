@@ -8,11 +8,15 @@ const fs = require('fs');
 const path = require('path');
 
 const STORE_FILE = path.join(process.cwd(), 'logbird_webhooks.json');
-const INACTIVITY_MS = 60 * 60 * 1000; // 1 hour
+const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
 const CLEAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 let clientRef = null;
 let cleaner = null;
+let logger = null; // optional function(message)
+
+function setLogger(fn) { logger = typeof fn === 'function' ? fn : null; }
+function log(msg) { try { if (logger) logger(String(msg)); } catch (_) {} }
 
 function ensureStore() {
   try {
@@ -24,6 +28,24 @@ function ensureStore() {
       if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.webhooks)) {
         fs.writeFileSync(STORE_FILE, JSON.stringify({ webhooks: [] }, null, 2), 'utf8');
       }
+
+function loadSettings() {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) return {};
+    const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
+}
+
+function getInactivityMs() {
+  const settings = loadSettings();
+  let minutes = Number(settings.logbirdAutoDeleteMinutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) minutes = 60; // default 60m
+  // clamp to reasonable bounds: 1 minute to 7 days
+  minutes = Math.max(1, Math.min(360, Math.floor(minutes)));
+  return minutes * 60 * 1000;
+}
     }
   } catch (_) {}
 }
@@ -48,9 +70,11 @@ function now() { return Date.now(); }
 async function cleanupExpired() {
   const store = loadStore();
   const keep = [];
+  const inactivityMs = getInactivityMs();
+  const minutes = Math.round(inactivityMs / 60000);
   for (const w of store.webhooks) {
     const last = Number(w.lastUsedAt || w.createdAt || 0);
-    if (!Number.isFinite(last) || now() - last > INACTIVITY_MS) {
+    if (!Number.isFinite(last) || now() - last > inactivityMs) {
       // try delete
       try {
         if (clientRef) {
@@ -59,7 +83,8 @@ async function cleanupExpired() {
             const hooks = await ch.fetchWebhooks();
             const hook = hooks.get(w.id);
             if (hook) {
-              await hook.delete('Logbird auto-cleanup (inactive > 1h)');
+              await hook.delete(`Logbird auto-cleanup (inactive > ${minutes}m)`);
+              log(`Auto-deleted webhook ${w.name || ''} (${w.id}) in <#${w.channelId}> after ${minutes}m inactivity.`);
             }
           }
         }
@@ -94,6 +119,8 @@ function markUsed(id) {
   if (idx >= 0) {
     store.webhooks[idx].lastUsedAt = now();
     saveStore(store);
+    const w = store.webhooks[idx];
+    log(`Webhook used: ${w.name || ''} (${w.id}) in <#${w.channelId}>`);
     return true;
   }
   return false;
@@ -112,6 +139,7 @@ async function registerCreated(hook) {
     lastUsedAt: now(),
   });
   saveStore(store);
+  log(`Webhook created: ${hook.name || ''} (${hook.id}) in <#${hook.channelId}>`);
 }
 
 async function endSessionDeleteAll(reason = 'session end') {
@@ -124,7 +152,7 @@ async function endSessionDeleteAll(reason = 'session end') {
         if (ch && typeof ch.fetchWebhooks === 'function') {
           const hooks = await ch.fetchWebhooks();
           const hook = hooks.get(w.id);
-          if (hook) { await hook.delete(`Logbird cleanup (${reason})`); }
+          if (hook) { await hook.delete(`Logbird cleanup (${reason})`); log(`Webhook deleted: ${w.name || ''} (${w.id}) in <#${w.channelId}> (${reason})`); }
           continue;
         }
       }
@@ -135,6 +163,38 @@ async function endSessionDeleteAll(reason = 'session end') {
   saveStore({ webhooks: remaining });
 }
 
+function list() {
+  const store = loadStore();
+  return Array.isArray(store.webhooks) ? store.webhooks.slice() : [];
+}
+
+async function deleteById(id, reason = 'manual delete') {
+  if (!id) return false;
+  const store = loadStore();
+  let deleted = false;
+  try {
+    if (clientRef) {
+      // Find channel for this webhook to delete from API first
+      const entry = store.webhooks.find(w => w.id === id);
+      if (entry) {
+        try {
+          const ch = await clientRef.channels.fetch(entry.channelId);
+          if (ch && typeof ch.fetchWebhooks === 'function') {
+            const hooks = await ch.fetchWebhooks();
+            const hook = hooks.get(entry.id);
+            if (hook) { await hook.delete(`Logbird cleanup (${reason})`); deleted = true; log(`Webhook deleted: ${entry.name || ''} (${entry.id}) in <#${entry.channelId}> (${reason})`); }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  // Remove from store regardless if API delete succeeded (it may have already been removed)
+  const before = store.webhooks.length;
+  store.webhooks = store.webhooks.filter(w => w.id !== id);
+  saveStore(store);
+  return deleted || store.webhooks.length < before;
+}
+
 module.exports = {
   init,
   markUsed,
@@ -142,4 +202,7 @@ module.exports = {
   cleanupExpired,
   endSessionDeleteAll,
   stopCleaner,
+  list,
+  deleteById,
+  setLogger,
 };

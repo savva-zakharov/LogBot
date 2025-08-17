@@ -105,6 +105,7 @@ async function runSetupWizard() {
     ];
     fs.writeFileSync(envPath, envLines.join('\n'), 'utf8');
     console.log(`✅ Secrets and ports saved to ${envPath}`);
+
     // Return merged view (as loadSettings would)
     return { ...current, ...jsonCfg, telemetryUrl, port, wsPort, discordBotToken, clientId, guildId };
   } finally {

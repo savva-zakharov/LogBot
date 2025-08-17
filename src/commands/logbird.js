@@ -1,7 +1,7 @@
 // src/commands/logbird.js
 const fs = require('fs');
 const path = require('path');
-const { PermissionFlagsBits, ChannelType } = require('discord.js');
+const { PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 const webhookManager = require('../webhookManager');
 
 // Static avatar URL from user request
@@ -15,6 +15,16 @@ function loadRawSettings() {
     const parsed = JSON.parse(raw || '{}');
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch (_) { return {}; }
+
+}
+
+function makeLogbirdNameForUser(interaction) {
+  const uname = (interaction && interaction.member && interaction.member.displayName)
+    || (interaction && interaction.user && (interaction.user.globalName || interaction.user.username))
+    || 'User';
+  // Discord webhook name max length is 80 chars
+  const name = `Logbird-${String(uname)}`;
+  return name.length > 80 ? name.slice(0, 80) : name;
 }
 
 function normalizeId(input) {
@@ -108,6 +118,11 @@ module.exports = {
         return interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
       }
 
+      // Respect enable/disable flag from settings.json (default: enabled)
+      if (settings.logbirdEnabled === false) {
+        return interaction.reply({ content: 'Issuing of webhooks is currently disabled by an admin.', ephemeral: true });
+      }
+
       const channel = await resolveLogsChannel(interaction, settings);
       if (!channel) {
         return interaction.reply({ content: 'Logs channel is not configured or could not be resolved.', ephemeral: true });
@@ -115,7 +130,7 @@ module.exports = {
 
       await interaction.deferReply({ ephemeral: true });
 
-      const name = await nextLogbirdName(channel);
+      const name = makeLogbirdNameForUser(interaction);
       let hook;
       try {
         hook = await channel.createWebhook({ name, avatar: AVATAR_URL, reason: 'Logbird request' });
@@ -132,15 +147,24 @@ module.exports = {
         guildId: hook.guildId,
       }); } catch (_) {}
 
-      const info = [
-        `Created webhook: ${hook.name}`,
-        `ID: ${hook.id}`,
-        `Token: ${hook.token || '(no token)'}`,
-        `URL: ${hook.url}`,
-        'Note: It will be auto-deleted after 1 hour of inactivity.'
-      ].join('\n');
+      // Determine TTL minutes from settings
+      let ttl = Number((settings && settings.logbirdAutoDeleteMinutes));
+      if (!Number.isFinite(ttl) || ttl <= 0) ttl = 60;
+      ttl = Math.max(5, Math.min(10080, Math.floor(ttl)));
 
-      return interaction.editReply({ content: info, ephemeral: true });
+      const embed = new EmbedBuilder()
+        .setTitle('Logbird Webhook Created')
+        .setColor(0x00AE86)
+        .addFields(
+          { name: 'Name', value: hook.name || '—', inline: true },
+          { name: 'ID', value: String(hook.id), inline: true },
+          { name: 'Channel', value: `<#${hook.channelId}>`, inline: true },
+          { name: 'URL', value: hook.url || '—' },
+          { name: 'Token', value: hook.token ? `||${hook.token}||` : '(no token)' }
+        )
+        .setFooter({ text: `Auto-deletes after ${ttl} minutes of inactivity.` });
+
+      return interaction.editReply({ embeds: [embed], ephemeral: true });
     } catch (e) {
       try {
         if (interaction.deferred || interaction.replied) {

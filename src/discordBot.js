@@ -364,8 +364,8 @@ async function init(settings) {
   // Generic command dispatcher
   client.on('interactionCreate', async (interaction) => {
     try {
-      // Route component interactions for lowpoint/settings panels (buttons + modals)
-      if (interaction.isButton() || interaction.isModalSubmit()) {
+      // Route component interactions for lowpoint/settings/logbirdmanage panels (buttons + modals + select menus)
+      if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
         const id = interaction.customId || '';
         if (id.startsWith('lp_') || id === 'lp_thr_modal') {
           const lowpoint = commands.get('lowpoint');
@@ -378,6 +378,13 @@ async function init(settings) {
           const settingsCmd = commands.get('settings');
           if (settingsCmd && typeof settingsCmd.handleComponent === 'function') {
             const handled = await settingsCmd.handleComponent(interaction);
+            if (handled) return;
+          }
+        }
+        if (id.startsWith('lbm_') || id.startsWith('lbm_select')) {
+          const lbm = commands.get('logbirdmanage');
+          if (lbm && typeof lbm.handleComponent === 'function') {
+            const handled = await lbm.handleComponent(interaction);
             if (handled) return;
           }
         }
