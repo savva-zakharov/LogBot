@@ -1,4 +1,4 @@
-`z// src/commands/updatebot.js
+// src/commands/updatebot.js
 const { PermissionFlagsBits } = require('discord.js');
 const { spawn } = require('child_process');
 const path = require('path');
