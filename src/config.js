@@ -30,7 +30,7 @@ const CATEGORY_TO_OUTPUT = {
 
 // Settings loader: reads settings.json and settings.env, with env taking precedence
 function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '', discordLogsChannel: '', discordWinLossChannell: '', disablePerGameSummaries: false };
+  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '', discordLogsChannel: '', discordWinLossChannell: '', disablePerGameSummaries: false, summaryWebhookUrl: '' };
   try {
     const cwd = process.cwd();
     const envPath = path.join(cwd, 'settings.env');
@@ -57,6 +57,7 @@ function loadSettings() {
         discordLogsChannel: typeof parsed.discordLogsChannel === 'string' ? parsed.discordLogsChannel : defaults.discordLogsChannel,
         discordWinLossChannell: typeof parsed.discordWinLossChannell === 'string' ? parsed.discordWinLossChannell : defaults.discordWinLossChannell,
         disablePerGameSummaries: typeof parsed.disablePerGameSummaries === 'boolean' ? parsed.disablePerGameSummaries : defaults.disablePerGameSummaries,
+        summaryWebhookUrl: typeof parsed.summaryWebhookUrl === 'string' ? parsed.summaryWebhookUrl : defaults.summaryWebhookUrl,
         clientId: typeof parsed.clientId === 'string' ? parsed.clientId : defaults.clientId,
         guildId: typeof parsed.guildId === 'string' ? parsed.guildId : defaults.guildId,
         port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
@@ -86,6 +87,7 @@ function loadSettings() {
         discordLogsChannel: base.discordLogsChannel || defaults.discordLogsChannel,
         discordWinLossChannell: base.discordWinLossChannell || defaults.discordWinLossChannell,
         disablePerGameSummaries: typeof base.disablePerGameSummaries === 'boolean' ? base.disablePerGameSummaries : defaults.disablePerGameSummaries,
+        summaryWebhookUrl: base.summaryWebhookUrl || defaults.summaryWebhookUrl,
         clientId: (envOverrides.clientId !== undefined ? envOverrides.clientId : base.clientId) || defaults.clientId,
         guildId: (envOverrides.guildId !== undefined ? envOverrides.guildId : base.guildId) || defaults.guildId,
         port: Number.isFinite(envOverrides.port) ? envOverrides.port : base.port,

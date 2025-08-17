@@ -112,6 +112,7 @@ async function reconfigureWaitingVoiceChannel(raw) {
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const webhookManager = require('./webhookManager');
+const { postToWebhook } = require('./postWebhook');
 const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
 const { buildMergedSummary } = require('./summaryFormatter');
@@ -596,6 +597,16 @@ function formatMergedSummaryText() {
 
 // Post or edit the merged summary message (always try edit; persist ref across restarts)
 async function postMergedSummary() {
+  const content = formatMergedSummaryText();
+  // Also post to external webhook if configured
+  try {
+    const settings = loadSettings();
+    const url = settings && typeof settings.summaryWebhookUrl === 'string' ? settings.summaryWebhookUrl.trim() : '';
+    if (url) {
+      // Fire-and-forget; do not block Discord posting
+      postToWebhook(url, { content }).catch(() => {});
+    }
+  } catch (_) {}
   // Prefer logs channel; fallback to default target channel
   let ch = await ensureLogsChannel();
   if (!ch) ch = await ensureTargetChannel();
@@ -603,7 +614,6 @@ async function postMergedSummary() {
     console.warn('⚠️ Discord: No channel available for merged summary.');
     return null;
   }
-  const content = formatMergedSummaryText();
   try {
     // Try persisted reference first (survives restarts and channel switches)
     const persisted = loadMergedSummaryRef();

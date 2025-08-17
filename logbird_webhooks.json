@@ -1,14 +1,14 @@
 {
   "webhooks": [
     {
-      "id": "1406746858294087794",
-      "token": "mOIkYJwEfKPtcjsQqgQJI0ke-jgI5_QoFCu53yqXmIScwUOl5QfS1JAbR2EXiMaYYaT0",
-      "url": "https://discord.com/api/webhooks/1406746858294087794/mOIkYJwEfKPtcjsQqgQJI0ke-jgI5_QoFCu53yqXmIScwUOl5QfS1JAbR2EXiMaYYaT0",
-      "name": "Logbird-Meta Gamer",
+      "id": "1406756948350734447",
+      "token": "gc6caHcDzAY4WTW8HfxWUiv2QAWXQnZUQSOuX3jxlX3jaugXl9FOUQkQCzSZnzXuuu5k",
+      "url": "https://discord.com/api/webhooks/1406756948350734447/gc6caHcDzAY4WTW8HfxWUiv2QAWXQnZUQSOuX3jxlX3jaugXl9FOUQkQCzSZnzXuuu5k",
+      "name": "Logbird-Mindbird",
       "channelId": "1404932173395656744",
       "guildId": "1400784533611216989",
-      "createdAt": 1755464987353,
-      "lastUsedAt": 1755464987353
+      "createdAt": 1755467393718,
+      "lastUsedAt": 1755467657844
     }
   ]
 }
