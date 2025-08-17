@@ -1,0 +1,24 @@
+@echo off
+setlocal ENABLEDELAYEDEXPANSION
+
+REM Ensure we are in the project directory where this script resides
+cd /d "%~dp0"
+
+echo [update-bot] Fetching latest refs from remote...
+git fetch --all --prune
+if errorlevel 1 (
+  echo [update-bot] git fetch failed. Check your network or git remotes.
+  goto :end
+)
+
+echo [update-bot] Updating npm packages...
+npm update
+if errorlevel 1 (
+  echo [update-bot] npm update encountered errors.
+  goto :end
+)
+
+:end
+echo [update-bot] Done.
+endlocal
+exit /b 0
