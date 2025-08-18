@@ -45,6 +45,79 @@ function utcMinutes(date) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
 }
 
+// Try to extract squadron total points (and optionally place) from the HTML
+function parseTotalPointsFromHtml(html) {
+  try {
+    const $ = cheerio.load(html);
+    let totalPoints = null;
+    let place = null;
+
+    // Preferred: exact selector provided by user
+    try {
+      const selText = $('div.squadrons-counter__item:nth-child(1) > div:nth-child(2)').first().text().trim();
+      if (selText) {
+        const num = Number((selText || '').replace(/[^\d]/g, ''));
+        if (Number.isFinite(num) && num > 0) totalPoints = num;
+      }
+    } catch (_) {}
+
+    // 1) Look for obvious labels like "Total points" (English UI)
+    const labelCandidates = $('*:contains("Total points")').filter(function() {
+      return /total\s*points/i.test($(this).text());
+    });
+    labelCandidates.each((_, el) => {
+      if (totalPoints != null) return;
+      const txt = $(el).text();
+      const m = txt && txt.match(/total\s*points[^\d]*([\d\s,\.]+)/i);
+      if (m && m[1]) {
+        const num = Number((m[1] || '').replace(/[^\d]/g, ''));
+        if (Number.isFinite(num)) totalPoints = num;
+      }
+      if (totalPoints == null) {
+        // Try siblings for the numeric value
+        $(el).children().add($(el).next()).each((__, sib) => {
+          if (totalPoints != null) return;
+          const t2 = $(sib).text();
+          const m2 = t2 && t2.match(/([\d\s,\.]{3,})/);
+          if (m2 && m2[1]) {
+            const num2 = Number((m2[1] || '').replace(/[^\d]/g, ''));
+            if (Number.isFinite(num2)) totalPoints = num2;
+          }
+        });
+      }
+    });
+
+    // 2) Heuristic: find a large number near words like "points" in any element
+    if (totalPoints == null) {
+      const candidates = [];
+      $('*').each((_, el) => {
+        const t = ($(el).text() || '').trim();
+        if (!t) return;
+        if (/points?/i.test(t)) candidates.push(t);
+      });
+      for (const t of candidates) {
+        const m = t.match(/([\d\s,\.]{4,})/);
+        if (m && m[1]) {
+          const num = Number((m[1] || '').replace(/[^\d]/g, ''));
+          if (Number.isFinite(num) && num > 0) { totalPoints = num; break; }
+        }
+      }
+    }
+
+    // 3) Attempt to read place if present (e.g., "Place: 23")
+    const placeText = $('*:contains("Place")').filter(function() { return /place/i.test($(this).text()); }).first().text();
+    if (placeText) {
+      const pm = placeText.match(/place[^\d]*(\d+)/i);
+      if (pm && pm[1]) {
+        const n = Number(pm[1]);
+        if (Number.isFinite(n)) place = n;
+      }
+    }
+
+    return { totalPoints, place };
+  } catch (_) { return { totalPoints: null, place: null }; }
+}
+
 // Given a Date, return the active window { label, start, end, key } or null if outside windows
 function getCurrentWindow(now = new Date()) {
   const y = now.getUTCFullYear();
@@ -1364,7 +1437,7 @@ async function startSquadronTracker() {
     let totalPointsAbove = null;
     let totalPointsBelow = null;
 
-    // Prepare snapshot and fetch HTML first (for members list only; totals from API)
+    // Prepare snapshot and fetch HTML first (HTML is primary source for totals; API is fallback)
     let snapshot = {
       ts: Date.now(),
       data: { headers: [], rows: [] },
@@ -1381,12 +1454,17 @@ async function startSquadronTracker() {
         if (parsed && Array.isArray(parsed.rows)) {
           snapshot.data = parsed;
           snapshot.membersCaptured = true;
-          // Note: we no longer compute manual totals; totalPoints will be set from API below
+          // Try to extract total points (primary)
+          try {
+            const { totalPoints, place } = parseTotalPointsFromHtml(raw);
+            if (Number.isFinite(totalPoints)) snapshot.totalPoints = totalPoints;
+            if (Number.isFinite(place)) snapshot.squadronPlace = place;
+          } catch (_) {}
         }
       }
     } catch (_) {}
 
-    // Fetch leaderboard context and total points from API
+    // Fetch leaderboard context from API, and use API total points only as a fallback
     try {
       if (primaryTag) {
         const api = await findOnLeaderboardViaApi(primaryTag);
@@ -1394,13 +1472,13 @@ async function startSquadronTracker() {
           squadronPlace = api.squadronPlace;
           totalPointsAbove = api.totalPointsAbove;
           totalPointsBelow = api.totalPointsBelow;
-          snapshot.squadronPlace = squadronPlace;
+          if (!Number.isFinite(snapshot.squadronPlace) && Number.isFinite(squadronPlace)) snapshot.squadronPlace = squadronPlace;
           snapshot.totalPointsAbove = totalPointsAbove;
           snapshot.totalPointsBelow = totalPointsBelow;
-          // Set snapshot totalPoints from API-derived points
-          const apiPts = api.found && typeof api.found.points === 'number' ? api.found.points : null;
-          if (Number.isFinite(apiPts)) {
-            snapshot.totalPoints = apiPts;
+          // Only use API points if HTML did not yield a value
+          if (!(typeof snapshot.totalPoints === 'number')) {
+            const apiPts = api.found && typeof api.found.points === 'number' ? api.found.points : null;
+            if (Number.isFinite(apiPts)) snapshot.totalPoints = apiPts;
           }
         }
       }
