@@ -39,6 +39,7 @@ settings.env.bak
 
 .puppeteer_profile/
 .merged_summary_ref.json
+.merged_summary_ref.json.bak
 
 # IDE
 .vscode/
