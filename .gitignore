@@ -38,8 +38,10 @@ settings.env.bak
 .DS_Store
 
 .puppeteer_profile/
+logbird_webhooks.json
 .merged_summary_ref.json
-.merged_summary_ref.json.bak
+.session_summary_refs.json
+
 
 # IDE
 .vscode/
