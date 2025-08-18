@@ -38,6 +38,7 @@ settings.env.bak
 .DS_Store
 
 .puppeteer_profile/
+.merged_summary_ref.json
 
 # IDE
 .vscode/
