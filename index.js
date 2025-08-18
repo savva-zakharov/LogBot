@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const { ensureExternalSettings, loadSettings } = require('./src/config');
+const readline = require('readline');
 const { loadVehicleClassifications: loadVC } = require('./src/classifier');
 const state = require('./src/state');
 const server = require('./src/server');
@@ -45,6 +46,62 @@ async function main() {
     }
   } else {
     ensureExternalSettings();
+  }
+
+  // If running in --client mode, allow passing a webhook URL or prompt for it
+  if (clientFlag) {
+    // Parse possible forms: --client=<url> or --client <url>
+    let clientWebhookUrl = null;
+    const idx = argv.findIndex(a => a === '--client' || a.startsWith('--client='));
+    if (idx !== -1) {
+      const token = argv[idx];
+      const eqIdx = token.indexOf('=');
+      if (eqIdx > 0) {
+        clientWebhookUrl = token.slice(eqIdx + 1).trim();
+      } else if (argv[idx + 1] && !argv[idx + 1].startsWith('--')) {
+        clientWebhookUrl = String(argv[idx + 1]).trim();
+      }
+    }
+
+    const persistWebhookUrl = (url) => {
+      try {
+        const cfgPathLocal = path.join(process.cwd(), 'settings.json');
+        const raw = fs.existsSync(cfgPathLocal) ? fs.readFileSync(cfgPathLocal, 'utf8') : '{}';
+        const j = JSON.parse(raw || '{}');
+        if (url) j.summaryWebhookUrl = url; // set/override
+        fs.writeFileSync(cfgPathLocal, JSON.stringify(j, null, 2), 'utf8');
+        console.log(url ? '✅ summaryWebhookUrl saved to settings.json' : 'ℹ️ No webhook URL provided; leaving settings.json unchanged');
+      } catch (e) {
+        console.warn('⚠️ Could not persist summaryWebhookUrl:', e && e.message ? e.message : e);
+      }
+    };
+
+    const isLikelyUrl = (u) => typeof u === 'string' && /^(https?:)\/\//i.test(u);
+
+    if (!clientWebhookUrl) {
+      // Prompt for it if not provided via CLI
+      await new Promise((resolve) => {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        rl.question('Enter summary webhook URL for client mode (leave empty to skip): ', (answer) => {
+          const val = String(answer || '').trim();
+          if (val && !isLikelyUrl(val)) {
+            console.warn('⚠️ Input does not look like a valid http(s) URL; skipping.');
+          } else if (val) {
+            persistWebhookUrl(val);
+          } else {
+            console.log('ℹ️ No webhook URL entered; skipping.');
+          }
+          rl.close();
+          resolve();
+        });
+      });
+    } else {
+      if (!isLikelyUrl(clientWebhookUrl)) {
+        console.warn(`⚠️ --client value does not look like a valid http(s) URL: '${clientWebhookUrl}'. Skipping.`);
+      } else {
+        persistWebhookUrl(clientWebhookUrl);
+      }
+    }
   }
 
   // 2. Load vehicle classifications from the external file

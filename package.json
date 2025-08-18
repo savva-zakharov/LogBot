@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build:exe": "pkg -t node18-win-x64 --compress Brotli --out-path dist .",
-    "build:exe:linux": "pkg -t node18-linux-x64 --compress Brotli --out-path dist .",
+    "test:webhook": "node test-webhook-server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
