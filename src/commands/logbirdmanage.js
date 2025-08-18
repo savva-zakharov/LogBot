@@ -112,8 +112,8 @@ function buildPanel(userId) {
 
   // Enable/Disable and Roles controls
   rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`lbm_enable_webhooks:${userId}`).setLabel('Enable Webhooks').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`lbm_disable_webhooks:${userId}`).setLabel('Disable Webhooks').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`lbm_enable_webhooks:${userId}`).setLabel('Enable Issuing').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`lbm_disable_webhooks:${userId}`).setLabel('Disable Issuing').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`lbm_set_roles:${userId}`).setLabel('Set /logbird Roles').setStyle(ButtonStyle.Secondary),
   ));
 

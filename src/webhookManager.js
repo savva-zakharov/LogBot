@@ -1,33 +1,127 @@
 // src/webhookManager.js
 // Manages short-lived Discord webhooks created by /logbird
-// - Persists created webhooks to logbird_webhooks.json
+// - Persists created webhooks to settings.json (key: logbirdWebhooks)
 // - Auto-deletes webhooks after 1 hour of inactivity
 // - Exposes helpers to create, mark usage, and end session
 
 const fs = require('fs');
 const path = require('path');
 
-const STORE_FILE = path.join(process.cwd(), 'logbird_webhooks.json');
+const LEGACY_STORE_FILE = path.join(process.cwd(), 'logbird_webhooks.json');
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
-const CLEAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const CLEAN_INTERVAL_MS = 60 * 1000; // 1 minute
 
 let clientRef = null;
 let cleaner = null;
 let logger = null; // optional function(message)
+let targetChannel = null; // cached Discord text channel for notices
+let targetChannelId = null;
+let lastResolveAt = 0;
 
 function setLogger(fn) { logger = typeof fn === 'function' ? fn : null; }
-function log(msg) { try { if (logger) logger(String(msg)); } catch (_) {} }
+function log(msg) {
+  const line = String(msg);
+  try { if (logger) { logger(line); return; } } catch (_) {}
+  try { console.log(line); } catch (_) {}
+}
+function isDebug() {
+  try {
+    const s = loadSettings();
+    return !!(s.logbirdDebug || process.env.LOGBIRD_DEBUG);
+  } catch (_) { return !!process.env.LOGBIRD_DEBUG; }
+}
+function dbg(msg) {
+  if (!isDebug()) return;
+  const line = `[LogbirdWebhookManager] ${String(msg)}`;
+  if (logger) { try { logger(line); } catch (_) {} } else { try { console.log(line); } catch (_) {} }
+}
+
+// --- Discord notice helpers ---
+function isSnowflake(str) { return typeof str === 'string' && /^\d{10,}$/.test(str); }
+
+async function resolveNoticeChannel() {
+  if (!clientRef) return null;
+  const nowTs = Date.now();
+  if (targetChannel && (nowTs - lastResolveAt) < 60_000) return targetChannel; // 1 min cache
+  targetChannel = null;
+  targetChannelId = null;
+  try {
+    const s = loadSettings();
+    const raw = (s.discordChannel || '').trim();
+    if (!raw) return null;
+    let channelId = null;
+    if (/^\d{10,}\/\d{10,}$/.test(raw)) {
+      const [, cId] = raw.split('/');
+      channelId = cId;
+    } else if (isSnowflake(raw) || isSnowflake(raw.replace(/^#/, ''))) {
+      channelId = raw.replace(/^#/, '');
+    }
+    if (channelId) {
+      try {
+        const ch = await clientRef.channels.fetch(channelId);
+        if (ch && typeof ch.send === 'function') {
+          targetChannel = ch;
+          targetChannelId = ch.id;
+          lastResolveAt = nowTs;
+          return targetChannel;
+        }
+      } catch (_) {}
+    }
+    // Fallback: try by bare name across visible guilds (best-effort)
+    const name = raw.replace(/^#/, '').toLowerCase();
+    try { await clientRef.guilds.fetch(); } catch (_) {}
+    for (const [, guild] of clientRef.guilds.cache) {
+      try { await guild.channels.fetch(); } catch (_) {}
+      const found = guild.channels.cache.find(c => c && typeof c.send === 'function' && c.name && c.name.toLowerCase() === name);
+      if (found) {
+        targetChannel = found;
+        targetChannelId = found.id;
+        lastResolveAt = nowTs;
+        return targetChannel;
+      }
+    }
+  } catch (_) {}
+  lastResolveAt = nowTs;
+  return null;
+}
+
+async function sendDiscordNotice(text) {
+  try {
+    const ch = await resolveNoticeChannel();
+    if (!ch) return;
+    const content = '```\n' + String(text == null ? '' : text) + '\n```';
+    await ch.send({ content, allowedMentions: { parse: [] } });
+  } catch (_) {}
+}
 
 function ensureStore() {
   try {
-    if (!fs.existsSync(STORE_FILE)) {
-      fs.writeFileSync(STORE_FILE, JSON.stringify({ webhooks: [] }, null, 2), 'utf8');
-    } else {
-      const raw = fs.readFileSync(STORE_FILE, 'utf8');
-      const parsed = JSON.parse(raw || '{}');
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.webhooks)) {
-        fs.writeFileSync(STORE_FILE, JSON.stringify({ webhooks: [] }, null, 2), 'utf8');
-      }
+    // Ensure settings.json exists and has logbirdWebhooks array
+    const settings = loadSettings();
+    if (!Array.isArray(settings.logbirdWebhooks)) settings.logbirdWebhooks = [];
+
+    // Migrate from legacy file if present
+    if (fs.existsSync(LEGACY_STORE_FILE)) {
+      try {
+        const raw = fs.readFileSync(LEGACY_STORE_FILE, 'utf8');
+        const legacy = JSON.parse(raw || '{}');
+        const legacyArr = Array.isArray(legacy.webhooks) ? legacy.webhooks : [];
+        if (legacyArr.length) {
+          // Merge by id (avoid duplicates)
+          const existingIds = new Set(settings.logbirdWebhooks.map(w => w.id));
+          for (const w of legacyArr) {
+            if (w && w.id && !existingIds.has(w.id)) settings.logbirdWebhooks.push(w);
+          }
+          dbg(`Migrated ${legacyArr.length} legacy webhook entries into settings.json`);
+        }
+        // Best effort: archive legacy file to avoid re-migrating
+        try { fs.renameSync(LEGACY_STORE_FILE, LEGACY_STORE_FILE + '.bak'); } catch (_) {}
+      } catch (_) { /* ignore */ }
+    }
+
+    saveSettings(settings);
+  } catch (_) {}
+}
 
 function loadSettings() {
   try {
@@ -38,31 +132,31 @@ function loadSettings() {
   } catch (_) { return {}; }
 }
 
+function saveSettings(obj) {
+  try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(obj || {}, null, 2), 'utf8'); } catch (_) {}
+}
+
 function getInactivityMs() {
   const settings = loadSettings();
   let minutes = Number(settings.logbirdAutoDeleteMinutes);
-  if (!Number.isFinite(minutes) || minutes <= 0) minutes = 60; // default 60m
-  // clamp to reasonable bounds: 1 minute to 7 days
+  if (!Number.isFinite(minutes) || minutes <= 0) minutes = 15; // default 15m
+  // clamp to reasonable bounds: 1 minute to 6 hours
   minutes = Math.max(1, Math.min(360, Math.floor(minutes)));
   return minutes * 60 * 1000;
 }
-    }
-  } catch (_) {}
-}
+
 
 function loadStore() {
   ensureStore();
-  try {
-    return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) || { webhooks: [] };
-  } catch (_) {
-    return { webhooks: [] };
-  }
+  const settings = loadSettings();
+  const arr = Array.isArray(settings.logbirdWebhooks) ? settings.logbirdWebhooks : [];
+  return { webhooks: arr };
 }
 
 function saveStore(store) {
-  try {
-    fs.writeFileSync(STORE_FILE, JSON.stringify(store || { webhooks: [] }, null, 2), 'utf8');
-  } catch (_) {}
+  const settings = loadSettings();
+  settings.logbirdWebhooks = Array.isArray(store && store.webhooks) ? store.webhooks : [];
+  saveSettings(settings);
 }
 
 function now() { return Date.now(); }
@@ -72,35 +166,60 @@ async function cleanupExpired() {
   const keep = [];
   const inactivityMs = getInactivityMs();
   const minutes = Math.round(inactivityMs / 60000);
+  dbg(`Running cleanupExpired: ${store.webhooks.length} webhook(s), timeout ${minutes}m`);
+  if (!clientRef) dbg('No clientRef available; cannot delete via Discord API. Will keep entries until client is ready.');
   for (const w of store.webhooks) {
     const last = Number(w.lastUsedAt || w.createdAt || 0);
-    if (!Number.isFinite(last) || now() - last > inactivityMs) {
+    const ageMs = now() - last;
+    const expired = !Number.isFinite(last) || ageMs > inactivityMs;
+    if (expired) {
       // try delete
       try {
         if (clientRef) {
-          const ch = await clientRef.channels.fetch(w.channelId);
+          dbg(`Attempting delete: id=${w.id} channel=${w.channelId} name='${w.name || ''}' age=${Math.round(ageMs/1000)}s`);
+          const ch = await clientRef.channels.fetch(w.channelId).catch((e) => { dbg(`fetch channel failed for ${w.channelId}: ${e && e.message ? e.message : e}`); return null; });
           if (ch && typeof ch.fetchWebhooks === 'function') {
-            const hooks = await ch.fetchWebhooks();
-            const hook = hooks.get(w.id);
+            const hooks = await ch.fetchWebhooks().catch((e) => { dbg(`fetchWebhooks failed in channel ${w.channelId}: ${e && e.message ? e.message : e}`); return null; });
+            const hook = hooks && hooks.get ? hooks.get(w.id) : null;
             if (hook) {
-              await hook.delete(`Logbird auto-cleanup (inactive > ${minutes}m)`);
-              log(`Auto-deleted webhook ${w.name || ''} (${w.id}) in <#${w.channelId}> after ${minutes}m inactivity.`);
+              await hook.delete(`Logbird auto-cleanup (inactive > ${minutes}m)`).then(async () => {
+                const msg = `Webhook deleted (auto): ${w.name || ''} (${w.id}) in <#${w.channelId}> after ${minutes}m inactivity`;
+                log(msg);
+                try { await sendDiscordNotice(msg); } catch (_) {}
+                dbg(`Deleted webhook ${w.id} in channel ${w.channelId}`);
+              }).catch((e) => {
+                dbg(`hook.delete failed for ${w.id}: ${e && e.message ? e.message : e}`);
+                keep.push(w); // keep for retry
+              });
+            } else {
+              dbg(`Webhook id ${w.id} not found in channel ${w.channelId}; removing from store`);
             }
+          } else {
+            dbg(`Channel ${w.channelId} not accessible or no fetchWebhooks; keeping for retry`);
+            keep.push(w);
           }
+        } else {
+          keep.push(w); // no client to delete now
         }
-      } catch (_) {}
+      } catch (e) { dbg(`Unexpected error during delete of ${w.id}: ${e && e.message ? e.message : e}`); keep.push(w); }
     } else {
+      // Not expired
       keep.push(w);
     }
   }
   if (keep.length !== store.webhooks.length) {
+    dbg(`Cleanup pruned ${store.webhooks.length - keep.length} webhook(s); ${keep.length} remain`);
     saveStore({ webhooks: keep });
   }
 }
 
 function startCleaner() {
-  if (cleaner) return;
-  cleaner = setInterval(() => { cleanupExpired().catch(() => {}); }, CLEAN_INTERVAL_MS);
+  // Restart the cleaner to adopt any interval changes safely
+  if (cleaner) { try { clearInterval(cleaner); } catch (_) {} cleaner = null; }
+  dbg(`Starting cleaner interval at ${Math.round(CLEAN_INTERVAL_MS / 1000)}s`);
+  cleaner = setInterval(() => {
+    cleanupExpired().catch((e) => { dbg(`cleanupExpired error: ${e && e.message ? e.message : e}`); });
+  }, CLEAN_INTERVAL_MS);
 }
 
 function stopCleaner() {
@@ -110,6 +229,10 @@ function stopCleaner() {
 function init(client) {
   clientRef = client || clientRef;
   ensureStore();
+  try {
+    const current = loadStore();
+    dbg(`Initialized with ${current.webhooks.length} stored webhook(s)`);
+  } catch (_) {}
   startCleaner();
 }
 
@@ -120,7 +243,10 @@ function markUsed(id) {
     store.webhooks[idx].lastUsedAt = now();
     saveStore(store);
     const w = store.webhooks[idx];
-    log(`Webhook used: ${w.name || ''} (${w.id}) in <#${w.channelId}>`);
+    const msg = `Webhook used: ${w.name || ''} (${w.id}) in <#${w.channelId}>`;
+    log(msg);
+    // Fire-and-forget Discord notice to avoid changing API to async
+    try { sendDiscordNotice(msg).catch(() => {}); } catch (_) {}
     return true;
   }
   return false;
@@ -139,7 +265,9 @@ async function registerCreated(hook) {
     lastUsedAt: now(),
   });
   saveStore(store);
-  log(`Webhook created: ${hook.name || ''} (${hook.id}) in <#${hook.channelId}>`);
+  const msg = `Webhook created: ${hook.name || ''} (${hook.id}) in <#${hook.channelId}>`;
+  log(msg);
+  try { sendDiscordNotice(msg).catch(() => {}); } catch (_) {}
 }
 
 async function endSessionDeleteAll(reason = 'session end') {
@@ -152,7 +280,12 @@ async function endSessionDeleteAll(reason = 'session end') {
         if (ch && typeof ch.fetchWebhooks === 'function') {
           const hooks = await ch.fetchWebhooks();
           const hook = hooks.get(w.id);
-          if (hook) { await hook.delete(`Logbird cleanup (${reason})`); log(`Webhook deleted: ${w.name || ''} (${w.id}) in <#${w.channelId}> (${reason})`); }
+          if (hook) {
+            await hook.delete(`Logbird cleanup (${reason})`);
+            const msg = `Webhook deleted: ${w.name || ''} (${w.id}) in <#${w.channelId}> (${reason})`;
+            log(msg);
+            try { await sendDiscordNotice(msg); } catch (_) {}
+          }
           continue;
         }
       }
@@ -182,7 +315,13 @@ async function deleteById(id, reason = 'manual delete') {
           if (ch && typeof ch.fetchWebhooks === 'function') {
             const hooks = await ch.fetchWebhooks();
             const hook = hooks.get(entry.id);
-            if (hook) { await hook.delete(`Logbird cleanup (${reason})`); deleted = true; log(`Webhook deleted: ${entry.name || ''} (${entry.id}) in <#${entry.channelId}> (${reason})`); }
+            if (hook) {
+              await hook.delete(`Logbird cleanup (${reason})`);
+              deleted = true;
+              const msg = `Webhook deleted: ${entry.name || ''} (${entry.id}) in <#${entry.channelId}> (${reason})`;
+              log(msg);
+              try { await sendDiscordNotice(msg); } catch (_) {}
+            }
           }
         } catch (_) {}
       }
