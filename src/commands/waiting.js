@@ -65,7 +65,11 @@ module.exports = {
       let display = `<@${w.userId}>`;
       try {
         const gm = interaction.guild?.members?.cache?.get(w.userId) || (interaction.guild ? await interaction.guild.members.fetch(w.userId) : null);
-        if (gm) display = gm.nickname || gm.user?.username || display;
+        if (gm) {
+          // Prefer per-server profile name (displayName), then global display name, then username
+          const preferred = gm.displayName ?? gm.user?.globalName ?? gm.user?.username;
+          if (preferred) display = preferred;
+        }
       } catch (_) {}
       let rating = 'N/A';
       let matchedName = '';
