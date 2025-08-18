@@ -11,6 +11,13 @@ if errorlevel 1 (
   goto :end
 )
 
+echo [update-bot] Pulling latest changes...
+git pull --ff-only
+if errorlevel 1 (
+  echo [update-bot] git pull failed. Resolve conflicts and rerun.
+  goto :end
+)
+
 echo [update-bot] Updating npm packages...
 npm update
 if errorlevel 1 (
