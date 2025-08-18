@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const LEGACY_STORE_FILE = path.join(process.cwd(), 'logbird_webhooks.json');
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
@@ -34,6 +35,88 @@ function dbg(msg) {
   if (!isDebug()) return;
   const line = `[LogbirdWebhookManager] ${String(msg)}`;
   if (logger) { try { logger(line); } catch (_) {} } else { try { console.log(line); } catch (_) {} }
+}
+
+// --- Encryption helpers (AES-256-GCM) ---
+function getPassphrase() {
+  try {
+    const s = loadSettings();
+    const fromSettings = s && typeof s.logbirdCryptoKey === 'string' ? s.logbirdCryptoKey.trim() : '';
+    const fromEnv = process.env.LONGBIRD_CRYPTO_KEY || process.env.LOGBIRD_CRYPTO_KEY || '';
+    const key = fromSettings || fromEnv;
+    return key && key.length >= 8 ? key : null; // minimal sanity
+  } catch (_) { return null; }
+}
+
+function deriveKey(passphrase) {
+  try {
+    // Deterministic key from passphrase using scrypt
+    const salt = 'logbird.v1.salt';
+    return crypto.scryptSync(String(passphrase), salt, 32); // 256-bit key
+  } catch (_) { return null; }
+}
+
+function encryptString(plain) {
+  try {
+    const pw = getPassphrase();
+    if (!pw) return null;
+    const key = deriveKey(pw);
+    if (!key) return null;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const enc = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return 'v1:' + iv.toString('base64') + ':' + enc.toString('base64') + ':' + tag.toString('base64');
+  } catch (_) { return null; }
+}
+
+function decryptString(token) {
+  try {
+    if (!token || typeof token !== 'string') return null;
+    if (!token.startsWith('v1:')) return null;
+    const pw = getPassphrase();
+    if (!pw) return null;
+    const key = deriveKey(pw);
+    if (!key) return null;
+    const parts = token.split(':');
+    if (parts.length !== 4) return null;
+    const iv = Buffer.from(parts[1], 'base64');
+    const data = Buffer.from(parts[2], 'base64');
+    const tag = Buffer.from(parts[3], 'base64');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const dec = Buffer.concat([decipher.update(data), decipher.final()]);
+    return dec.toString('utf8');
+  } catch (_) { return null; }
+}
+
+// Public wrappers for encryption helpers
+function encryptWebhookUrl(url) {
+  return encryptString(url);
+}
+
+function decryptWebhookUrl(token) {
+  return decryptString(token);
+}
+
+// Retrieve decrypted URL for a stored webhook by id
+function getDecryptedUrlById(id) {
+  try {
+    if (!id) return null;
+    const store = loadStore();
+    const w = Array.isArray(store.webhooks) ? store.webhooks.find(x => x && x.id === id) : null;
+    if (!w) return null;
+    // Prefer encrypted field
+    if (w.urlEnc) {
+      const dec = decryptString(w.urlEnc);
+      if (dec) return dec;
+    }
+    // Legacy plain url support
+    if (w.url && typeof w.url === 'string') return w.url;
+    // Fallback: reconstruct from id/token if available
+    if (w.id && w.token) return `https://discord.com/api/webhooks/${w.id}/${w.token}`;
+    return null;
+  } catch (_) { return null; }
 }
 
 // --- Discord notice helpers ---
@@ -257,7 +340,8 @@ async function registerCreated(hook) {
   store.webhooks.push({
     id: hook.id,
     token: hook.token,
-    url: hook.url,
+    // Persist URL encrypted when possible
+    urlEnc: encryptString(hook.url) || undefined,
     name: hook.name,
     channelId: hook.channelId,
     guildId: hook.guildId || (hook.guild ? hook.guild.id : undefined),
@@ -344,4 +428,7 @@ module.exports = {
   list,
   deleteById,
   setLogger,
+  getDecryptedUrlById,
+  encryptWebhookUrl,
+  decryptWebhookUrl,
 };
