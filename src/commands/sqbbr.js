@@ -2,6 +2,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { getTodaysBr } = require('../brHelper');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,24 +11,8 @@ module.exports = {
 
   async execute(interaction) {
     try {
-      // Resolve today's BR from settings.json seasonSchedule
-      const settingsPath = path.join(process.cwd(), 'settings.json');
-      let todaysBr = null;
-      try {
-        if (fs.existsSync(settingsPath)) {
-          const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) || {};
-          const sched = settings && settings.seasonSchedule ? settings.seasonSchedule : null;
-          if (sched && typeof sched === 'object') {
-            const today = new Date();
-            const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}`;
-            for (const key of Object.keys(sched)) {
-              const e = sched[key];
-              const sd = e && e.startDate; const ed = e && e.endDate; const br = e && e.br;
-              if (sd && ed && br && todayStr >= sd && todayStr <= ed) { todaysBr = br; break; }
-            }
-          }
-        }
-      } catch (_) {}
+      // Resolve today's BR via helper shared across features
+      const todaysBr = getTodaysBr();
 
       // Prefer a plaintext file in project root for easy editing
       const txtPath = path.join(process.cwd(), 'sqbbr.txt');

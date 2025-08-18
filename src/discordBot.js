@@ -117,6 +117,7 @@ const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
 const { buildMergedSummary } = require('./summaryFormatter');
 const waitingTracker = require('./waitingTracker');
+const collectWatcher = require('./collectWatcher');
 
 let client = null;
 let targetChannel = null;
@@ -412,6 +413,8 @@ async function init(settings) {
     ready = true;
     // Initialize webhook manager with client for cleanup duties
     try { webhookManager.init(client); } catch (_) {}
+    // Start JSON attachment watcher for configured win/loss channel
+    try { collectWatcher.init(client); } catch (_) {}
     try { await client.guilds.fetch(); } catch (_) {}
     // Start waiting tracker if configured
     try {

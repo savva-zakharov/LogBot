@@ -1,12 +1,20 @@
 // src/state.js
 const fs = require('fs');
 const path = require('path');
+const { postToWebhook } = require('./postWebhook');
 const { classifyVehicleLenient } = require('./classifier');
 const { OUTPUT_ORDER, CATEGORY_TO_OUTPUT } = require('./config');
 
 // Writable base directory for runtime files
 const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
 try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
+
+// Expose full data object (read-only to callers if they clone)
+function getAllData() {
+  try {
+    return state.data || {};
+  } catch (_) { return {}; }
+}
 
 // Reset in-memory data and file while preserving telemetry cursors
 function resetData() {
@@ -172,6 +180,30 @@ function persistState() {
   }
 }
 
+// Replace entire data object with a provided one and persist
+function replaceAllData(newData) {
+  try {
+    if (!newData || typeof newData !== 'object') throw new Error('Payload must be an object');
+    // Preserve cursors if missing
+    const incomingGameState = (newData._gameState && typeof newData._gameState === 'object') ? newData._gameState : {};
+    const incomingTelemetry = (newData._telemetry && typeof newData._telemetry === 'object') ? newData._telemetry : {};
+    state.currentGame = Number.isFinite(incomingGameState.currentGame) ? incomingGameState.currentGame : (state.currentGame || 0);
+    state.lastGameIncrementTime = Number.isFinite(incomingGameState.lastGameIncrementTime) ? incomingGameState.lastGameIncrementTime : (state.lastGameIncrementTime || 0);
+    state.telemetry.lastEvtId = Number.isFinite(incomingTelemetry.lastEvtId) ? incomingTelemetry.lastEvtId : (state.telemetry.lastEvtId || 0);
+    state.telemetry.lastDmgId = Number.isFinite(incomingTelemetry.lastDmgId) ? incomingTelemetry.lastDmgId : (state.telemetry.lastDmgId || 0);
+    // Ensure meta/results containers exist
+    if (!newData._meta || typeof newData._meta !== 'object') newData._meta = {};
+    if (!newData._results || typeof newData._results !== 'object') newData._results = {};
+    // Assign and persist
+    state.data = newData;
+    persistState();
+    return { ok: true, currentGame: state.currentGame };
+  } catch (e) {
+    console.error('❌ replaceAllData failed:', e);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
 function setVehicleClassifications(v2c, cats) {
     state.vehicleToCategory = v2c || {};
     state.vehicleClassifications = cats || {};
@@ -182,6 +214,8 @@ function getCurrentGame() {
 }
 
 function incrementGame() {
+  // Capture previous game id before increment
+  const prevGameId = state.currentGame;
   state.currentGame++;
   state.lastGameIncrementTime = Date.now();
   // Copy per-game metadata forward from previous game if not set yet
@@ -193,6 +227,31 @@ function incrementGame() {
       state.data._meta[toKey] = { ...state.data._meta[fromKey] };
     }
   } catch (_) {}
+  // Fire-and-forget: post previous game's data as an attached JSON to data webhook
+  try {
+    const cfgPath = path.join(process.cwd(), 'settings.json');
+    if (fs.existsSync(cfgPath) && Number.isFinite(prevGameId) && prevGameId >= 0) {
+      const rawCfg = fs.readFileSync(cfgPath, 'utf8');
+      const cfg = JSON.parse(rawCfg || '{}');
+      const url = cfg && cfg.dataWebhookUrl ? String(cfg.dataWebhookUrl).trim() : '';
+      const gameBlock = state.data[String(prevGameId)] || null;
+      if (url && gameBlock && Object.keys(gameBlock).length) {
+        const fileBuf = Buffer.from(JSON.stringify(gameBlock, null, 2), 'utf8');
+        const body = {
+          content: `Attached game data for game ${prevGameId}`,
+          files: [
+            { filename: `game_${prevGameId}.json`, contentType: 'application/json', content: fileBuf }
+          ]
+        };
+        // Do not await to keep this function synchronous
+        postToWebhook(url, body).catch((e) => {
+          console.warn('⚠️ Failed to post previous game data:', e && e.message ? e.message : e);
+        });
+      }
+    }
+  } catch (e) {
+    // Non-fatal
+  }
   persistState();
   console.log(`🎮 Game incremented to ${state.currentGame}`);
   return true;
@@ -415,4 +474,6 @@ module.exports = {
   getGameMeta,
   setGameMeta,
   resetData,
+  replaceAllData,
+  getAllData,
 };

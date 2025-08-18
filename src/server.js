@@ -7,6 +7,7 @@ const state = require('./state');
 const { loadSettings } = require('./config');
 const discord = require('./discordBot');
 const { processMissionEnd, postLogs } = require('./missionEnd');
+const { postToWebhook } = require('./postWebhook');
 
 let wss;
 
@@ -132,6 +133,50 @@ function startServer() {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
             }
+        } else if (pathname === '/api/state' && req.method === 'GET') {
+            try {
+                const all = state.getAllData ? state.getAllData() : {};
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(all));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Failed to read state' }));
+            }
+        } else if (pathname === '/api/submit-json' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; if (body.length > 10e6) req.destroy(); });
+            req.on('end', async () => {
+                try {
+                    const j = JSON.parse(body || '{}');
+                    const payload = (j && typeof j === 'object' && j.data && typeof j.data === 'object') ? j.data : j;
+                    const result = state.replaceAllData(payload);
+                    if (!result || result.ok !== true) {
+                        throw new Error((result && result.error) || 'State update failed');
+                    }
+                    // Optional webhook notify (prefer dataWebhookUrl, fallback to summaryWebhookUrl)
+                    try {
+                        const settings = loadSettings();
+                        const webhookUrl = settings && (settings.dataWebhookUrl || settings.summaryWebhookUrl);
+                        if (webhookUrl) {
+                            const meta = { submittedAt: new Date().toISOString(), size: Buffer.byteLength(JSON.stringify(payload || {}), 'utf8') };
+                            // Attach the on-disk parsed_data.json
+                            const jsonPath = path.join(process.env.LOGBOT_DATA_DIR || process.cwd(), 'parsed_data.json');
+                            let files = [];
+                            try {
+                                const buf = fs.readFileSync(jsonPath);
+                                files.push({ filename: 'parsed_data.json', contentType: 'application/json', content: buf });
+                            } catch (_) { /* missing file is fine */ }
+                            await postToWebhook(webhookUrl, { content: 'LogBot: JSON submitted', embeds: [], username: 'LogBot', files, meta, data: payload });
+                        }
+                    } catch (_) { /* ignore webhook errors */ }
+                    broadcast({ type: 'update', message: 'State updated via submit-json', data: { ok: true } });
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ ok: true, currentGame: result.currentGame }));
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Bad Request' }));
+                }
+            });
         } else if (pathname === '/api/reset' && req.method === 'POST') {
             try {
                 const payload = state.resetData();

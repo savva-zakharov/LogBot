@@ -508,6 +508,8 @@
       document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
       const postBtn = document.getElementById('btnPostLogs');
       if (postBtn) postBtn.addEventListener('click', postLogs);
+      const submitBtn = document.getElementById('btnSubmitJson');
+      if (submitBtn) submitBtn.addEventListener('click', submitJson);
       document.getElementById('btnSaveMeta').addEventListener('click', saveMetaForSelectedGame);
       const prevBtn = document.getElementById('btnPrevGame');
       const nextBtn = document.getElementById('btnNextGame');
@@ -610,6 +612,40 @@
       }
     }
 
+    // Submit current parsed_data.json to backend
+    async function submitJson() {
+      try {
+        const ok = window.confirm('Submit current parsed JSON to backend?');
+        if (!ok) return;
+        const stateResp = await fetch('/api/state');
+        if (!stateResp.ok) { console.error('Failed to read state'); return alert('Failed to read current state'); }
+        const data = await stateResp.json();
+        const resp = await fetch('/api/submit-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data })
+        });
+        const j = await resp.json().catch(() => ({}));
+        if (resp.ok && j && j.ok) {
+          alert('JSON submitted successfully');
+          // Refresh visible data after submission
+          await fetchRowsForSelectedGame();
+          await fetchSummariesForSelectedGame();
+          await fetchAllSummaries();
+          await fetchMetaForSelectedGame();
+          await fetchResults();
+          await fetchMergedSummary();
+          applyFiltersAndRender();
+        } else {
+          console.error('Submit failed:', j && j.error);
+          alert('Submit failed: ' + (j && j.error ? j.error : 'Unknown error'));
+        }
+      } catch (e) {
+        console.error('Error submitting JSON:', e);
+        alert('Error submitting JSON');
+      }
+    }
+
     // Reset state: clear entries and reset game counter (preserve telemetry)
     async function resetState() {
       try {
@@ -641,7 +677,10 @@
     // Wire reset button after load as well
     window.addEventListener('load', function(){
       const rb = document.getElementById('btnReset');
-      if (rb) rb.addEventListener('click', resetState);
+      if (rb) rb.addEventListener('click', function(){
+        const ok = window.confirm('Are you sure you want to reset? This will clear entries and reset the game counter.');
+        if (ok) resetState();
+      });
     });
   </script>
 </head>
@@ -657,6 +696,7 @@
       <button id="btnWin" class="btn btn-win">Record Win</button>
       <button id="btnLoss" class="btn btn-loss">Record Loss</button>
       <button id="btnPostLogs">Post Logs</button>
+      <button id="btnSubmitJson" class="btn">Submit JSON</button>
       <button id="btnReset" class="btn">Reset</button>
     </div>
     <h2 class="section-title">Current Game</h2>
