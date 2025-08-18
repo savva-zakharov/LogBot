@@ -1884,13 +1884,42 @@ async function startSquadronTracker() {
     }
   }
 
-  await captureOnce();
-  const interval = setInterval(captureOnce, POLL_INTERVAL_MS);
+  // --- Jittered polling loop (replaces fixed setInterval) ---
+  const jitterPct = (() => {
+    try {
+      const s = loadSettings();
+      const v = Number(process.env.SQUADRON_POLL_JITTER_PCT ?? (s && s.squadronPollJitterPct));
+      if (!Number.isFinite(v)) return 0.15; // default ±15%
+      return Math.max(0, Math.min(0.9, v));
+    } catch (_) { return 0.15; }
+  })();
+  function nextDelayMs() {
+    const base = POLL_INTERVAL_MS;
+    const min = Math.max(1_000, Math.floor(base * (1 - jitterPct)));
+    const max = Math.floor(base * (1 + jitterPct));
+    return Math.floor(min + Math.random() * (max - min + 1));
+  }
+  let __pollTimer = null;
+  let __pollStopped = false;
+  async function pollLoop() {
+    if (__pollStopped) return;
+    try { await captureOnce(); } catch (_) {}
+    if (__pollStopped) return;
+    const delay = nextDelayMs();
+    try { __pollTimer = setTimeout(pollLoop, delay); } catch (_) {}
+  }
+  // Initial run and schedule next with jitter
+  try { await captureOnce(); } catch (_) {}
+  const firstDelay = nextDelayMs();
+  try { __pollTimer = setTimeout(pollLoop, firstDelay); } catch (_) {}
 
   // Expose a stop handle
   return {
     enabled: true,
-    stop: async () => { try { clearInterval(interval); } catch (_) {} }
+    stop: async () => {
+      __pollStopped = true;
+      try { clearTimeout(__pollTimer); } catch (_) {}
+    }
   };
 }
 
