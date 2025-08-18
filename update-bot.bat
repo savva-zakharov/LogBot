@@ -19,9 +19,9 @@ if errorlevel 1 (
 )
 
 echo [update-bot] Updating npm packages...
-npm update
+npm install
 if errorlevel 1 (
-  echo [update-bot] npm update encountered errors.
+  echo [update-bot] npm install encountered errors.
   goto :end
 )
 
