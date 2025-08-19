@@ -166,7 +166,7 @@ function startServer() {
                                 const buf = fs.readFileSync(jsonPath);
                                 files.push({ filename: 'parsed_data.json', contentType: 'application/json', content: buf });
                             } catch (_) { /* missing file is fine */ }
-                            await postToWebhook(webhookUrl, { content: 'LogBot: JSON submitted', embeds: [], username: 'LogBot', files, meta, data: payload });
+                            await postToWebhook(webhookUrl, { content: 'LogBot: JSON submitted', embeds: [], username: 'LogBot', files, meta, data: payload }, { mode: 'new' });
                         }
                     } catch (_) { /* ignore webhook errors */ }
                     broadcast({ type: 'update', message: 'State updated via submit-json', data: { ok: true } });

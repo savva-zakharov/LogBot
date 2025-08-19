@@ -29,6 +29,7 @@ function isDiscordWebhook(u) {
   return host.includes('discord.com') || host.includes('discordapp.com');
 }
 
+
 function buildMultipartPayload(bodyObj, files) {
   // Build multipart/form-data buffer with payload_json and files[n]
   const boundary = '----LogBotBoundary' + Math.random().toString(16).slice(2);
@@ -100,7 +101,7 @@ function httpRequest(u, opts, bodyObj) {
   });
 }
 
-async function postToWebhook(urlStr, bodyObj) {
+async function postToWebhook(urlStr, bodyObj, options = {}) {
   const u = new URL(urlStr);
   // Non-Discord: simple POST, no edit tracking
   if (!isDiscordWebhook(u)) {
@@ -113,29 +114,32 @@ async function postToWebhook(urlStr, bodyObj) {
     return httpRequest(u, { method: 'POST', path: pathWithQuery }, bodyObj);
   }
 
-  // Discord webhook: try to edit previous, else send new with wait=true
+  // Determine mode: 'auto' (default), 'edit' (try edit, else new), 'new' (force new)
+  const mode = String(options.mode || 'auto').toLowerCase();
   const refs = loadRefs();
   const key = urlStr; // key by full webhook URL
 
-  // Attempt edit if we have a stored message id
-  const prev = refs[key] && refs[key].messageId ? String(refs[key].messageId) : null;
-  if (prev) {
-    try {
-      // PATCH /webhooks/{id}/{token}/messages/{message.id}
-      const editUrl = new URL(urlStr);
-      editUrl.pathname = editUrl.pathname.replace(/\/$/, '') + `/messages/${encodeURIComponent(prev)}`;
-      const pathWithQuery = editUrl.pathname + (editUrl.search || '');
-      // For Discord edits with files, use multipart too
-      let res;
-      if (bodyObj && Array.isArray(bodyObj.files) && bodyObj.files.length) {
-        const mp = buildMultipartPayload(bodyObj, bodyObj.files);
-        res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery, multipart: mp }, bodyObj);
-      } else {
-        res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery }, bodyObj);
+  if (mode !== 'new') {
+    // Attempt edit if we have a stored message id
+    const prev = refs[key] && refs[key].messageId ? String(refs[key].messageId) : null;
+    if (prev) {
+      try {
+        // PATCH /webhooks/{id}/{token}/messages/{message.id}
+        const editUrl = new URL(urlStr);
+        editUrl.pathname = editUrl.pathname.replace(/\/$/, '') + `/messages/${encodeURIComponent(prev)}`;
+        const pathWithQuery = editUrl.pathname + (editUrl.search || '');
+        // For Discord edits with files, use multipart too
+        let res;
+        if (bodyObj && Array.isArray(bodyObj.files) && bodyObj.files.length) {
+          const mp = buildMultipartPayload(bodyObj, bodyObj.files);
+          res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery, multipart: mp }, bodyObj);
+        } else {
+          res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery }, bodyObj);
+        }
+        return res; // edited successfully, keep same id
+      } catch (_) {
+        // fall through to sending a new message
       }
-      return res; // edited successfully, keep same id
-    } catch (_) {
-      // fall through to sending a new message
     }
   }
 

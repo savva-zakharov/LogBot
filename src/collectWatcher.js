@@ -11,6 +11,8 @@ const { getTodaysBr } = require('./brHelper');
 
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
 const COLLECTED_PATH = path.join(process.cwd(), 'collected_data.json');
+const PROCESSED_MAX = 5000;
+const processedIds = new Set();
 
 function loadSettings() {
   try {
@@ -179,50 +181,82 @@ function looksJsonAttachment(att) {
   return name.endsWith('.json') || ct.includes('application/json') || ct.includes('text/json');
 }
 
-function init(client) {
-  if (!client) return;
-  // Read configured data channel
-  let channelId = null;
+async function processMessage(message) {
   try {
-    const s = loadSettings();
-    const raw = s.discordDataChannel || '';
-    if (typeof raw === 'string' && raw.trim()) {
-      if (/^\d{10,}\/\d{10,}$/.test(raw)) {
-        const [, cId] = raw.split('/');
-        channelId = cId;
-      } else {
-        channelId = raw.replace(/^#/, '');
-      }
-    }
-  } catch (_) {}
-
-  client.on('messageCreate', async (message) => {
+    if (!message) return;
+    if (!message.id) return;
+    const attCount = message.attachments ? message.attachments.size : 0;
+    console.log(`[collectWatcher] Received message ${message.id} (channel ${message.channelId}, webhookId=${message.webhookId || 'n/a'}) with ${attCount} attachments`);
+    if (processedIds.has(message.id)) { console.log(`[collectWatcher] Skip: already processed ${message.id}`); return; }
+    // Determine configured channel id
+    let channelId = null;
     try {
-      if (!channelId) return;
-      if (!message || message.channelId !== channelId) return;
-      if (!message.attachments || message.attachments.size === 0) return;
-      for (const [, att] of message.attachments) {
-        if (!looksJsonAttachment(att)) continue;
-        // Download
-        let buf = null; let parsed = null;
-        try {
-          buf = await downloadToBuffer(att.url);
-          if (buf && buf.length <= 8 * 1024 * 1024) { // 8MB safety
-            parsed = JSON.parse(buf.toString('utf8'));
-          }
-        } catch (_) { continue; }
-        if (!validateParsedShape(parsed)) {
-          continue; // skip invalid shape
+      const s = loadSettings();
+      const raw = s.discordDataChannel || '';
+      if (typeof raw === 'string' && raw.trim()) {
+        if (/^\d{10,}\/\d{10,}$/.test(raw)) {
+          const [, cId] = raw.split('/');
+          channelId = cId;
+        } else {
+          channelId = raw.replace(/^#/, '');
         }
-        const todaysBr = getTodaysBr();
-        const res = upsertCollected(todaysBr || 'unknown', parsed);
-        // Optional: react to message to signal success/failure
-        try {
-          if (res.ok) { await message.react('✅'); } else { await message.react('⚠️'); }
-        } catch (_) {}
       }
     } catch (_) {}
-  });
+    if (!channelId) { console.log('[collectWatcher] Skip: no discordDataChannel configured'); return; }
+    if (message.channelId !== channelId) { console.log(`[collectWatcher] Skip: message ${message.id} in channel ${message.channelId}, expecting ${channelId}`); return; }
+    if (!message.attachments || message.attachments.size === 0) { console.log(`[collectWatcher] Skip: message ${message.id} has no attachments`); return; }
+    // Mark as seen (best-effort) before heavy work to avoid duplicate concurrent handling
+    processedIds.add(message.id);
+    if (processedIds.size > PROCESSED_MAX) {
+      // trim set occasionally
+      const iter = processedIds.values();
+      for (let i = 0; i < Math.ceil(PROCESSED_MAX / 2); i++) {
+        const n = iter.next(); if (n.done) break; processedIds.delete(n.value);
+      }
+      processedIds.add(message.id);
+    }
+    for (const [, att] of message.attachments) {
+      const isJsonish = looksJsonAttachment(att);
+      console.log(`[collectWatcher] Inspect attachment: name="${att.name}" ct="${att.contentType}" size=${att.size} jsonLike=${isJsonish}`);
+      if (!isJsonish) continue;
+      // Download and parse
+      let buf = null; let parsed = null;
+      try {
+        console.log(`[collectWatcher] Downloading attachment from ${att.url}`);
+        buf = await downloadToBuffer(att.url);
+        console.log(`[collectWatcher] Downloaded ${buf ? buf.length : 0} bytes for ${att.name}`);
+        if (buf && buf.length <= 8 * 1024 * 1024) { // 8MB safety
+          try {
+            parsed = JSON.parse(buf.toString('utf8'));
+            console.log(`[collectWatcher] JSON parsed for ${att.name}`);
+          } catch (e) {
+            console.warn(`[collectWatcher] JSON parse failed for ${att.name}: ${e && e.message ? e.message : e}`);
+          }
+        } else {
+          console.warn(`[collectWatcher] Skip: buffer too large (${buf ? buf.length : 0} bytes) for ${att.name}`);
+        }
+      } catch (e) { console.warn(`[collectWatcher] Download failed for ${att.name}: ${e && e.message ? e.message : e}`); continue; }
+      if (!validateParsedShape(parsed)) {
+        console.warn(`[collectWatcher] Validation failed for ${att.name}`);
+        continue; // skip invalid shape
+      }
+      const todaysBr = getTodaysBr();
+      const res = upsertCollected(todaysBr || 'unknown', parsed);
+      console.log(`[collectWatcher] Upsert ${res && res.ok ? 'OK' : 'NOT-OK'} for ${att.name} into BR=${todaysBr || 'unknown'}`);
+      // Optional: react to message to signal success/failure
+      try {
+        if (typeof message.react === 'function') {
+          if (res.ok) { await message.react('✅'); } else { await message.react('⚠️'); }
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
 }
 
-module.exports = { init };
+function init(client) {
+  // Passive mode: do not attach any listeners. Messages should be forwarded
+  // by the bot/webhook manager via collectWatcher.processMessage(message).
+  return; // no-op
+}
+
+module.exports = { init, processMessage };

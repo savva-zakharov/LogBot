@@ -244,7 +244,7 @@ function incrementGame() {
           ]
         };
         // Do not await to keep this function synchronous
-        postToWebhook(url, body).catch((e) => {
+        postToWebhook(url, body, { mode: 'new' }).catch((e) => {
           console.warn('⚠️ Failed to post previous game data:', e && e.message ? e.message : e);
         });
       }

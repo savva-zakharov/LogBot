@@ -125,7 +125,7 @@ function isSnowflake(str) { return typeof str === 'string' && /^\d{10,}$/.test(s
 async function resolveNoticeChannel() {
   if (!clientRef) return null;
   const nowTs = Date.now();
-  if (targetChannel && (nowTs - lastResolveAt) < 60_000) return targetChannel; // 1 min cache
+    if (targetChannel && (nowTs - lastResolveAt) < 60_000) return targetChannel; // 1 min cache
   targetChannel = null;
   targetChannelId = null;
   try {
@@ -325,15 +325,19 @@ function markUsed(id) {
   if (idx >= 0) {
     const ts = now();
     const entry = store.webhooks[idx];
-    // If part of a pair, update both entries' lastUsedAt so they expire together
+    dbg(`markUsed called for id=${id} name='${entry && entry.name || ''}' channel=${entry && entry.channelId || 'n/a'} pairId=${entry && entry.pairId || 'none'}`);
+    const beforePrimary = Number(entry && entry.lastUsedAt || 0);
     if (entry && entry.pairId) {
       for (let i = 0; i < store.webhooks.length; i++) {
         if (store.webhooks[i] && store.webhooks[i].pairId === entry.pairId) {
+          const oldTs = Number(store.webhooks[i].lastUsedAt || 0);
           store.webhooks[i].lastUsedAt = ts;
+          dbg(` -> propagated lastUsedAt on pair member id=${store.webhooks[i].id} (was ${oldTs}, now ${ts})`);
         }
       }
     } else {
       store.webhooks[idx].lastUsedAt = ts;
+      dbg(` -> updated lastUsedAt for id=${entry.id} (was ${beforePrimary}, now ${ts})`);
     }
     saveStore(store);
     const w = store.webhooks[idx];
@@ -343,10 +347,10 @@ function markUsed(id) {
     try { sendDiscordNotice(msg).catch(() => {}); } catch (_) {}
     return true;
   }
+  dbg(`markUsed: unknown webhook id=${id}; no store entry found`);
   return false;
 }
 
-// Create two webhooks (logs + data) and register them under a single pairId
 async function createPairedInChannels(logsChannel, dataChannel, nameBase, options = {}) {
   if (!logsChannel || !dataChannel) throw new Error('Both channels are required');
   const base = String(nameBase || 'Logbird');
