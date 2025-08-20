@@ -1604,92 +1604,21 @@ async function startSquadronTracker() {
             captureOnce.__lastDecreasedMembers = decreasedMembers;
           } catch (_) {}
 
-          // Improved inference of matches won/lost based on per-player point-change bands
-          //  - Uses known/derived deltas by player rating band (from shared table)
-          //  - Infers (wins, losses) per player from their rating delta, then aggregates across players
-          //  - Approximates team matches by dividing by 8 (typical team size)
-          //  - Falls back to legacy count-based heuristic if uncertain
-
-          // Helper: map player's rating to expected per-game win/loss deltas
-          const bandFor = (pts) => {
-            const p = Number(pts);
-            if (!Number.isFinite(p)) return { win: null, loss: null };
-            if (p <= 800) return { win: 32, loss: -1 };
-            if (p < 1100) return { win: 30, loss: -2 };
-            if (p < 1200) return { win: 28, loss: -4 };
-            if (p < 1300) return { win: 26, loss: -6 };
-            if (p < 1400) return { win: 24, loss: -8 };
-            if (p < 1450) return { win: 22, loss: -10 };
-            if (p < 1500) return { win: 20, loss: -16 }; // heuristic gap fill
-            if (p < 1550) return { win: 18, loss: -17 };
-            if (p < 1600) return { win: 16, loss: -18 };
-            if (p < 1650) return { win: 14, loss: -20 };
-            if (p < 1700) return { win: 12, loss: -24 }; // ratio ~2:1
-            if (p < 1800) return { win: 8,  loss: -28 }; // ratio ~3.5:1
-            if (p < 1850) return { win: 5,  loss: -30 }; // ratio ~6:1
-            if (p < 1865) return { win: 4,  loss: -28 };
-            if (p < 2000) return { win: 3,  loss: -29 };
-            return { win: 1, loss: -32 }; // 2000+
-          };
-
-          // Helper: find a small (w,l) explaining delta with given per-game deltas
-          const inferWL = (delta, win, loss) => {
-            const tol = 0; // allow small variance ±1
-            if (!Number.isFinite(delta) || !win || !loss) return null;
-            let best = null;
-            for (let w = 0; w <= 5; w++) {
-              for (let l = 0; l <= 5; l++) {
-                const v = w * win + l * loss;
-                const err = Math.abs(v - delta);
-                if (err <= tol) {
-                  const total = w + l;
-                  if (!best || err < best.err || (err === best.err && (total < best.total || (total === best.total && w > best.w)))) {
-                    best = { w, l, err, total };
-                  }
-                }
-              }
-            }
-            return best ? { wins: best.w, losses: best.l, err: best.err } : null;
-          };
-
-          // Use detailed per-player deltas if available
-          let aggWins = 0;
-          let aggLosses = 0;
-          let inferredPlayers = 0;
-          try {
-            const changed = [];
-            for (const [name, prevMember] of prevMap.entries()) {
-              const currMember = currMap.get(name);
-              if (!currMember) continue;
-              const from = toNum((prevMember['Personal clan rating'] || prevMember['rating'] || prevMember['Points'] || '').toString());
-              const to = toNum((currMember['Personal clan rating'] || currMember['rating'] || currMember['Points'] || '').toString());
-              const delta = to - from;
-              if (!delta) continue;
-              const { win, loss } = bandFor(Math.min(from, to));
-              const est = inferWL(delta, win, loss);
-              if (est) {
-                aggWins += est.wins;
-                aggLosses += est.losses;
-                inferredPlayers++;
-              }
-            }
-          } catch (_) {}
-
-          if (inferredPlayers > 0) {
-            // Approximate team matches by dividing by 8 and rounding
-            matchesWon = Math.max(0, Math.round(aggWins / 8));
-            matchesLost = Math.max(0, Math.round(aggLosses / 8));
-          }
-
-          // Fallback heuristic (legacy) if nothing inferred
+          // Simple win/loss inference based on player rating changes
+          // - If more players increased than decreased: infer 1 win
+          // - If more players decreased than increased: infer 1 loss
+          // - Otherwise: no matches inferred
+          matchesWon = 0;
+          matchesLost = 0;
+          
           if ((matchesWon | matchesLost) === 0) {
-            if (gainedPoints > 4 && gainedPoints < 9) matchesWon = 1;
-            else if (gainedPoints > 12 && gainedPoints < 17) matchesWon = 2;
-            else if (gainedPoints > 20) matchesWon = 3;
+            if (gainedPoints > 2 && gainedPoints < 9) matchesWon = 1;
+            else if (gainedPoints > 10 && gainedPoints < 17) matchesWon = 2;
+            else if (gainedPoints > 18) matchesWon = 3;
 
-            if (lostPoints > 4 && lostPoints < 9) matchesLost = 1;
-            else if (lostPoints > 12 && lostPoints < 17) matchesLost = 2;
-            else if (lostPoints > 20) matchesLost = 3;
+            if (lostPoints > 2 && lostPoints < 9) matchesLost = 1;
+            else if (lostPoints > 10 && lostPoints < 17) matchesLost = 2;
+            else if (lostPoints > 18) matchesLost = 3;
           }
 
           // Initialize/advance session state with window awareness
@@ -1801,19 +1730,13 @@ async function startSquadronTracker() {
           const intervalSummary = matchesWon === 0 && matchesLost === 0
             ? 'no matches'
             : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
-          const pointsChangeStr = (pointsDelta != null)
-            ? (pointsDelta < 0 ? `- ${Math.abs(pointsDelta)} points` : `+ ${pointsDelta} points`)
-            : '± 0 points';
+          // Add human-readable points/session lines
           const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
           const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
-          msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
+          if (typeof pointsDelta === 'number' && pointsDelta !== 0) {
+            msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
+          }
           msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
-
-          // Helpers for monospace alignment
-          const safeName = (r) => (r['Player'] || r['player'] || 'Unknown').toString();
-          const safeRole = (r) => (r['Role'] || r['role'] || '').toString();
-          const safeRating = (r) => (String((r['Personal clan rating'] || r['rating'] || '')).replace(/\s+/g, ''));
-          const padRight = (s, n) => s.length >= n ? s.slice(0, n) : (s + ' '.repeat(n - s.length));
           const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
 
           const buildLines = (list, symbol) => {
