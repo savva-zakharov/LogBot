@@ -41,6 +41,7 @@ settings.env.bak
 logbird_webhooks.json
 .merged_summary_ref.json
 .session_summary_refs.json
+.summary_webhook_refs.json
 
 
 # IDE
