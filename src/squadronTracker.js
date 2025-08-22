@@ -1422,6 +1422,10 @@ async function startSquadronTracker() {
   let lastKey = null;
   let lastSnapshot = null;
   let didInitialMembersFetch = false;
+  // Track last-seen values to determine which source (API vs Web) changed first
+  let __lastApiVal = null;
+  let __lastWebVal = null;
+  let __lastDiffKey = null;
 
   async function captureOnce() {
     // Determine primary squadron tag (from settings or fallback parsing if needed)
@@ -1437,7 +1441,7 @@ async function startSquadronTracker() {
     let totalPointsAbove = null;
     let totalPointsBelow = null;
 
-    // Prepare snapshot and fetch HTML first (HTML is primary source for totals; API is fallback)
+    // Prepare snapshot; we'll fetch HTML and API concurrently and reconcile
     let snapshot = {
       ts: Date.now(),
       data: { headers: [], rows: [] },
@@ -1447,42 +1451,88 @@ async function startSquadronTracker() {
       totalPointsBelow: null,
     };
 
+    // Concurrently fetch HTML and API
+    let rawHtml = null;
+    let apiCtx = null;
     try {
-      const raw = await fetchText(squadronPageUrl);
-      if (raw) {
-        const parsed = parseSquadronWithCheerio(raw);
+      const htmlPromise = (async () => { try { return await fetchText(squadronPageUrl); } catch (_) { return null; } })();
+      const apiPromise = (async () => { try { return primaryTag ? await findOnLeaderboardViaApi(primaryTag) : null; } catch (_) { return null; } })();
+      const [htmlRes, apiRes] = await Promise.all([htmlPromise, apiPromise]);
+      rawHtml = htmlRes;
+      apiCtx = apiRes;
+    } catch (_) {}
+
+    // Parse HTML members + web total
+    let webTotal = null;
+    try {
+      if (rawHtml) {
+        const parsed = parseSquadronWithCheerio(rawHtml);
         if (parsed && Array.isArray(parsed.rows)) {
           snapshot.data = parsed;
           snapshot.membersCaptured = true;
-          // Try to extract total points (primary)
-          try {
-            const { totalPoints, place } = parseTotalPointsFromHtml(raw);
-            if (Number.isFinite(totalPoints)) snapshot.totalPoints = totalPoints;
-            if (Number.isFinite(place)) snapshot.squadronPlace = place;
-          } catch (_) {}
         }
+        try {
+          const { totalPoints, place } = parseTotalPointsFromHtml(rawHtml);
+          if (Number.isFinite(totalPoints)) webTotal = totalPoints;
+          if (Number.isFinite(place)) snapshot.squadronPlace = place;
+        } catch (_) {}
       }
     } catch (_) {}
 
-    // Fetch leaderboard context from API, and use API total points only as a fallback
+    // Extract API totals/context
+    let apiTotal = null;
     try {
-      if (primaryTag) {
-        const api = await findOnLeaderboardViaApi(primaryTag);
-        if (api) {
-          squadronPlace = api.squadronPlace;
-          totalPointsAbove = api.totalPointsAbove;
-          totalPointsBelow = api.totalPointsBelow;
-          if (!Number.isFinite(snapshot.squadronPlace) && Number.isFinite(squadronPlace)) snapshot.squadronPlace = squadronPlace;
-          snapshot.totalPointsAbove = totalPointsAbove;
-          snapshot.totalPointsBelow = totalPointsBelow;
-          // Only use API points if HTML did not yield a value
-          if (!(typeof snapshot.totalPoints === 'number')) {
-            const apiPts = api.found && typeof api.found.points === 'number' ? api.found.points : null;
-            if (Number.isFinite(apiPts)) snapshot.totalPoints = apiPts;
-          }
-        }
+      if (apiCtx) {
+        const apiPlaceRaw = apiCtx.squadronPlace;
+        // Adjust API place: API is 0-indexed; UI is 1-indexed
+        const adjustedPlace = (Number.isFinite(apiPlaceRaw) ? (apiPlaceRaw + 1) : null);
+        squadronPlace = adjustedPlace;
+        totalPointsAbove = apiCtx.totalPointsAbove;
+        totalPointsBelow = apiCtx.totalPointsBelow;
+        // Always populate squadronPlace from API when available (override HTML)
+        if (Number.isFinite(squadronPlace)) snapshot.squadronPlace = squadronPlace;
+        snapshot.totalPointsAbove = totalPointsAbove;
+        snapshot.totalPointsBelow = totalPointsBelow;
+        apiTotal = (apiCtx.found && typeof apiCtx.found.points === 'number') ? apiCtx.found.points : null;
       }
     } catch (_) {}
+
+    // Decide which source to trust for totalPoints
+    let chosenTotal = null;
+    let chosenSource = null;
+    const apiFinite = Number.isFinite(apiTotal);
+    const webFinite = Number.isFinite(webTotal);
+    if (apiFinite && webFinite) {
+      if (apiTotal !== webTotal) {
+        const apiChanged = (__lastApiVal !== null && apiTotal !== __lastApiVal);
+        const webChanged = (__lastWebVal !== null && webTotal !== __lastWebVal);
+        if (apiChanged && !webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
+        else if (!apiChanged && webChanged) { chosenSource = 'web'; chosenTotal = webTotal; }
+        else if (apiChanged && webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
+        else { chosenSource = 'api'; chosenTotal = apiTotal; }
+        const diffKey = `${apiTotal}|${webTotal}`;
+        if (diffKey !== __lastDiffKey) {
+          console.log(`ℹ️ Source diff: api=${apiTotal} vs web=${webTotal} (chosen=${chosenSource})`);
+          try { appendEvent({ type: 'source_diff', dr_era5_hist: apiTotal, squadron_rating: webTotal, chosen: chosenSource }); } catch (_) {}
+          __lastDiffKey = diffKey;
+        }
+      } else {
+        chosenSource = 'agree';
+        chosenTotal = apiTotal; // both equal
+      }
+    } else if (apiFinite) {
+      chosenSource = 'api';
+      chosenTotal = apiTotal;
+    } else if (webFinite) {
+      chosenSource = 'web';
+      chosenTotal = webTotal;
+    } else {
+      chosenSource = null;
+      chosenTotal = null;
+    }
+    if (Number.isFinite(chosenTotal)) snapshot.totalPoints = chosenTotal;
+    if (apiFinite) __lastApiVal = apiTotal;
+    if (webFinite) __lastWebVal = webTotal;
 
     const key = simplifyForComparison(snapshot);
     if (lastKey === null) {
