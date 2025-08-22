@@ -48,3 +48,4 @@ logbird_webhooks.json
 .vscode/
 classification_batch_results*
 unclassified_vehicles*
+gemeni.js

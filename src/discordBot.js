@@ -117,6 +117,7 @@ const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
 const { buildMergedSummary } = require('./summaryFormatter');
 const waitingTracker = require('./waitingTracker');
+const collectWatcher = require('./collectWatcher');
 
 let client = null;
 let targetChannel = null;
@@ -354,6 +355,24 @@ async function init(settings) {
       try {
         if (message && message.webhookId) {
           webhookManager.markUsed(message.webhookId);
+          // Also forward to collector to process any JSON attachments
+          try { if (collectWatcher && typeof collectWatcher.processMessage === 'function') collectWatcher.processMessage(message); } catch (_) {}
+        }
+      } catch (_) {}
+    });
+  } catch (_) {}
+
+  // Also track edits to webhook-authored messages as activity
+  try {
+    client.on('messageUpdate', async (oldMessage, newMessage) => {
+      try {
+        const m = newMessage || oldMessage;
+        if (!m) return;
+        if (m.partial) { try { await m.fetch(); } catch (_) { /* ignore */ } }
+        if (m && m.webhookId) {
+          webhookManager.markUsed(m.webhookId);
+          // Forward edits to collector as well to catch late-added attachments or corrections
+          try { if (collectWatcher && typeof collectWatcher.processMessage === 'function') collectWatcher.processMessage(m); } catch (_) {}
         }
       } catch (_) {}
     });
@@ -412,6 +431,8 @@ async function init(settings) {
     ready = true;
     // Initialize webhook manager with client for cleanup duties
     try { webhookManager.init(client); } catch (_) {}
+    // Start JSON attachment watcher for configured win/loss channel
+    try { collectWatcher.init(client); } catch (_) {}
     try { await client.guilds.fetch(); } catch (_) {}
     // Start waiting tracker if configured
     try {
@@ -604,7 +625,7 @@ async function postMergedSummary() {
     const url = settings && typeof settings.summaryWebhookUrl === 'string' ? settings.summaryWebhookUrl.trim() : '';
     if (url) {
       // Fire-and-forget; do not block Discord posting
-      postToWebhook(url, { content }).catch(() => {});
+      postToWebhook(url, { content }, { mode: 'edit' }).catch(() => {});
     }
   } catch (_) {}
   // Prefer logs channel; fallback to default target channel

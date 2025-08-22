@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const { ensureExternalSettings, loadSettings } = require('./src/config');
+const { decryptWithPlayerName } = require('./src/decodeNameKey');
 const readline = require('readline');
 const { loadVehicleClassifications: loadVC } = require('./src/classifier');
 const state = require('./src/state');
@@ -48,59 +49,90 @@ async function main() {
     ensureExternalSettings();
   }
 
-  // If running in --client mode, allow passing a webhook URL or prompt for it
+  // If running in --client mode, require a bundle token
   if (clientFlag) {
-    // Parse possible forms: --client=<url> or --client <url>
-    let clientWebhookUrl = null;
+    // Parse possible forms: --client=<base64> or --client <base64>
+    let clientArg = null;
     const idx = argv.findIndex(a => a === '--client' || a.startsWith('--client='));
     if (idx !== -1) {
       const token = argv[idx];
       const eqIdx = token.indexOf('=');
       if (eqIdx > 0) {
-        clientWebhookUrl = token.slice(eqIdx + 1).trim();
+        clientArg = token.slice(eqIdx + 1).trim();
       } else if (argv[idx + 1] && !argv[idx + 1].startsWith('--')) {
-        clientWebhookUrl = String(argv[idx + 1]).trim();
+        clientArg = String(argv[idx + 1]).trim();
       }
     }
 
-    const persistWebhookUrl = (url) => {
+    const persistWebhook = (input) => {
       try {
         const cfgPathLocal = path.join(process.cwd(), 'settings.json');
         const raw = fs.existsSync(cfgPathLocal) ? fs.readFileSync(cfgPathLocal, 'utf8') : '{}';
         const j = JSON.parse(raw || '{}');
-        if (url) j.summaryWebhookUrl = url; // set/override
-        fs.writeFileSync(cfgPathLocal, JSON.stringify(j, null, 2), 'utf8');
-        console.log(url ? '✅ summaryWebhookUrl saved to settings.json' : 'ℹ️ No webhook URL provided; leaving settings.json unchanged');
+        if (input && typeof input === 'object' && input.logs && input.data) {
+          j.summaryWebhookUrl = input.logs;
+          j.dataWebhookUrl = input.data;
+          fs.writeFileSync(cfgPathLocal, JSON.stringify(j, null, 2), 'utf8');
+          console.log('✅ summaryWebhookUrl and dataWebhookUrl saved to settings.json');
+          return;
+        }
+        console.log('ℹ️ No bundle provided; leaving settings.json unchanged');
       } catch (e) {
-        console.warn('⚠️ Could not persist summaryWebhookUrl:', e && e.message ? e.message : e);
+        console.warn('⚠️ Could not persist webhook settings:', e && e.message ? e.message : e);
       }
     };
 
-    const isLikelyUrl = (u) => typeof u === 'string' && /^(https?:)\/\//i.test(u);
+    const tryDecodeBase64Bundle = (s) => {
+      try {
+        const buf = Buffer.from(String(s || '').trim(), 'base64');
+        const txt = buf.toString('utf8');
+        const obj = JSON.parse(txt);
+        if (obj && typeof obj === 'object' && typeof obj.logs === 'string' && typeof obj.data === 'string') return obj;
+      } catch (_) {}
+      return null;
+    };
 
-    if (!clientWebhookUrl) {
-      // Prompt for it if not provided via CLI
+    const tryDecodeKeyedBundle = (s) => {
+      try {
+        const token = String(s || '').trim();
+        if (!token.startsWith('n1:')) return null;
+        const cfgPathLocal = path.join(process.cwd(), 'settings.json');
+        const raw = fs.existsSync(cfgPathLocal) ? fs.readFileSync(cfgPathLocal, 'utf8') : '{}';
+        const j = JSON.parse(raw || '{}');
+        const players = j && j.players && typeof j.players === 'object' ? Object.keys(j.players) : [];
+        for (const name of players) {
+          try {
+            const payload = decryptWithPlayerName(token, name);
+            if (payload && typeof payload.logs === 'string' && typeof payload.data === 'string') {
+              console.log(`✅ Decoded bundle using player key: ${name}`);
+              return payload;
+            }
+          } catch (_) { /* try next */ }
+        }
+      } catch (_) {}
+      return null;
+    };
+
+    if (!clientArg) {
+      // Prompt for it if not provided via CLI (must be base64 bundle)
       await new Promise((resolve) => {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        rl.question('Enter summary webhook URL for client mode (leave empty to skip): ', (answer) => {
+        rl.question('Enter bundle token for client mode (base64 JSON or keyed n1:… token, leave empty to skip): ', (answer) => {
           const val = String(answer || '').trim();
-          if (val && !isLikelyUrl(val)) {
-            console.warn('⚠️ Input does not look like a valid http(s) URL; skipping.');
-          } else if (val) {
-            persistWebhookUrl(val);
-          } else {
-            console.log('ℹ️ No webhook URL entered; skipping.');
-          }
+          if (!val) { console.log('ℹ️ No input entered; skipping.'); rl.close(); return resolve(); }
+          let bundle = tryDecodeBase64Bundle(val);
+          if (!bundle) bundle = tryDecodeKeyedBundle(val);
+          if (bundle) { persistWebhook(bundle); rl.close(); return resolve(); }
+          console.warn('⚠️ Input is not a valid bundle; skipping.');
           rl.close();
           resolve();
         });
       });
     } else {
-      if (!isLikelyUrl(clientWebhookUrl)) {
-        console.warn(`⚠️ --client value does not look like a valid http(s) URL: '${clientWebhookUrl}'. Skipping.`);
-      } else {
-        persistWebhookUrl(clientWebhookUrl);
-      }
+      let bundle = tryDecodeBase64Bundle(clientArg);
+      if (!bundle) bundle = tryDecodeKeyedBundle(clientArg);
+      if (bundle) { persistWebhook(bundle); }
+      else { console.warn('⚠️ --client value is not a valid bundle. Skipping.'); }
     }
   }
 

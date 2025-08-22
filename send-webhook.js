@@ -11,6 +11,8 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { decryptWebhookUrl } = require('./src/webhookManager');
+const readline = require('readline');
 
 function parseArgs(argv) {
   const args = {};
@@ -26,8 +28,45 @@ function parseArgs(argv) {
   return args;
 }
 
+function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans); }));
+}
+
+async function promptInteractive() {
+  const urlInput = (await ask('Webhook URL or token (supports v1: or base64 bundle): ')).trim();
+  let which = (await ask('Which to use if bundle? [logs/data] (default logs): ')).trim().toLowerCase();
+  if (which !== 'data') which = 'logs';
+  const content = (await ask('Message content (default "Hello world from sender app!"): '));
+  const username = (await ask('Override username (optional, press Enter to skip): ')).trim();
+  const embedsJson = (await ask('Embeds JSON or path (optional, press Enter to skip): ')).trim();
+  const filesLine = (await ask('File path(s) to attach, comma-separated (optional): ')).trim();
+  const files = filesLine ? filesLine.split(',').map(s => s.trim()).filter(Boolean) : [];
+  return { urlInput, which, content, username, embedsJson, files };
+}
+
 function help(code = 1) {
-  const text = `\nDiscord Webhook Sender\n\nUsage:\n  node send-webhook.js --url <webhookUrl> [--content <text>] [--username <name>] [--embedsJson <pathOrJson>] [--file <path> ...]\n  node send-webhook.js --id <id> --token <token> [--content <text>] [--username <name>] [--embedsJson <pathOrJson>] [--file <path> ...]\n  echo '{"url":"https://discord.com/api/webhooks/ID/TOKEN","content":"Hello"}' | node send-webhook.js --stdin\n\nOptions:\n  --url           Full Discord webhook URL\n  --id            Webhook ID (used with --token)\n  --token         Webhook token (used with --id)\n  --content       Message content (default: "Hello world from sender app!")\n  --username      Override webhook username (optional)\n  --embedsJson    JSON string or path to a JSON file containing an array of embeds\n  --file          File path to attach (repeatable). Up to 10 files.\n  --payloadJson   JSON string or path to JSON with the full payload (alternative to --content/--embedsJson)\n  --stdin         Read a JSON object from stdin with fields: { url|id+token, content, username, embeds }\n`;
+  const text = `
+Discord Webhook Sender
+
+Usage:
+  node send-webhook.js --url <webhookUrl> [--content <text>] [--username <name>] [--embedsJson <pathOrJson>] [--file <path> ...]
+  node send-webhook.js --id <id> --token <token> [--content <text>] [--username <name>] [--embedsJson <pathOrJson>] [--file <path> ...]
+  echo '{"url":"https://discord.com/api/webhooks/ID/TOKEN","content":"Hello"}' | node send-webhook.js --stdin
+  send-webhook            # With no args, prompts interactively
+
+Options:
+  --url           Full Discord webhook URL
+  --id            Webhook ID (used with --token)
+  --token         Webhook token (used with --id)
+  --which         When providing a base64 bundle with {logs,data}, pick which one to send to (default: logs)
+  --content       Message content (default: "Hello world from sender app!")
+  --username      Override webhook username (optional)
+  --embedsJson    JSON string or path to a JSON file containing an array of embeds
+  --file          File path to attach (repeatable). Up to 10 files.
+  --payloadJson   JSON string or path to JSON with the full payload (alternative to --content/--embedsJson)
+  --stdin         Read a JSON object from stdin with fields: { url|id+token, content, username, embeds }
+`;
   console.log(text);
   process.exit(code);
 }
@@ -130,6 +169,48 @@ function buildMultipartBody(payloadObj, files) {
   return { body: Buffer.concat(chunks), boundary };
 }
 
+function tryDecodeBase64Json(str) {
+  try {
+    const buff = Buffer.from(String(str || ''), 'base64');
+    const txt = buff.toString('utf8');
+    const obj = JSON.parse(txt);
+    return obj;
+  } catch (_) { return null; }
+}
+
+function tryDecodeBase64String(str) {
+  try {
+    const buff = Buffer.from(String(str || ''), 'base64');
+    const txt = buff.toString('utf8');
+    // naive URL sanity check
+    if (/^https?:\/\//i.test(txt)) return txt;
+    return null;
+  } catch (_) { return null; }
+}
+
+function resolveWebhookUrl(inputUrl, which = 'logs') {
+  // Accept plain URL, encrypted v1: token, or base64 of URL or JSON bundle {logs,data}
+  const raw = (inputUrl || '').trim();
+  if (!raw) return null;
+  // 1) decrypt scheme v1:
+  if (raw.startsWith('v1:')) {
+    const dec = decryptWebhookUrl(raw);
+    if (dec) return dec;
+  }
+  // 2) base64 decode into JSON bundle or URL
+  const asJson = tryDecodeBase64Json(raw);
+  if (asJson && typeof asJson === 'object') {
+    // Could be {url}, or {logs,data}
+    if (typeof asJson.url === 'string') return asJson.url;
+    const sel = (String(which || 'logs').toLowerCase() === 'data') ? 'data' : 'logs';
+    if (asJson[sel] && typeof asJson[sel] === 'string') return asJson[sel];
+  }
+  const asStr = tryDecodeBase64String(raw);
+  if (asStr) return asStr;
+  // 3) fallback: return as-is, may already be a proper URL
+  return raw;
+}
+
 function postByUrl(urlStr, bodyObj) {
   return new Promise((resolve) => {
     try {
@@ -209,14 +290,37 @@ async function main() {
     });
   }
 
-  const url = (args.url) || (args.id && args.token ? toUrlFrom(args.id, args.token) : (dataFromStdin && (dataFromStdin.url || (dataFromStdin.id && dataFromStdin.token && toUrlFrom(dataFromStdin.id, dataFromStdin.token)))));
-  if (!url) return help(1);
+  // If no args and not reading stdin, prompt interactively
+  const noArgs = Object.keys(args).length === 0;
+  let which = 'logs';
+  let url;
+  let files = [];
+  let content;
+  let username;
+  let embeds;
+  let payloadJson;
 
-  const files = loadFiles(args.file);
-  const content = (args.content || (dataFromStdin && dataFromStdin.content) || 'Hello world from sender app!');
-  const username = (args.username || (dataFromStdin && dataFromStdin.username));
-  const embeds = parseEmbeds(args.embedsJson) || (dataFromStdin && dataFromStdin.embeds);
-  const payloadJson = parsePayloadJson(args.payloadJson);
+  if (noArgs && !args.stdin) {
+    const ans = await promptInteractive();
+    which = ans.which || 'logs';
+    url = resolveWebhookUrl(ans.urlInput, which);
+    files = loadFiles(ans.files);
+    content = ans.content && ans.content.length ? ans.content : 'Hello world from sender app!';
+    username = ans.username || undefined;
+    embeds = parseEmbeds(ans.embedsJson);
+    payloadJson = undefined;
+  } else {
+    which = (args.which || (dataFromStdin && dataFromStdin.which) || 'logs');
+    // Prefer CLI url, else id+token, else stdin url or id+token
+    const rawUrl = (args.url) || (args.id && args.token ? toUrlFrom(args.id, args.token) : (dataFromStdin && (dataFromStdin.url || (dataFromStdin.id && dataFromStdin.token && toUrlFrom(dataFromStdin.id, dataFromStdin.token)))));
+    url = resolveWebhookUrl(rawUrl, which);
+    files = loadFiles(args.file);
+    content = (args.content || (dataFromStdin && dataFromStdin.content) || 'Hello world from sender app!');
+    username = (args.username || (dataFromStdin && dataFromStdin.username));
+    embeds = parseEmbeds(args.embedsJson) || (dataFromStdin && dataFromStdin.embeds);
+    payloadJson = parsePayloadJson(args.payloadJson);
+  }
+  if (!url) return help(1);
 
   const payload = payloadJson && typeof payloadJson === 'object' ? payloadJson : { content };
   if (username) payload.username = username;

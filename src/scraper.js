@@ -20,15 +20,14 @@ async function startScraper(callbacks) {
     const seenIds = new Set();
     // Track the last seen HUD time from either events or damage streams
     let lastHudTime = null; // seconds
-    // Track pending mission outcome to apply on time reset (game end)
-    let pendingOutcome = null; // 'win' | 'loss' | null
+    // Track last recorded mission outcome to avoid duplicates within the same mission
+    let lastMissionOutcome = null; // 'success' | 'fail' | null
     let timer = null;
     let backoffMs = 1000;
     // Resume from persisted cursors if available
     let { lastEvtId, lastDmgId } = state.getTelemetryCursors();
     // Mission polling state
     const missionUrl = (() => { try { const u = new URL(hudUrl); return `${u.origin}/mission.json`; } catch { return 'http://localhost:8111/mission.json'; } })();
-    let lastMissionOutcome = null; // 'success' | 'fail' | null
 
     const tick = async () => {
       try {
@@ -65,16 +64,9 @@ async function startScraper(callbacks) {
           if (et != null && lastHudTime != null && et < lastHudTime && (lastHudTime - et) >= 60 && !incrementTriggeredThisTick) {
             // Primary game end: time reset detected via events stream
             try {
-              if (pendingOutcome === 'win' || pendingOutcome === 'loss') {
-                const payload = processMissionEnd(pendingOutcome, 'current');
-                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
-              }
-            } catch (_) { /* swallow and continue */ }
-            try {
               console.log(`[SCRAPER] Time reset detected (events): ${lastHudTime}s -> ${et}s (Δ=${lastHudTime - et}s). Triggering increment.`);
             } catch (_) {}
             try { if (typeof onGameIncrement === 'function') onGameIncrement(); } catch (_) {}
-            pendingOutcome = null;
             incrementTriggeredThisTick = true;
           }
           if (et != null) lastHudTime = et;
@@ -97,19 +89,10 @@ async function startScraper(callbacks) {
           if (t != null && lastHudTime != null && t < lastHudTime && (lastHudTime - t) >= 60 && !incrementTriggeredThisTick) {
             // Primary game end: time reset detected
             try {
-              if (pendingOutcome === 'win' || pendingOutcome === 'loss') {
-                // Record result for the game that just ended before incrementing
-                const payload = processMissionEnd(pendingOutcome, 'current');
-                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
-              }
-            } catch (_) { /* swallow and continue */ }
-            try {
               console.log(`[SCRAPER] Time reset detected (damage): ${lastHudTime}s -> ${t}s (Δ=${lastHudTime - t}s). Triggering increment.`);
             } catch (_) {}
             // Increment to the next game
             try { if (typeof onGameIncrement === 'function') onGameIncrement(); } catch (_) {}
-            // Clear pending outcome after applying
-            pendingOutcome = null;
             incrementTriggeredThisTick = true;
           }
           if (t != null) lastHudTime = t;
@@ -166,16 +149,17 @@ async function startScraper(callbacks) {
               else if (candidates.some(o => getStatus(o) === 'success' || getStatus(o) === 'succeeded')) outcome = 'success';
             }
             if (outcome && outcome !== lastMissionOutcome) {
-              // Defer result recording until time reset (primary end-of-game trigger)
+              // Immediately record result for the current game
               const type = outcome === 'success' ? 'win' : 'loss';
-              pendingOutcome = type;
+              try {
+                const payload = processMissionEnd(type, 'current');
+                try { server.broadcast({ type: 'update', message: `Result recorded for game ${payload.game}`, data: { result: payload.type, game: payload.game } }); } catch (_) {}
+              } catch (_) { /* ignore individual record errors */ }
               lastMissionOutcome = outcome;
             }
             // Reset outcome marker when mission is running again
             if (mstatus === 'running' && lastMissionOutcome) {
               lastMissionOutcome = null;
-              // Mission restarted: clear any pending outcome
-              pendingOutcome = null;
             }
           }
         } catch (_) { /* ignore mission fetch errors */ }

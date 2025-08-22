@@ -75,7 +75,9 @@ function buildPanel(userId) {
         name: 'Allowed Roles (/logbird)',
         value: roles.length ? roles.map(r => `@${r}`).join(', ').slice(0, 1024) : '(none set) — Admins always allowed',
         inline: false,
-      }
+      },
+      { name: 'discordLogsChannel', value: String(settings.discordLogsChannel || '(not set)'), inline: false },
+      { name: 'discordDataChannel', value: String(settings.discordDataChannel || '(not set)'), inline: false }
     )
     .setFooter({ text: `${count > 25 ? `+${count - 25} more not shown  •  ` : ''}Auto-delete: ${minutes}m` });
 
@@ -115,6 +117,12 @@ function buildPanel(userId) {
     new ButtonBuilder().setCustomId(`lbm_enable_webhooks:${userId}`).setLabel('Enable Issuing').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`lbm_disable_webhooks:${userId}`).setLabel('Disable Issuing').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`lbm_set_roles:${userId}`).setLabel('Set /logbird Roles').setStyle(ButtonStyle.Secondary),
+  ));
+
+  // Channel configuration controls
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`lbm_set_logs_channel:${userId}`).setLabel('Set Logs Channel').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`lbm_set_data_channel:${userId}`).setLabel('Set Data Channel').setStyle(ButtonStyle.Secondary),
   ));
 
   rows.push(new ActionRowBuilder().addComponents(
@@ -199,6 +207,54 @@ module.exports = {
         return true;
       }
 
+      // Open modal to set discordLogsChannel
+      if (key === 'lbm_set_logs_channel') {
+        const modal = new ModalBuilder()
+          .setCustomId(`lbm_logs_modal:${ownerId}`)
+          .setTitle('Set discordLogsChannel');
+        const input = new TextInputBuilder()
+          .setCustomId('lbm_logs_input')
+          .setLabel('Logs channel (ID, #name, or guildId/channelId)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. 123456789012345678 or #logs or 123.../456...')
+          .setRequired(false);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        try { await interaction.showModal(modal); } catch (_) {}
+        return true;
+      }
+
+      // Open modal to set discordDataChannel
+      if (key === 'lbm_set_data_channel') {
+        const modal = new ModalBuilder()
+          .setCustomId(`lbm_data_modal:${ownerId}`)
+          .setTitle('Set discordDataChannel');
+        const input = new TextInputBuilder()
+          .setCustomId('lbm_data_input')
+          .setLabel('Data channel (ID, #name, or guildId/channelId)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. 123456789012345678 or #data or 123.../456...')
+          .setRequired(false);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        try { await interaction.showModal(modal); } catch (_) {}
+        return true;
+      }
+
+      // Open modal to set roles
+      if (key === 'lbm_set_roles') {
+        const modal = new ModalBuilder()
+          .setCustomId(`lbm_roles_modal:${ownerId}`)
+          .setTitle('Set /logbird Roles');
+        const input = new TextInputBuilder()
+          .setCustomId('lbm_roles_input')
+          .setLabel('Role names (comma-separated)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('e.g. Moderators, Staff, Logbird')
+          .setRequired(false);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        try { await interaction.showModal(modal); } catch (_) {}
+        return true;
+      }
+
       // Enable issuing of webhooks
       if (key === 'lbm_enable_webhooks') {
         const settings = loadRawSettings();
@@ -219,21 +275,7 @@ module.exports = {
         return true;
       }
 
-      // Open modal to set roles
-      if (key === 'lbm_set_roles') {
-        const modal = new ModalBuilder()
-          .setCustomId(`lbm_roles_modal:${ownerId}`)
-          .setTitle('Set /logbird Roles');
-        const input = new TextInputBuilder()
-          .setCustomId('lbm_roles_input')
-          .setLabel('Role names (comma-separated)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('e.g. Moderators, Staff, Logbird')
-          .setRequired(false);
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        try { await interaction.showModal(modal); } catch (_) {}
-        return true;
-      }
+      
 
       if (key === 'lbm_roles_modal') {
         const raw = interaction.fields && interaction.fields.getTextInputValue ? interaction.fields.getTextInputValue('lbm_roles_input') : '';
@@ -243,6 +285,28 @@ module.exports = {
           .filter(Boolean);
         const settings = loadRawSettings();
         settings.logbirdRoles = list;
+        saveRawSettings(settings);
+        const panel = buildPanel(ownerId);
+        try { await interaction.reply({ ...panel, ephemeral: true }); } catch (_) {}
+        return true;
+      }
+
+      // Save discordLogsChannel from modal
+      if (key === 'lbm_logs_modal') {
+        const raw = interaction.fields && interaction.fields.getTextInputValue ? interaction.fields.getTextInputValue('lbm_logs_input') : '';
+        const settings = loadRawSettings();
+        settings.discordLogsChannel = String(raw || '').trim();
+        saveRawSettings(settings);
+        const panel = buildPanel(ownerId);
+        try { await interaction.reply({ ...panel, ephemeral: true }); } catch (_) {}
+        return true;
+      }
+
+      // Save discordDataChannel from modal
+      if (key === 'lbm_data_modal') {
+        const raw = interaction.fields && interaction.fields.getTextInputValue ? interaction.fields.getTextInputValue('lbm_data_input') : '';
+        const settings = loadRawSettings();
+        settings.discordDataChannel = String(raw || '').trim();
         saveRawSettings(settings);
         const panel = buildPanel(ownerId);
         try { await interaction.reply({ ...panel, ephemeral: true }); } catch (_) {}

@@ -125,7 +125,7 @@ function isSnowflake(str) { return typeof str === 'string' && /^\d{10,}$/.test(s
 async function resolveNoticeChannel() {
   if (!clientRef) return null;
   const nowTs = Date.now();
-  if (targetChannel && (nowTs - lastResolveAt) < 60_000) return targetChannel; // 1 min cache
+    if (targetChannel && (nowTs - lastResolveAt) < 60_000) return targetChannel; // 1 min cache
   targetChannel = null;
   targetChannelId = null;
   try {
@@ -323,7 +323,22 @@ function markUsed(id) {
   const store = loadStore();
   const idx = store.webhooks.findIndex(w => w.id === id);
   if (idx >= 0) {
-    store.webhooks[idx].lastUsedAt = now();
+    const ts = now();
+    const entry = store.webhooks[idx];
+    dbg(`markUsed called for id=${id} name='${entry && entry.name || ''}' channel=${entry && entry.channelId || 'n/a'} pairId=${entry && entry.pairId || 'none'}`);
+    const beforePrimary = Number(entry && entry.lastUsedAt || 0);
+    if (entry && entry.pairId) {
+      for (let i = 0; i < store.webhooks.length; i++) {
+        if (store.webhooks[i] && store.webhooks[i].pairId === entry.pairId) {
+          const oldTs = Number(store.webhooks[i].lastUsedAt || 0);
+          store.webhooks[i].lastUsedAt = ts;
+          dbg(` -> propagated lastUsedAt on pair member id=${store.webhooks[i].id} (was ${oldTs}, now ${ts})`);
+        }
+      }
+    } else {
+      store.webhooks[idx].lastUsedAt = ts;
+      dbg(` -> updated lastUsedAt for id=${entry.id} (was ${beforePrimary}, now ${ts})`);
+    }
     saveStore(store);
     const w = store.webhooks[idx];
     const msg = `Webhook used: ${w.name || ''} (${w.id}) in <#${w.channelId}>`;
@@ -332,7 +347,52 @@ function markUsed(id) {
     try { sendDiscordNotice(msg).catch(() => {}); } catch (_) {}
     return true;
   }
+  dbg(`markUsed: unknown webhook id=${id}; no store entry found`);
   return false;
+}
+
+async function createPairedInChannels(logsChannel, dataChannel, nameBase, options = {}) {
+  if (!logsChannel || !dataChannel) throw new Error('Both channels are required');
+  const base = String(nameBase || 'Logbird');
+  const pairId = crypto.randomBytes(8).toString('hex');
+  const makeName = (suffix) => {
+    const full = `${base}-${suffix}`;
+    return full.length > 80 ? full.slice(0, 80) : full;
+  };
+  const common = {};
+  if (options && options.avatar) common.avatar = options.avatar;
+  if (options && options.reason) common.reason = options.reason;
+  const logsHook = await logsChannel.createWebhook({ name: makeName('logs'), ...common }).catch((e) => { throw e; });
+  const dataHook = await dataChannel.createWebhook({ name: makeName('data'), ...common }).catch(async (e) => {
+    // best-effort cleanup if second fails
+    try { await logsHook.delete('Pair creation rollback'); } catch (_) {}
+    throw e;
+  });
+  // Register both with same pairId
+  await registerCreated({
+    id: logsHook.id,
+    token: logsHook.token,
+    url: logsHook.url,
+    name: logsHook.name,
+    channelId: logsHook.channelId,
+    guildId: logsHook.guildId,
+    pairId,
+    role: 'logs',
+  });
+  await registerCreated({
+    id: dataHook.id,
+    token: dataHook.token,
+    url: dataHook.url,
+    name: dataHook.name,
+    channelId: dataHook.channelId,
+    guildId: dataHook.guildId,
+    pairId,
+    role: 'data',
+  });
+  // Return base64 JSON string of both URLs
+  const payload = { logs: logsHook.url, data: dataHook.url };
+  const b64 = Buffer.from(JSON.stringify(payload)).toString('base64');
+  return { pairId, logsHook, dataHook, b64, payload };
 }
 
 async function registerCreated(hook) {
@@ -347,6 +407,8 @@ async function registerCreated(hook) {
     guildId: hook.guildId || (hook.guild ? hook.guild.id : undefined),
     createdAt: now(),
     lastUsedAt: now(),
+    pairId: hook.pairId || undefined,
+    role: hook.role || undefined,
   });
   saveStore(store);
   const msg = `Webhook created: ${hook.name || ''} (${hook.id}) in <#${hook.channelId}>`;
@@ -378,6 +440,35 @@ async function endSessionDeleteAll(reason = 'session end') {
     remaining.push(w);
   }
   saveStore({ webhooks: remaining });
+}
+
+async function deletePairById(pairId, reason = 'manual delete pair') {
+  if (!pairId) return false;
+  const store = loadStore();
+  const targets = store.webhooks.filter(w => w.pairId === pairId);
+  let any = false;
+  for (const w of targets) {
+    try {
+      if (clientRef) {
+        const ch = await clientRef.channels.fetch(w.channelId);
+        if (ch && typeof ch.fetchWebhooks === 'function') {
+          const hooks = await ch.fetchWebhooks();
+          const hook = hooks.get(w.id);
+          if (hook) {
+            await hook.delete(`Logbird cleanup (${reason})`);
+            any = true;
+            const msg = `Webhook deleted: ${w.name || ''} (${w.id}) in <#${w.channelId}> (${reason})`;
+            log(msg);
+            try { await sendDiscordNotice(msg); } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  // Remove all with this pairId from store
+  store.webhooks = store.webhooks.filter(w => w.pairId !== pairId);
+  saveStore(store);
+  return any;
 }
 
 function list() {
@@ -427,8 +518,10 @@ module.exports = {
   stopCleaner,
   list,
   deleteById,
+  deletePairById,
   setLogger,
   getDecryptedUrlById,
   encryptWebhookUrl,
   decryptWebhookUrl,
+  createPairedInChannels,
 };

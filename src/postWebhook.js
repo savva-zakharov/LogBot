@@ -29,6 +29,40 @@ function isDiscordWebhook(u) {
   return host.includes('discord.com') || host.includes('discordapp.com');
 }
 
+
+function buildMultipartPayload(bodyObj, files) {
+  // Build multipart/form-data buffer with payload_json and files[n]
+  const boundary = '----LogBotBoundary' + Math.random().toString(16).slice(2);
+  const CRLF = '\r\n';
+  const parts = [];
+  const pushField = (name, value) => {
+    parts.push(Buffer.from(`--${boundary}${CRLF}`));
+    parts.push(Buffer.from(`Content-Disposition: form-data; name="${name}"${CRLF}${CRLF}`));
+    parts.push(Buffer.from(String(value)));
+    parts.push(Buffer.from(CRLF));
+  };
+  const pushFile = (index, file) => {
+    const fieldName = `files[${index}]`;
+    const filename = file.filename || `file${index}`;
+    const contentType = file.contentType || 'application/octet-stream';
+    const content = Buffer.isBuffer(file.content) ? file.content : Buffer.from(String(file.content || ''), 'utf8');
+    parts.push(Buffer.from(`--${boundary}${CRLF}`));
+    parts.push(Buffer.from(`Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"${CRLF}`));
+    parts.push(Buffer.from(`Content-Type: ${contentType}${CRLF}${CRLF}`));
+    parts.push(content);
+    parts.push(Buffer.from(CRLF));
+  };
+
+  // Discord expects payload_json for the message body
+  const payloadForJson = { ...bodyObj };
+  delete payloadForJson.files; // files are in multipart, not inside payload_json
+  pushField('payload_json', JSON.stringify(payloadForJson || {}));
+  (files || []).forEach((f, i) => pushFile(i, f));
+  parts.push(Buffer.from(`--${boundary}--${CRLF}`));
+  const buffer = Buffer.concat(parts);
+  return { headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, buffer };
+}
+
 function httpRequest(u, opts, bodyObj) {
   return new Promise((resolve, reject) => {
     const isHttps = u.protocol === 'https:';
@@ -51,37 +85,61 @@ function httpRequest(u, opts, bodyObj) {
       });
     });
     req.on('error', (e) => reject(e));
-    const buf = Buffer.from(JSON.stringify(bodyObj || {}), 'utf8');
-    req.setHeader('Content-Length', Buffer.byteLength(buf));
-    req.write(buf);
+    if (opts && opts.multipart && opts.multipart.buffer) {
+      // multipart form payload
+      const m = opts.multipart;
+      if (m.headers && m.headers['Content-Type']) req.setHeader('Content-Type', m.headers['Content-Type']);
+      req.setHeader('Content-Length', Buffer.byteLength(m.buffer));
+      req.write(m.buffer);
+    } else {
+      // JSON payload
+      const buf = Buffer.from(JSON.stringify(bodyObj || {}), 'utf8');
+      req.setHeader('Content-Length', Buffer.byteLength(buf));
+      req.write(buf);
+    }
     req.end();
   });
 }
 
-async function postToWebhook(urlStr, bodyObj) {
+async function postToWebhook(urlStr, bodyObj, options = {}) {
   const u = new URL(urlStr);
   // Non-Discord: simple POST, no edit tracking
   if (!isDiscordWebhook(u)) {
     const pathWithQuery = u.pathname + (u.search || '');
+    // If files are present, send as multipart to non-Discord as well (best effort)
+    if (bodyObj && Array.isArray(bodyObj.files) && bodyObj.files.length) {
+      const mp = buildMultipartPayload(bodyObj, bodyObj.files);
+      return httpRequest(u, { method: 'POST', path: pathWithQuery, multipart: mp }, bodyObj);
+    }
     return httpRequest(u, { method: 'POST', path: pathWithQuery }, bodyObj);
   }
 
-  // Discord webhook: try to edit previous, else send new with wait=true
+  // Determine mode: 'auto' (default), 'edit' (try edit, else new), 'new' (force new)
+  const mode = String(options.mode || 'auto').toLowerCase();
   const refs = loadRefs();
   const key = urlStr; // key by full webhook URL
 
-  // Attempt edit if we have a stored message id
-  const prev = refs[key] && refs[key].messageId ? String(refs[key].messageId) : null;
-  if (prev) {
-    try {
-      // PATCH /webhooks/{id}/{token}/messages/{message.id}
-      const editUrl = new URL(urlStr);
-      editUrl.pathname = editUrl.pathname.replace(/\/$/, '') + `/messages/${encodeURIComponent(prev)}`;
-      const pathWithQuery = editUrl.pathname + (editUrl.search || '');
-      const res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery }, bodyObj);
-      return res; // edited successfully, keep same id
-    } catch (_) {
-      // fall through to sending a new message
+  if (mode !== 'new') {
+    // Attempt edit if we have a stored message id
+    const prev = refs[key] && refs[key].messageId ? String(refs[key].messageId) : null;
+    if (prev) {
+      try {
+        // PATCH /webhooks/{id}/{token}/messages/{message.id}
+        const editUrl = new URL(urlStr);
+        editUrl.pathname = editUrl.pathname.replace(/\/$/, '') + `/messages/${encodeURIComponent(prev)}`;
+        const pathWithQuery = editUrl.pathname + (editUrl.search || '');
+        // For Discord edits with files, use multipart too
+        let res;
+        if (bodyObj && Array.isArray(bodyObj.files) && bodyObj.files.length) {
+          const mp = buildMultipartPayload(bodyObj, bodyObj.files);
+          res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery, multipart: mp }, bodyObj);
+        } else {
+          res = await httpRequest(editUrl, { method: 'PATCH', path: pathWithQuery }, bodyObj);
+        }
+        return res; // edited successfully, keep same id
+      } catch (_) {
+        // fall through to sending a new message
+      }
     }
   }
 
@@ -90,7 +148,13 @@ async function postToWebhook(urlStr, bodyObj) {
   const params = new URLSearchParams(postUrl.search || '');
   if (!params.has('wait')) params.set('wait', 'true');
   postUrl.search = '?' + params.toString();
-  const created = await httpRequest(postUrl, { method: 'POST', path: postUrl.pathname + postUrl.search }, bodyObj);
+  let created;
+  if (bodyObj && Array.isArray(bodyObj.files) && bodyObj.files.length) {
+    const mp = buildMultipartPayload(bodyObj, bodyObj.files);
+    created = await httpRequest(postUrl, { method: 'POST', path: postUrl.pathname + postUrl.search, multipart: mp }, bodyObj);
+  } else {
+    created = await httpRequest(postUrl, { method: 'POST', path: postUrl.pathname + postUrl.search }, bodyObj);
+  }
   try {
     const parsed = JSON.parse(created.body || '{}');
     if (parsed && parsed.id) {
