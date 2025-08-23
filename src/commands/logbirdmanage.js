@@ -50,7 +50,7 @@ function buildPanel(userId) {
   })();
   const embed = new EmbedBuilder()
     .setTitle('Logbird Webhook Manager')
-    .setDescription(count ? 'Select webhooks below to delete, or use buttons.' : 'No webhooks found.')
+    .setDescription(count ? 'Manage Logbird' : 'No webhooks found.')
     .setColor(count ? 0x00AE86 : 0x808080)
     .addFields(
       count

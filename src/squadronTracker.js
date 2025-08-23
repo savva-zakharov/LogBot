@@ -1503,18 +1503,31 @@ async function startSquadronTracker() {
     const apiFinite = Number.isFinite(apiTotal);
     const webFinite = Number.isFinite(webTotal);
     if (apiFinite && webFinite) {
+      const apiChanged = (__lastApiVal !== null && apiTotal !== __lastApiVal);
+      const webChanged = (__lastWebVal !== null && webTotal !== __lastWebVal);
       if (apiTotal !== webTotal) {
-        const apiChanged = (__lastApiVal !== null && apiTotal !== __lastApiVal);
-        const webChanged = (__lastWebVal !== null && webTotal !== __lastWebVal);
         if (apiChanged && !webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
         else if (!apiChanged && webChanged) { chosenSource = 'web'; chosenTotal = webTotal; }
         else if (apiChanged && webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
         else { chosenSource = 'api'; chosenTotal = apiTotal; }
-        const diffKey = `${apiTotal}|${webTotal}`;
-        if (diffKey !== __lastDiffKey) {
-          console.log(`ℹ️ Source diff: api=${apiTotal} vs web=${webTotal} (chosen=${chosenSource})`);
-          try { appendEvent({ type: 'source_diff', dr_era5_hist: apiTotal, squadron_rating: webTotal, chosen: chosenSource }); } catch (_) {}
-          __lastDiffKey = diffKey;
+        // Only compare/log when at least one side changed since last value
+        if (apiChanged || webChanged) {
+          const diffKey = `${apiTotal}|${webTotal}`;
+          if (diffKey !== __lastDiffKey) {
+            console.log(`ℹ️ Source diff: api=${apiTotal} vs web=${webTotal} (chosen=${chosenSource}; changed=${apiChanged&&webChanged?'both':apiChanged?'api':webChanged?'web':'none'})`);
+            try {
+              appendEvent({
+                type: 'source_diff',
+                dr_era5_hist: apiTotal,
+                squadron_rating: webTotal,
+                chosen: chosenSource,
+                changed: (apiChanged && webChanged) ? 'both' : (apiChanged ? 'api' : 'web'),
+                apiPrev: (__lastApiVal !== null ? __lastApiVal : null),
+                webPrev: (__lastWebVal !== null ? __lastWebVal : null),
+              });
+            } catch (_) {}
+            __lastDiffKey = diffKey;
+          }
         }
       } else {
         chosenSource = 'agree';
@@ -1654,14 +1667,18 @@ async function startSquadronTracker() {
             captureOnce.__lastDecreasedMembers = decreasedMembers;
           } catch (_) {}
 
-          // Simple win/loss inference based on player rating changes
-          // - If more players increased than decreased: infer 1 win
-          // - If more players decreased than increased: infer 1 loss
-          // - Otherwise: no matches inferred
+          // Win/loss derivation depends on source of total points
+          // API: derive purely by squadron points delta sign
+          // Web: use player points-based inference (existing thresholds)
           matchesWon = 0;
           matchesLost = 0;
-          
-          if ((matchesWon | matchesLost) === 0) {
+          const useApiWl = (chosenSource === 'api') || (chosenSource === 'agree' && apiFinite);
+          if (useApiWl) {
+            if (typeof pointsDelta === 'number') {
+              if (pointsDelta > 0) { matchesWon = 1; matchesLost = 0; }
+              else if (pointsDelta < 0) { matchesWon = 0; matchesLost = 1; }
+            }
+          } else {
             if (gainedPoints > 2 && gainedPoints < 9) matchesWon = 1;
             else if (gainedPoints > 10 && gainedPoints < 17) matchesWon = 2;
             else if (gainedPoints > 18) matchesWon = 3;
@@ -1760,6 +1777,7 @@ async function startSquadronTracker() {
                 membersDecreased: dec,
                 dateKey: __session.dateKey,
                 windowKey: __session.windowKey || null,
+                pointsSource: chosenSource,
               });
               // Live-update the session summary message for the active window
               try {

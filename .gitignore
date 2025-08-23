@@ -28,6 +28,8 @@ highlights.json
 settings.env
 sqbbr.txt
 
+maps/
+
 # Env/config
 settings.env
 settings.env.bak
@@ -49,3 +51,6 @@ logbird_webhooks.json
 classification_batch_results*
 unclassified_vehicles*
 gemeni.js
+
+# Reference files
+src/referernce/

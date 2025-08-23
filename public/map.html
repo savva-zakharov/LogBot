@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>L0gB1rd Map</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .topnav { margin: 6px 0 16px 0; display: flex; gap: 10px; align-items: center; }
+    .topnav a { color: #90CAF9; text-decoration: none; }
+    .panel { background: #1e1e1e; border: 1px solid #333; padding: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+            <div class="topnav">
+            <a href="/">Home</a>
+            <span>/</span>
+            <strong>Map</strong>
+            <h1>Map Viewer</h1>
+            </div>
+        
+    <div id="map-root" class="panel" style="display:inline-block; position: relative;">
+      <canvas id="map-canvas" width="640" height="640" style="user-select: none; touch-action: none; margin: 0px; resize: none; position: static; zoom: 1; display: block; height: 640px; width: 640px;">Please use a browser with canvas support</canvas>
+    </div>
+    <div style="margin-top:10px; color:#aaa;">
+      Source: <code>/api/map-img?gen=7</code>
+      <button id="btnRefresh" style="margin-left:10px;">Refresh</button>
+      <label style="margin-left:10px;">
+        Auto-refresh <input id="chkAuto" type="checkbox" checked>
+      </label>
+      <span style="margin-left:12px;">View:</span>
+      <button id="btnZoomIn">+</button>
+      <button id="btnZoomOut">-</button>
+      <button id="btnReset">Reset</button>
+    </div>
+  </div>
+  <script>
+    (function(){
+      const canvas = document.getElementById('map-canvas');
+      const ctx = canvas.getContext('2d');
+      const URL_BASE = '/api/map-img?gen='; // we'll append map_generation
+      const URL_INFO = '/api/map-info';
+      const URL_OBJECTS = '/api/map-objects';
+      let timer = null;
+      let objTimer = null;
+      let mapImg = null;
+      let mapInfo = null; // {minX,maxX,minY,maxY, gridSteps:[gx,gy], mapGen}
+      const view = { scale: 1, offsetX: 0, offsetY: 0 };
+      const limits = { minScale: 1, maxScale: 8 };
+      let dragging = false, dragStart = { x:0, y:0 }, startOffset = { x:0, y:0 };
+      const state = { objects: [] };
+      // blink timers (to mimic localhost.htm behaviour)
+      let lastT = null, blinkNormalT = 0, blinkHeavyT = 0, blinkNormalVal = 0, blinkHeavyVal = 0;
+      // Server-driven movement tracking: populated from backend /api/map-tracks
+      const tracks = new Map(); // key: trackId (string) -> {points:[{x,y}], color, meta}
+      let nextTrackId = 1; // unused client-side now
+
+      // Icon cache and loader for drawing object-specific icons
+      const iconCache = new Map(); // name -> Image|null (null marks missing)
+      function requestIcon(name){
+        if (!name) return null;
+        if (iconCache.has(name)) return iconCache.get(name);
+        const img = new Image();
+        img.onload = () => { iconCache.set(name, img); try { render(); } catch (_) {} };
+        img.onerror = () => { iconCache.set(name, null); };
+        img.src = `/public/icons/${encodeURIComponent(name)}.png`;
+        iconCache.set(name, img); // provisional while loading
+        return img;
+      }
+
+      function drawDiamond(cx, cy, r, fill, stroke){
+        ctx.save();
+        ctx.fillStyle = fill || '#ccc';
+        ctx.strokeStyle = stroke || '#000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawFlatRect(cx, cy, h, ratio, fill, stroke){
+        // Draw a centered rectangle with height=h and width=h*ratio
+        const w = h * (ratio || 4);
+        ctx.save();
+        ctx.fillStyle = fill || '#ccc';
+        ctx.strokeStyle = stroke || '#000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(cx - w*0.5, cy - h*0.5, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawInvertedUSquare(cx, cy, unit, fill, stroke){
+        // Upside-down U made of three rectangles (top bar + two legs)
+        // Outer size ratio H:W = 2:4, thickness T = 1 unit
+        const T = unit;
+        const H = 2 * unit;
+        const W = 4 * unit;
+        const topX = cx - W * 0.5;
+        const topY = cy - H * 0.5;
+        const legH = H - T;
+        ctx.save();
+        ctx.fillStyle = fill || '#ccc';
+        ctx.strokeStyle = stroke || '#000';
+        ctx.lineWidth = 1;
+        // top bar
+        ctx.fillRect(topX, topY, W, T);
+        ctx.strokeRect(topX, topY, W, T);
+        // left leg
+        ctx.fillRect(topX, topY + T, T, legH);
+        ctx.strokeRect(topX, topY + T, T, legH);
+        // right leg
+        const rightX = cx + W * 0.5 - T;
+        ctx.fillRect(rightX, topY + T, T, legH);
+        ctx.strokeRect(rightX, topY + T, T, legH);
+        ctx.restore();
+      }
+
+      function drawHeavyTankShape(cx, cy, unit, fill, stroke){
+        // Base: inverted U
+        drawInvertedUSquare(cx, cy, unit, fill, stroke);
+        // Add top centered 1x1 unit square above the top bar
+        const T = unit;
+        const H = 2 * unit;
+        const W = 4 * unit;
+        const topX = cx - W * 0.5;
+        const topY = cy - H * 0.5;
+        const sqSize = unit;
+        const sqX = cx - sqSize * 0.5;
+        const sqY = topY - sqSize; // directly above top bar
+        ctx.save();
+        ctx.fillStyle = fill || '#ccc';
+        ctx.strokeStyle = stroke || '#000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(sqX, sqY, sqSize, sqSize);
+        ctx.strokeRect(sqX, sqY, sqSize, sqSize);
+        ctx.restore();
+      }
+
+      function drawSPAA(cx, cy, unit, fill, stroke){
+        // Base: flat bar 1:4 (height=1*unit, width=4*unit)
+        const T = unit;
+        const W = 4 * unit;
+        const topY = cy - T * 0.5;
+        const leftX = cx - W * 0.5;
+        ctx.save();
+        ctx.fillStyle = fill || '#ccc';
+        ctx.strokeStyle = stroke || '#000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(leftX, topY, W, T);
+        ctx.strokeRect(leftX, topY, W, T);
+        // Two 1x1 squares equally spaced along the top
+        const sq = unit;
+        const ySq = topY - sq; // sitting on top of the bar
+        const cx1 = cx - W * 0.25;
+        const cx2 = cx + W * 0.25;
+        ctx.fillRect(cx1 - sq * 0.5, ySq, sq, sq);
+        ctx.strokeRect(cx1 - sq * 0.5, ySq, sq, sq);
+        ctx.fillRect(cx2 - sq * 0.5, ySq, sq, sq);
+        ctx.strokeRect(cx2 - sq * 0.5, ySq, sq, sq);
+        ctx.restore();
+      }
+
+      // Resize canvas to the largest possible square that fits the container and viewport
+      function resizeCanvas() {
+        const mapRoot = document.getElementById('map-root');
+        const container = mapRoot.parentElement; // .container
+        const rectTop = mapRoot.getBoundingClientRect().top;
+        const availW = container.clientWidth - 2; // minus borders
+        const availH = window.innerHeight - rectTop - 20; // leave small bottom margin
+        const newSize = Math.max(100, Math.floor(Math.min(availW, availH)));
+        if (canvas.width === newSize && canvas.height === newSize) return;
+        const oldW = canvas.width || newSize;
+        const oldH = canvas.height || newSize;
+        // scale offsets to keep view roughly in-place after resize
+        const sx = newSize / oldW;
+        const sy = newSize / oldH;
+        view.offsetX *= sx;
+        view.offsetY *= sy;
+        canvas.width = newSize;
+        canvas.height = newSize;
+        canvas.style.width = newSize + 'px';
+        canvas.style.height = newSize + 'px';
+        render();
+      }
+
+      function drawPlaceholder(msg) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '16px sans-serif';
+        ctx.fillText(msg || 'No map image', 12, 24);
+      }
+
+      function setMapImageSrc(gen) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const cacheBust = 'ts=' + Date.now();
+        const genParam = (typeof gen === 'number' && !Number.isNaN(gen)) ? gen : 7;
+        img.onload = function(){
+          mapImg = img;
+          render();
+        };
+        img.onerror = function(){
+          // Keep rendering the previous image if available
+          if (mapImg) {
+            render();
+          } else {
+            drawPlaceholder('Failed to load map image');
+          }
+        };
+        img.src = URL_BASE + genParam + '&' + cacheBust;
+      }
+
+      function loadMapImageOnce() {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const cacheBust = 'ts=' + Date.now();
+        img.onload = function(){
+          mapImg = img;
+          render();
+        };
+        img.onerror = function(){
+          // Keep rendering the previous image if available
+          if (mapImg) {
+            render();
+          } else {
+            drawPlaceholder('Failed to load map image');
+          }
+        };
+        // if we know mapGen, use it; else default to 7
+        const genParam = (mapInfo && typeof mapInfo.mapGen === 'number') ? mapInfo.mapGen : 7;
+        img.src = URL_BASE + genParam + '&' + cacheBust;
+      }
+
+      async function fetchJson(url) {
+        try {
+          const r = await fetch(url, { cache: 'no-store' });
+          if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+          return await r.json();
+        } catch (e) { return null; }
+      }
+
+      async function refreshInfo() {
+        const j = await fetchJson(URL_INFO);
+        if (!j) return;
+        const prevGen = (mapInfo && typeof mapInfo.mapGen === 'number') ? mapInfo.mapGen : -1;
+        // Normalize
+        const info = {};
+        if ('map_min_x' in j) info.minX = j.map_min_x;
+        if ('map_max_x' in j) info.maxX = j.map_max_x;
+        if ('map_min_y' in j) info.minY = j.map_min_y;
+        if ('map_max_y' in j) info.maxY = j.map_max_y;
+        if (!('minX' in info) && j.min && typeof j.min.x === 'number') info.minX = j.min.x;
+        if (!('maxX' in info) && j.max && typeof j.max.x === 'number') info.maxX = j.max.x;
+        if (!('minY' in info) && j.min && typeof j.min.y === 'number') info.minY = j.min.y;
+        if (!('maxY' in info) && j.max && typeof j.max.y === 'number') info.maxY = j.max.y;
+        if (Array.isArray(j.map_min) && j.map_min.length >= 2) {
+          info.minX = j.map_min[0];
+          info.minY = j.map_min[1];
+        }
+        if (Array.isArray(j.map_max) && j.map_max.length >= 2) {
+          info.maxX = j.map_max[0];
+          info.maxY = j.map_max[1];
+        }
+        if (Array.isArray(j.grid_steps) && j.grid_steps.length >= 2) info.gridSteps = [j.grid_steps[0], j.grid_steps[1]];
+        if (typeof j.map_generation === 'number') info.mapGen = j.map_generation;
+
+        const valid = [info.minX, info.maxX, info.minY, info.maxY].every(v => typeof v === 'number');
+        if (!valid) return;
+
+        mapInfo = info;
+        // If generation changed, reload image and reset view
+        const newGen = (typeof info.mapGen === 'number') ? info.mapGen : prevGen;
+        if (newGen !== prevGen) {
+          // Clear tracks when background image (map generation) changes (backend also resets)
+          tracks.clear();
+          nextTrackId = 1;
+          setMapImageSrc(newGen);
+          view.scale = 1; view.offsetX = 0; view.offsetY = 0;
+        } else {
+          render();
+        }
+      }
+
+      // --- Tracks: fetch from backend periodically ---
+      let tracksTimer = null;
+      async function refreshTracks() {
+        try {
+          const resp = await fetch('/api/map-tracks', { cache: 'no-store' });
+          if (!resp.ok) return;
+          const j = await resp.json();
+          const arr = (j && Array.isArray(j.tracks)) ? j.tracks : [];
+          // Replace local map
+          tracks.clear();
+          for (const t of arr) {
+            if (!t || !Array.isArray(t.points) || t.points.length === 0) continue;
+            const key = (t.id != null ? String(t.id) : undefined);
+            if (!key) continue;
+            tracks.set(key, {
+              points: t.points.map(p => ({ x: +p.x, y: +p.y, t: Number.isFinite(p?.t) ? +p.t : undefined })),
+              color: (typeof t.color === 'string' ? t.color : undefined),
+              meta: (t.meta != null ? String(t.meta) : undefined),
+            });
+          }
+          render();
+        } catch (_) { /* ignore */ }
+      }
+
+      async function refreshObjects() {
+        const j = await fetchJson(URL_OBJECTS);
+        if (!j) return;
+        // Accept array or object with list field
+        const arr = Array.isArray(j) ? j : (Array.isArray(j.objects) ? j.objects : []);
+        state.objects = arr.filter(o => typeof o === 'object');
+        render();
+      }
+
+      function worldToImage(x, y) {
+        if (!mapInfo || !mapImg) return { x: 0, y: 0 };
+        const minX = mapInfo.minX, maxX = mapInfo.maxX;
+        const minY = mapInfo.minY, maxY = mapInfo.maxY;
+        const iw = mapImg.naturalWidth || mapImg.width;
+        const ih = mapImg.naturalHeight || mapImg.height;
+        // Linear map. War Thunder Y usually increases upwards; map image origin is top-left.
+        const nx = (x - minX) / (maxX - minX);
+        const ny = (y - minY) / (maxY - minY);
+        const px = nx * iw;
+        const py = (1 - ny) * ih; // invert Y for top-left origin
+        return { x: px, y: py };
+      }
+
+      function imageToView(px, py) {
+        return {
+          x: px * view.scale + view.offsetX,
+          y: py * view.scale + view.offsetY,
+        };
+      }
+
+      function lerp(a,b,t){ return a + (b-a)*t; }
+      function rgbHex(r,g,b){ r=r|0; g=g|0; b=b|0; return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+      function calcBlinkColor(item){
+        if (item && item.blink) {
+          const bv = (item.blink === 2 ? blinkHeavyVal : blinkNormalVal);
+          const c0 = Array.isArray(item['color[]']) ? item['color[]'] : null;
+          if (c0 && c0.length>=3) {
+            const c1 = [255,255,0];
+            return rgbHex(lerp(c0[0],c1[0],bv), lerp(c0[1],c1[1],bv), lerp(c0[2],c1[2],bv));
+          }
+        }
+        return (item && typeof item.color === 'string') ? item.color : '#ff5252';
+      }
+
+      function updateBlinkTimers(){
+        const t = Date.now();
+        let dt = 0;
+        if (lastT != null) {
+          dt = (t - lastT) * 0.001;
+          blinkNormalT += dt; blinkHeavyT += dt;
+          const pN = 2.0, pH = 1.2;
+          if (blinkNormalT > pN) blinkNormalT -= pN * Math.floor(blinkNormalT / pN);
+          if (blinkHeavyT > pH) blinkHeavyT -= pH * Math.floor(blinkHeavyT / pH);
+          blinkNormalVal = Math.exp(-Math.pow(5*blinkNormalT-2, 4));
+          blinkHeavyVal = Math.exp(-Math.pow(5*blinkHeavyT-2, 4));
+        }
+        lastT = t;
+        return dt;
+      }
+
+      function drawGridScaled(){
+        if (!mapInfo || !mapInfo.gridSteps) return;
+        const w = canvas.width, h = canvas.height;
+        const minX = mapInfo.minX, maxX = mapInfo.maxX;
+        const minY = mapInfo.minY, maxY = mapInfo.maxY;
+        const gsx = mapInfo.gridSteps[0], gsy = mapInfo.gridSteps[1];
+        const scX = (w * view.scale) / (maxX - minX);
+        const scY = (h * view.scale) / (maxY - minY);
+        const firstCellX = Math.floor((-view.offsetX / scX) / gsx);
+        const firstCellY = Math.floor((-view.offsetY / scY) / gsy);
+        const xVis0 = minX + firstCellX * gsx;
+        const yVis0 = minY + firstCellY * gsy;
+        const xVis1 = minX + Math.ceil((w - view.offsetX) / scX / gsx) * gsx;
+        const yVis1 = minY + Math.ceil((h - view.offsetY) / scY / gsy) * gsy;
+        ctx.lineWidth = 1; ctx.strokeStyle = '#555';
+        ctx.beginPath();
+        for (let y = yVis0; y <= yVis1; y += gsy) {
+          const yy = Math.floor((y - minY) * scY + view.offsetY) + 0.5;
+          ctx.moveTo(0, yy); ctx.lineTo(w, yy);
+        }
+        for (let x = xVis0; x <= xVis1; x += gsx) {
+          const xx = Math.floor((x - minX) * scX + view.offsetX) + 0.5;
+          ctx.moveTo(xx, 0); ctx.lineTo(xx, h);
+        }
+        ctx.stroke();
+        // labels
+        ctx.fillStyle = '#111'; ctx.font = 'normal 9pt sans-serif';
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        for (let y = yVis0 + gsy*0.5, n = firstCellY; y <= yVis1 && n < 26; y += gsy, ++n) {
+          const yy = Math.floor((y - minY) * scY + view.offsetY) + 0.5;
+          ctx.fillText(String.fromCharCode(65 + n), 3, yy);
+        }
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        for (let x = xVis0 + gsx*0.5, n = firstCellX; x <= xVis1; x += gsx, ++n) {
+          const xx = Math.floor((x - minX) * scX + view.offsetX) + 0.5;
+          ctx.fillText(n + 1, xx, 3);
+        }
+      }
+
+      function drawPlayer(item){
+        if (typeof item.x !== 'number' || typeof item.y !== 'number') return;
+        const dx = (typeof item.dx === 'number') ? item.dx : 0;
+        const dy = (typeof item.dy === 'number') ? item.dy : -1;
+        // screen position in view coords (normalized x/y -> canvas px, then apply view)
+        let sx = item.x * canvas.width;
+        let sy = item.y * canvas.height;
+        // y in telem normalized is usually already top-left; if it's bottom-left, flip if needed
+        // assume already top-left normalized as in localhost.htm
+        // center arrow
+        const w = 7.0, l = 25.0;
+        // apply view
+        sx = sx * view.scale + view.offsetX;
+        sy = sy * view.scale + view.offsetY;
+        // compute base point centered
+        const len = Math.hypot(dx, dy) || 1;
+        const ndx = dx/len, ndy = dy/len;
+        const cx = sx - l*0.5*ndx;
+        const cy = sy - l*0.5*ndy;
+        ctx.fillStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeStyle = '#333';
+        ctx.beginPath();
+        ctx.moveTo(cx - w*ndy, cy + w*ndx);
+        ctx.lineTo(cx + w*ndy, cy - w*ndx);
+        ctx.lineTo(cx + l*ndx, cy + l*ndy);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+
+      function drawAirfield(item){
+        const sx = canvas.width * (item.sx || 0);
+        const sy = canvas.height * (item.sy || 0);
+        const ex = canvas.width * (item.ex || 0);
+        const ey = canvas.height * (item.ey || 0);
+        const c = calcBlinkColor(item);
+        ctx.lineWidth = 3.0 * Math.sqrt(view.scale);
+        ctx.strokeStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(sx * view.scale + view.offsetX, sy * view.scale + view.offsetY);
+        ctx.lineTo(ex * view.scale + view.offsetX, ey * view.scale + view.offsetY);
+        ctx.stroke();
+      }
+
+      function normalizeXY(o){
+        // returns {x,y} normalized [0,1] or null if cannot compute
+        if (typeof o.x === 'number' && typeof o.y === 'number' && o.x >= 0 && o.x <= 1 && o.y >= 0 && o.y <= 1) {
+          return { x: o.x, y: o.y };
+        }
+        if (!mapInfo) return null;
+        const ox = (typeof o.x === 'number') ? o.x : (o.pos && o.pos.x);
+        const oy = (typeof o.y === 'number') ? o.y : (o.pos && o.pos.y);
+        if (typeof ox === 'number' && typeof oy === 'number') {
+          const px = (ox - mapInfo.minX) / (mapInfo.maxX - mapInfo.minX);
+          const py = 1 - (oy - mapInfo.minY) / (mapInfo.maxY - mapInfo.minY);
+          return { x: px, y: py };
+        }
+        return null;
+      }
+
+      // Client no longer correlates tracks; backend owns it.
+
+      function drawTrail(o){
+        const key = o._tid || null;
+        const entry = key ? tracks.get(String(key)) : null;
+        if (!entry || entry.points.length < 2) return;
+        ctx.save();
+        // faint color with alpha
+        const col = entry.color || '#59a3ff';
+        // convert hex to rgba with low alpha
+        let r=89,g=163,b=255;
+        const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(col);
+        if (m) { r = parseInt(m[1],16); g = parseInt(m[2],16); b = parseInt(m[3],16); }
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.3)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i=0; i<entry.points.length; i++) {
+          const p = entry.points[i];
+          const sx = p.x * canvas.width * view.scale + view.offsetX;
+          const sy = p.y * canvas.height * view.scale + view.offsetY;
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawTrailEntry(entry){
+        if (!entry || !Array.isArray(entry.points) || entry.points.length < 2) return;
+        ctx.save();
+        const col = entry.color || '#59a3ff';
+        let r=89,g=163,b=255;
+        const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(col);
+        if (m) { r = parseInt(m[1],16); g = parseInt(m[2],16); b = parseInt(m[3],16); }
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.3)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i=0; i<entry.points.length; i++) {
+          const p = entry.points[i];
+          const sx = p.x * canvas.width * view.scale + view.offsetX;
+          const sy = p.y * canvas.height * view.scale + view.offsetY;
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawIcon(item){
+        // Compute screen position
+        const x = (item.x || 0) * canvas.width;
+        const y = (item.y || 0) * canvas.height;
+        const sx = x * view.scale + view.offsetX;
+        const sy = y * view.scale + view.offsetY;
+
+        // Try to draw image icon first
+        const iconName = (typeof item.icon === 'string' && item.icon.trim()) ? item.icon.trim() : null;
+        const img = iconName ? requestIcon(iconName) : null;
+        const size = 18 * Math.sqrt(view.scale); // scale-aware icon size
+        if (img && img.complete && img.naturalWidth > 0) {
+          const hw = size * 0.5, hh = size * 0.5;
+          try {
+            ctx.save();
+            ctx.drawImage(img, sx - hw, sy - hh, size, size);
+            ctx.restore();
+            return;
+          } catch (_) { /* fall through to shapes */ }
+        }
+
+        // Geometric fallbacks
+        const color = calcBlinkColor(item);
+        ctx.fillStyle = color; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+        const isRespawn = (item.type === 'respawn_base_fighter') || (item.type === 'respawn_base_bomber');
+        if (item.type === 'capture_zone' || iconName === 'capture_zone') {
+          // diamond fallback
+          drawDiamond(sx, sy, 8 * Math.sqrt(view.scale), color, '#000');
+          return;
+        }
+        if (iconName === 'LightTank') {
+          // 1:4 flat rectangle fallback
+          const h = 5 * Math.sqrt(view.scale);
+          drawFlatRect(sx, sy, h, 4, color, '#000');
+          return;
+        }
+        if (iconName === 'MediumTank') {
+          // upside-down flat square U fallback (∩)
+          const unit = 4 * Math.sqrt(view.scale);
+          drawInvertedUSquare(sx, sy, unit, color, '#000');
+          return;
+        }
+        if (iconName === 'SPAA') {
+          // flat 1:4 bar with two 1x1 squares along the top
+          const unit = 4 * Math.sqrt(view.scale);
+          drawSPAA(sx, sy, unit, color, '#000');
+          return;
+        }
+        if (iconName === 'HeavyTank') {
+          // inverted U plus centered square on top
+          const unit = 4 * Math.sqrt(view.scale);
+          drawHeavyTankShape(sx, sy, unit, color, '#000');
+          return;
+        }
+        if (isRespawn && typeof item.dx === 'number' && typeof item.dy === 'number') {
+          // rotated triangle fallback for respawn bases
+          const w = 5.0, l = 14.0; const len = Math.hypot(item.dx, item.dy) || 1;
+          const ndx = item.dx/len, ndy = item.dy/len;
+          const cx = sx - l*0.5*ndx; const cy = sy - l*0.5*ndy;
+          ctx.beginPath();
+          ctx.moveTo(cx - w*ndy, cy + w*ndx);
+          ctx.lineTo(cx + w*ndy, cy - w*ndx);
+          ctx.lineTo(cx + l*ndx, cy + l*ndy);
+          ctx.closePath(); ctx.fill(); ctx.stroke();
+          return;
+        }
+        // default: circle
+        ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      }
+
+      function render() {
+        // update blink timers
+        updateBlinkTimers();
+        // clear
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.restore();
+
+        // guard: no image yet
+        if (!mapImg) { drawPlaceholder('Loading map...'); return; }
+
+        // Draw map image with pan/zoom
+        ctx.save();
+        ctx.translate(view.offsetX, view.offsetY);
+        ctx.scale(view.scale, view.scale);
+        try {
+          // draw image into canvas size to match normalized coords (0..1) from telemetry
+          ctx.drawImage(mapImg, 0, 0, canvas.width, canvas.height);
+        } catch (e) {}
+        ctx.restore();
+
+        // Draw all trails regardless of whether their objects are present
+        try {
+          tracks.forEach((entry) => {
+            if (!entry || !Array.isArray(entry.points) || entry.points.length < 2) return;
+            drawTrailEntry(entry);
+          });
+        } catch (_) {}
+
+        // Grid overlay
+        drawGridScaled();
+
+        // Draw objects (no client-side tracking)
+        if (state.objects && state.objects.length) {
+          let player = null;
+          for (const o of state.objects) {
+            // Ensure normalized coords for drawing
+            const p = normalizeXY(o);
+            if (p) { o.x = p.x; o.y = p.y; }
+            if (o && o.type === 'airfield') {
+              drawAirfield(o);
+            } else if (o && o.icon === 'Player') {
+              player = o;
+            } else {
+              drawIcon(o);
+            }
+          }
+          if (player) drawPlayer(player);
+        }
+      }
+
+      // Interaction: drag to pan
+      canvas.addEventListener('mousedown', (e) => {
+        dragging = true;
+        const rect = canvas.getBoundingClientRect();
+        dragStart.x = e.clientX - rect.left;
+        dragStart.y = e.clientY - rect.top;
+        startOffset.x = view.offsetX; startOffset.y = view.offsetY;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        view.offsetX = startOffset.x + (cx - dragStart.x);
+        view.offsetY = startOffset.y + (cy - dragStart.y);
+        render();
+      });
+      window.addEventListener('mouseup', () => { dragging = false; });
+
+      // Wheel to zoom (zoom to cursor)
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = -Math.sign(e.deltaY) * 0.2;
+        const oldScale = view.scale;
+        let newScale = Math.min(limits.maxScale, Math.max(limits.minScale, oldScale * (1 + delta)));
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        // Compute world point under cursor before zoom
+        const wx = (cx - view.offsetX) / oldScale;
+        const wy = (cy - view.offsetY) / oldScale;
+        view.scale = newScale;
+        // Keep point under cursor stationary
+        view.offsetX = cx - wx * newScale;
+        view.offsetY = cy - wy * newScale;
+        render();
+      }, { passive: false });
+
+      // Controls
+      document.getElementById('btnZoomIn').addEventListener('click', () => {
+        const evt = new WheelEvent('wheel', { deltaY: -100, bubbles: true });
+        canvas.dispatchEvent(evt);
+      });
+      document.getElementById('btnZoomOut').addEventListener('click', () => {
+        const evt = new WheelEvent('wheel', { deltaY: 100, bubbles: true });
+        canvas.dispatchEvent(evt);
+      });
+      document.getElementById('btnReset').addEventListener('click', () => {
+        view.scale = 1; view.offsetX = 0; view.offsetY = 0; render();
+      });
+
+      function startAuto() {
+        if (timer) return;
+        timer = setInterval(() => { loadMapImageOnce(); refreshInfo(); }, 1000);
+        if (!objTimer) objTimer = setInterval(refreshObjects, 1000);
+      }
+      function stopAuto() {
+        if (timer) { clearInterval(timer); timer = null; }
+        if (objTimer) { clearInterval(objTimer); objTimer = null; }
+      }
+
+      // Periodically persist tracks (every 15s)
+      let persistTimer = null;
+      function startPersist() { /* no-op: backend persists */ }
+      function stopPersist() { /* no-op */ }
+
+      document.getElementById('btnRefresh').addEventListener('click', () => { loadMapImageOnce(); refreshObjects(); });
+      const chk = document.getElementById('chkAuto');
+      chk.addEventListener('change', () => {
+        if (chk.checked) startAuto(); else stopAuto();
+      });
+
+      // Initial
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+      refreshInfo();
+      loadMapImageOnce();
+      refreshObjects();
+      refreshTracks();
+      startAuto();
+      // Start tracks polling
+      if (!tracksTimer) tracksTimer = setInterval(refreshTracks, 1000);
+    })();
+  </script>
+</body>
+</html>

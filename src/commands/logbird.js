@@ -174,7 +174,7 @@ async function nextLogbirdName(channel) {
 module.exports = {
   data: {
     name: 'logbird',
-    description: 'Create paired webhooks (logs + data) and return a base64 bundle (role-restricted)',
+    description: 'Create a Logbird key (role-restricted)',
   },
   async execute(interaction) {
     try {

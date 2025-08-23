@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const state = require('./state');
+const { startMapTracker } = require('./mapTracker');
 const { loadSettings } = require('./config');
 const discord = require('./discordBot');
 const { processMissionEnd, postLogs } = require('./missionEnd');
@@ -76,6 +77,34 @@ function startServer() {
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Failed to read meta' }));
             }
+        } else if (pathname === '/api/map-tracks' && req.method === 'GET') {
+            try {
+                let gameParam = url.searchParams.get('game');
+                if (!gameParam) gameParam = String(state.getCurrentGame());
+                const tracks = state.getMapTracks(gameParam);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ game: String(gameParam), tracks }));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Failed to read map tracks' }));
+            }
+        } else if (pathname === '/api/map-tracks' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; if (body.length > 2e7) req.destroy(); });
+            req.on('end', () => {
+                try {
+                    let gameParam = url.searchParams.get('game');
+                    if (!gameParam) gameParam = String(state.getCurrentGame());
+                    const j = JSON.parse(body || '{}');
+                    const arr = (j && Array.isArray(j.tracks)) ? j.tracks : [];
+                    const result = state.setMapTracks(gameParam, arr);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ game: String(gameParam), ...result }));
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid map tracks payload' }));
+                }
+            });
         } else if (pathname === '/api/meta' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
@@ -188,7 +217,7 @@ function startServer() {
                 return res.end(JSON.stringify({ error: e && e.message ? e.message : 'Failed to reset state' }));
             }
         } else if (pathname === '/') {
-            const htmlPath = path.join(__dirname, '../index.html');
+            const htmlPath = path.join(__dirname, '../public/index.html');
             fs.readFile(htmlPath, (err, data) => {
                 if (err) {
                     res.writeHead(500);
@@ -198,8 +227,157 @@ function startServer() {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(data);
             });
+        } else if (pathname === '/api/map-img') {
+          // Proxy the War Thunder local map image, while also saving a copy to maps/ and recording its path per game
+          try {
+            const httpModule = require('http');
+            const { PassThrough } = require('stream');
+            const query = url.search || '';
+            const options = {
+              hostname: 'localhost',
+              port: 8111,
+              path: '/map.img' + query,
+              method: 'GET',
+            };
+            const proxyReq = httpModule.request(options, (proxyRes) => {
+              const contentType = proxyRes.headers['content-type'] || 'image/png';
+              const contentLength = (proxyRes.headers['content-length'] != null) ? parseInt(proxyRes.headers['content-length'], 10) : null;
+
+              // Determine if this incoming image should be ignored based on matching a known-bad file size
+              const baseDir = process.env.LOGBOT_DATA_DIR || process.cwd();
+              const ignorePath = path.join(baseDir, 'maps', 'game1_gen1_1755913257574.png');
+              let ignoreSize = null;
+              try { const st = fs.statSync(ignorePath); ignoreSize = st.size; } catch (_) {}
+              const shouldIgnoreThisImage = (ignoreSize != null && contentLength != null && contentLength === ignoreSize);
+
+              if (shouldIgnoreThisImage) {
+                // Return 404 so the client Image.onerror keeps the previous image
+                res.writeHead(404, {
+                  'Access-Control-Allow-Origin': '*',
+                  'Cache-Control': 'no-store'
+                });
+                try { proxyRes.destroy(); } catch (_) {}
+                return res.end('Ignored known-bad map image');
+              }
+
+              // Normal OK response headers
+              res.writeHead(200, {
+                'Content-Type': contentType,
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'no-store'
+              });
+
+              const genParam = parseInt(url.searchParams.get('gen') || '', 10);
+              const gen = Number.isFinite(genParam) ? genParam : null;
+              const gameId = state.getCurrentGame();
+              const prevInfo = state.getMapImageInfo ? state.getMapImageInfo(gameId) : { gen: null, path: '' };
+              const shouldSave = (gen != null) && (prevInfo.gen !== gen || !prevInfo.path);
+
+              if (!shouldSave) {
+                // Just proxy through to client
+                proxyRes.pipe(res);
+                return;
+              }
+
+              // Save a copy on gen change
+              const mapsDir = path.join(baseDir, 'maps');
+              try { fs.mkdirSync(mapsDir, { recursive: true }); } catch (_) {}
+              const ext = (contentType && /jpeg/i.test(contentType)) ? '.jpg' : '.png';
+              const fname = `game${gameId}_${gen != null ? 'gen'+gen+'_' : ''}${Date.now()}${ext}`;
+              const relPath = path.join('maps', fname);
+              const absPath = path.join(mapsDir, fname);
+              const tmpPath = absPath + '.tmp';
+
+              const tee = new PassThrough();
+              const fileStream = fs.createWriteStream(tmpPath);
+              proxyRes.pipe(tee);
+              tee.pipe(res);
+              tee.pipe(fileStream);
+
+              fileStream.on('finish', () => {
+                try {
+                  let size = null;
+                  try { const st = fs.statSync(tmpPath); size = st.size; } catch (_) {}
+                  const prev = state.getMapImageInfo ? state.getMapImageInfo(gameId) : { size: null };
+                  if (prev && typeof prev.size === 'number' && size === prev.size) {
+                    // Same size as last saved; drop temp file
+                    try { fs.unlinkSync(tmpPath); } catch (_) {}
+                  } else {
+                    // Keep new file: rename temp -> final and update metadata
+                    try { fs.renameSync(tmpPath, absPath); } catch (_) { /* fallback: keep temp name if rename fails */ }
+                    const finalExists = fs.existsSync(absPath);
+                    const savePath = finalExists ? absPath : tmpPath;
+                    const rel = (finalExists ? relPath : path.join('maps', path.basename(tmpPath))).replace(/\\/g, '/');
+                    state.setMapImageInfo(gameId, { path: rel, gen, size });
+                  }
+                } catch (_) { /* ignore meta errors */ }
+              });
+              fileStream.on('error', () => {
+                // Ignore file save errors for the client response
+              });
+            });
+            proxyReq.on('error', (e) => {
+              res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+              res.end('Bad Gateway fetching map image');
+            });
+            proxyReq.end();
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+            res.end('Failed to proxy map image');
+          }
+        } else if (pathname === '/api/map-info') {
+            // Proxy map info JSON providing world extents, size, etc.
+            try {
+                const httpModule = require('http');
+                const options = { hostname: 'localhost', port: 8111, path: '/map_info.json', method: 'GET' };
+                const proxyReq = httpModule.request(options, (proxyRes) => {
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-store'
+                    });
+                    proxyRes.pipe(res);
+                });
+                proxyReq.on('error', () => {
+                    res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                    res.end(JSON.stringify({ error: 'Bad Gateway fetching map info' }));
+                });
+                proxyReq.end();
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ error: 'Failed to proxy map info' }));
+            }
+        } else if (pathname === '/api/map-objects') {
+            // Proxy map objects JSON (icons/markers) from the telemetry server
+            try {
+                const httpModule = require('http');
+                const options = { hostname: 'localhost', port: 8111, path: '/map_obj.json', method: 'GET' };
+                const proxyReq = httpModule.request(options, (proxyRes) => {
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-store'
+                    });
+                    proxyRes.pipe(res);
+                });
+                proxyReq.on('error', () => {
+                    res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                    res.end(JSON.stringify({ error: 'Bad Gateway fetching map objects' }));
+                });
+                proxyReq.end();
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ error: 'Failed to proxy map objects' }));
+            }
         } else if (pathname === '/settings') {
-            const filePath = path.join(__dirname, '../public/settings.html');
+          const filePath = path.join(__dirname, '../public/settings.html');
+          fs.readFile(filePath, (err, data) => {
+            if (err) { res.writeHead(404); return res.end('Not Found'); }
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(data);
+          });
+        } else if (pathname === '/map') {
+            const filePath = path.join(__dirname, '../public/map.html');
             fs.readFile(filePath, (err, data) => {
                 if (err) { res.writeHead(404); return res.end('Not Found'); }
                 res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -367,6 +545,8 @@ function startServer() {
     console.log('📡 WebSocket client connected');
   });
   console.log(`📡 WebSocket server running on port ${wsPort}`);
+  // Start background server-side map tracker
+  try { startMapTracker(); } catch (e) { console.warn('MapTracker failed to start:', e && e.message ? e.message : e); }
   
   return { server, wss };
 }

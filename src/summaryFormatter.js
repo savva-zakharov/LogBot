@@ -6,7 +6,11 @@ const { loadSettings, OUTPUT_ORDER } = require('./config');
 
 function isExcludedSquad(sqName, settings) {
   try {
-    const h = (settings.squadrons || {})[sqName];
+    const squads = settings.squadrons || {};
+    // Exclude any squadron explicitly configured under settings.squadrons
+    if (Object.prototype.hasOwnProperty.call(squads, sqName)) return true;
+    // Backward compatibility: also respect per-squad exclude flag if present
+    const h = squads[sqName];
     return !!(h && typeof h === 'object' && h.exclude === true);
   } catch (_) { return false; }
 }
@@ -40,17 +44,12 @@ function buildMergedSummary() {
     });
   }
 
-  // Compute W/L totals and per-game indicators
-  let winTotal = 0, lossTotal = 0;
+  // Prepare results map (per-game true/false)
   const resultsMap = state.getResultsMap ? state.getResultsMap() : {};
-  try {
-    Object.keys(resultsMap || {}).forEach(k => {
-      if (resultsMap[k] === true) winTotal++; else if (resultsMap[k] === false) lossTotal++;
-    });
-  } catch (_) {}
 
   const games = Array.from(grouped.keys()).sort((a,b) => a - b);
   const lines = [];
+  let cumWins = 0, cumLosses = 0;
   for (const gm of games) {
     const g = grouped.get(gm);
     const sqName = (g.squads.size <= 1) ? (Array.from(g.squads)[0] || '') : 'MULT.';
@@ -59,9 +58,12 @@ function buildMergedSummary() {
     let indicator = '';
     try {
       const v = resultsMap[String(gm)];
-      indicator = (String(v) === 'true' || v === true) ? 'W' : ((String(v) === 'false' || v === false) ? 'L' : '');
+      const isWin = (String(v) === 'true' || v === true);
+      const isLoss = (String(v) === 'false' || v === false);
+      indicator = isWin ? 'W' : (isLoss ? 'L' : '');
+      if (isWin) cumWins++; else if (isLoss) cumLosses++;
     } catch (_) {}
-    const line = `${namePad} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${winTotal}/${lossTotal} |`;
+    const line = `${namePad} | ${parts.join(' | ')} | ${indicator ? (indicator + ' | ') : ''}${cumWins}/${cumLosses} |`;
     lines.push(line);
   }
 

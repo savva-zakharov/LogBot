@@ -8,6 +8,9 @@ const { OUTPUT_ORDER, CATEGORY_TO_OUTPUT } = require('./config');
 // Writable base directory for runtime files
 const WRITE_BASE_DIR = process.env.LOGBOT_DATA_DIR || process.cwd();
 try { fs.mkdirSync(WRITE_BASE_DIR, { recursive: true }); } catch (_) {}
+// Directory to store saved map images
+const MAPS_DIR = path.join(WRITE_BASE_DIR, 'maps');
+try { fs.mkdirSync(MAPS_DIR, { recursive: true }); } catch (_) {}
 
 // Expose full data object (read-only to callers if they clone)
 function getAllData() {
@@ -37,6 +40,117 @@ function resetData() {
   } catch (e) {
     console.error('Failed to reset state:', e);
     return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+// --- Map Tracks Persistence (separate file: map_data.json) ---
+function readMapData() {
+  try {
+    // If map_data.json exists, read it
+    if (fs.existsSync(MAP_JSON_FILE_PATH)) {
+      const txt = fs.readFileSync(MAP_JSON_FILE_PATH, 'utf8');
+      const obj = JSON.parse(txt || '{}');
+      if (!obj || typeof obj !== 'object') return { _mapTracks: {}, _mapMeta: {} };
+      if (!obj._mapTracks || typeof obj._mapTracks !== 'object') obj._mapTracks = {};
+      if (!obj._mapMeta || typeof obj._mapMeta !== 'object') obj._mapMeta = {};
+      return obj;
+    }
+    // Legacy migration: extract _mapTracks from parsed_data.json if present
+    try {
+      const legacyTxt = fs.readFileSync(JSON_FILE_PATH, 'utf8');
+      const legacyObj = JSON.parse(legacyTxt || '{}');
+      const fromLegacy = (legacyObj && typeof legacyObj === 'object' && typeof legacyObj._mapTracks === 'object') ? { _mapTracks: legacyObj._mapTracks, _mapMeta: {} } : { _mapTracks: {}, _mapMeta: {} };
+      // Persist migrated data for future reads
+      try { fs.writeFileSync(MAP_JSON_FILE_PATH, JSON.stringify(fromLegacy, null, 2), 'utf8'); } catch (_) {}
+      return fromLegacy;
+    } catch (_) {
+      return { _mapTracks: {}, _mapMeta: {} };
+    }
+  } catch (_) {
+    return { _mapTracks: {}, _mapMeta: {} };
+  }
+}
+
+function writeMapData(obj) {
+  try {
+    const payload = obj && typeof obj === 'object' ? obj : { _mapTracks: {} };
+    fs.writeFileSync(MAP_JSON_FILE_PATH, JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('❌ Error writing map_data.json:', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
+function getMapTracks(gameId) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    const data = readMapData();
+    const arr = data._mapTracks[k];
+    if (Array.isArray(arr)) return arr;
+    return [];
+  } catch (_) { return []; }
+}
+
+function setMapTracks(gameId, tracksArr) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    const data = readMapData();
+    if (!data._mapTracks || typeof data._mapTracks !== 'object') data._mapTracks = {};
+    // Validate minimally: expect array of { id?, meta?, color?, points: [{x,y,t?}] }
+    const EPS = 1e-9; // treat as no movement when below this distance
+    const safe = Array.isArray(tracksArr) ? tracksArr.map(t => {
+      const obj = (t && typeof t === 'object') ? t : {};
+      // Normalize points and drop consecutive duplicates (no movement)
+      const raw = Array.isArray(obj.points) ? obj.points.filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y)).map(p => ({ x: +p.x, y: +p.y, t: Number.isFinite(p.t) ? +p.t : undefined })) : [];
+      const pts = [];
+      for (let i = 0; i < raw.length; i++) {
+        const cur = raw[i];
+        if (i === 0) { pts.push(cur); continue; }
+        const prev = pts[pts.length - 1];
+        const dx = cur.x - prev.x, dy = cur.y - prev.y;
+        if ((dx*dx + dy*dy) > EPS) pts.push(cur);
+      }
+      return {
+        id: (obj.id != null ? String(obj.id) : undefined),
+        meta: (obj.meta != null ? String(obj.meta) : undefined),
+        color: (typeof obj.color === 'string' ? obj.color : undefined),
+        points: pts.slice(0, 1000),
+      };
+    }) : [];
+    data._mapTracks[k] = safe;
+    writeMapData(data);
+    return { ok: true, count: safe.length };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+// --- Map image file info per game ---
+function getMapImageInfo(gameId) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    const data = readMapData();
+    const meta = data._mapMeta && data._mapMeta[k];
+    if (!meta || typeof meta !== 'object') return { path: '', gen: null, size: null };
+    return { path: String(meta.path || ''), gen: (Number.isFinite(meta.gen) ? meta.gen : null), size: (Number.isFinite(meta.size) ? meta.size : null) };
+  } catch (_) { return { path: '', gen: null, size: null }; }
+}
+
+function setMapImageInfo(gameId, { path: imagePath, gen, size }) {
+  try {
+    const k = String(parseInt(gameId, 10));
+    const data = readMapData();
+    if (!data._mapMeta || typeof data._mapMeta !== 'object') data._mapMeta = {};
+    data._mapMeta[k] = {
+      path: String(imagePath || ''),
+      gen: Number.isFinite(gen) ? gen : null,
+      size: Number.isFinite(size) ? size : null,
+    };
+    writeMapData(data);
+    return data._mapMeta[k];
+  } catch (e) {
+    return null;
   }
 }
 
@@ -97,6 +211,7 @@ function getMergedSquadronSummaryLines() {
   return results;
 }
 const JSON_FILE_PATH = path.join(WRITE_BASE_DIR, 'parsed_data.json');
+const MAP_JSON_FILE_PATH = path.join(WRITE_BASE_DIR, 'map_data.json');
 
 let state = {
   currentGame: 0,
@@ -473,6 +588,10 @@ module.exports = {
   setTelemetryCursors,
   getGameMeta,
   setGameMeta,
+  getMapTracks,
+  setMapTracks,
+  getMapImageInfo,
+  setMapImageInfo,
   resetData,
   replaceAllData,
   getAllData,
