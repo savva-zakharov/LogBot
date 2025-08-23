@@ -6,39 +6,317 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .topnav { margin: 6px 0 16px 0; display: flex; gap: 10px; align-items: center; }
-    .topnav a { color: #90CAF9; text-decoration: none; }
-    .panel { background: #1e1e1e; border: 1px solid #333; padding: 12px; border-radius: 6px; }
+    :root {
+      --panel-bg: #1e1e1e;
+      --border-color: #333;
+      --text-color: #e0e0e0;
+      --accent-color: #90CAF9;
+      --status-active: #66BB6A;
+      --status-destroyed: #EF5350;
+    }
+    
+    * { box-sizing: border-box; }
+    
+    body { 
+      font-family: Arial, sans-serif; 
+      background: #121212; 
+      color: var(--text-color); 
+      margin: 0;
+      min-height: 100vh;
+    }
+    
+    .container { 
+      max-width: 1800px; 
+      margin: 0 auto; 
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    .topnav { 
+      margin: 6px 0 16px 0; 
+      display: flex; 
+      gap: 10px; 
+      align-items: center; 
+      flex-wrap: wrap;
+    }
+    
+    .topnav a { 
+      color: var(--accent-color); 
+      text-decoration: none; 
+    }
+    
+    .panel { 
+      background: var(--panel-bg); 
+      border: 1px solid var(--border-color); 
+      padding: 12px; 
+      border-radius: 6px; 
+      width: 100%;
+    }
+    /* Match index page controls */
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
+    .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+    .btn:hover { background: #333; }
+    .btn-alive { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
+    .btn-alive:hover { background: #1b5e20; }
+    .btn-destroyed { background: #c62828; border-color: #8e0000; color: #ffebee; }
+    .btn-destroyed:hover { background: #8e0000; }
+    .btn-neutral { background: #3a3a3a; border-color: #555; color: #ddd; }
+    .btn-neutral:hover { background: #2f2f2f; }
+    .btn.selected { outline: 2px solid #90CAF9; }
+    .game-switcher { display: flex; align-items: center; gap: 6px; }
+    .status-switcher { display: flex; align-items: center; gap: 6px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    thead th { background: #1e1e1e; color: #aaa; padding: 8px; border-bottom: 1px solid #333; text-align: left; }
+    tbody td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; }
+    .status-active { color: #66BB6A; }
+    .status-destroyed { color: #EF5350; }
+    .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .mono-table td { white-space: pre; }
+    .scrollable-table { max-height: 400px; overflow-y: auto; display: block; margin-bottom: 12px; }
+    .scrollable-table table { margin-bottom: 0; }
   </style>
 </head>
 <body>
   <div class="container">
-            <div class="topnav">
-            <a href="/">Home</a>
-            <span>/</span>
-            <strong>Map</strong>
-            <h1>Map Viewer</h1>
+    <div class="topnav">
+      <a href="/">Home</a>
+      <span>/</span>
+      <strong>Map</strong>
+      <h1>Map Viewer</h1>
+    </div>
+
+    <div class="main-content">
+      <div class="map-container">
+        <div id="map-root" class="panel">
+          <div class="map-wrapper">
+            <canvas id="map-canvas">Please use a browser with canvas support</canvas>
+          </div>
+          <div class="map-controls">
+            <div class="control-group">
+              <span>Source: <code>/api/map-img?gen=7</code></span>
+              <button id="btnRefresh" class="btn">Refresh</button>
+              <label class="checkbox-label">
+                <input id="chkAuto" type="checkbox" checked>
+                Auto-refresh
+              </label>
             </div>
+            <div class="control-group">
+              <span>View:</span>
+              <button id="btnZoomIn" class="btn">+</button>
+              <button id="btnZoomOut" class="btn">-</button>
+              <button id="btnReset" class="btn">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="sidebar">
+          <div class="panel">
+            <h2 style="margin-top:0;">Current Game</h2>
+            <div class="filters" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 12px;">
+              <div class="game-switcher" style="display:flex; align-items:center; gap:6px;">
+                <button id="btnPrevGameR" class="btn" title="Previous game" type="button">◀</button>
+                <select id="filterGameR"></select>
+                <button id="btnNextGameR" class="btn" title="Next game" type="button">▶</button>
+              </div>
+              <select id="filterSquadronR"><option value="all">All Squadrons</option></select>
+              <select id="filterPlayerR"><option value="all">All Players</option></select>
+              <select id="filterVehicleR"><option value="all">All Vehicles</option></select>
+              <div class="status-switcher" style="display:flex; align-items:center; gap:6px;">
+                <button id="btnStatusAliveR" class="btn btn-alive" type="button" title="Show Active">Active</button>
+                <button id="btnStatusDestroyedR" class="btn btn-destroyed" type="button" title="Show Destroyed">Destroyed</button>
+                <button id="btnStatusResetR" class="btn btn-neutral" type="button" title="Show All">Both</button>
+              </div>
+              <select id="filterTypeR">
+                <option value="all">All Types</option>
+                <option value="light tank">Light Tank</option>
+                <option value="medium tank">Medium Tank</option>
+                <option value="heavy tank">Heavy Tank</option>
+                <option value="spg">SPG</option>
+                <option value="spaa">SPAA</option>
+                <option value="fighter">Fighter</option>
+                <option value="attacker">Attacker</option>
+                <option value="bomber">Bomber</option>
+                <option value="helicopter">Helicopter</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="scrollable-table">
+              <table style="width:100%; border-collapse:collapse;">
+                <thead>
+                  <tr>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Squadron</th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Player</th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Vehicle</th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Status</th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Kills</th>
+                  </tr>
+                </thead>
+                <tbody id="curGameTableBody"><tr><td colspan="7" style="color:#888;">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel" style="margin-top:12px;">
+            <h2 style="margin-top:0;">All Games Summary</h2>
+            <div class="scrollable-table">
+              <table class="mono-table" style="width:100%; border-collapse:collapse;">
+                <thead>
+                  <tr><th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Summary</th></tr>
+                </thead>
+                <tbody id="rightAllGamesSummaryBody"><tr><td style="color:#888;">Loading...</td></tr></tbody>
+              </table>
+            </div>
+        </div>
+      </div>
+    </div>
+    
+    <style>
+      .main-content {
+        display: flex;
+        flex: 1;
+        gap: 20px;
+        min-height: 0;
+      }
+      
+      .map-container {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .map-wrapper {
+        flex: 1;
+        min-height: 400px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #000;
+      }
+      
+      #map-canvas {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto !important;
+        height: auto !important;
+        display: block;
+        user-select: none;
+        touch-action: none;
+      }
+      
+      .map-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .sidebar {
+        width: 40%;
+        min-width: 350px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      
+      .scrollable-table {
+        max-height: calc(2.1em * 16 + 2px); /* 16 lines of text + borders */
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+      }
+      
+      .scrollable-table table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0;
+      }
+      
+      .scrollable-table thead th {
+        position: sticky;
+        top: 0;
+        background: var(--panel-bg);
+        z-index: 1;
+      }
+      
+      .scrollable-table tbody tr {
+        height: 1.5em;
+      }
+      
+      /* Responsive adjustments */
+      @media (max-width: 1200px) {
+        .main-content {
+          flex-direction: column;
+        }
         
-    <div id="map-root" class="panel" style="display:inline-block; position: relative;">
-      <canvas id="map-canvas" width="640" height="640" style="user-select: none; touch-action: none; margin: 0px; resize: none; position: static; zoom: 1; display: block; height: 640px; width: 640px;">Please use a browser with canvas support</canvas>
-    </div>
-    <div style="margin-top:10px; color:#aaa;">
-      Source: <code>/api/map-img?gen=7</code>
-      <button id="btnRefresh" style="margin-left:10px;">Refresh</button>
-      <label style="margin-left:10px;">
-        Auto-refresh <input id="chkAuto" type="checkbox" checked>
-      </label>
-      <span style="margin-left:12px;">View:</span>
-      <button id="btnZoomIn">+</button>
-      <button id="btnZoomOut">-</button>
-      <button id="btnReset">Reset</button>
-    </div>
+        .sidebar {
+          width: 100%;
+          min-width: 0;
+        }
+        
+        .map-wrapper {
+          min-height: 70vh;
+        }
+        
+        .filters {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        
+        .filters > * {
+          width: 100%;
+        }
+      }
+      
+      @media (max-width: 768px) {
+        .container {
+          padding: 10px;
+        }
+        
+        .map-controls {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
   </div>
   <script>
     (function(){
+      // Highlight colors for players and squadrons
+      let highlights = { players: {}, squadrons: {} };
+      
+      // Function to get color pair for highlighting
+      function getColorPair(entry) {
+        // Accept either string (treated as background) or object { bg, fg }
+        if (!entry) return { bg: '', fg: '' };
+        if (typeof entry === 'string') return { bg: entry, fg: '' };
+        return { bg: entry.bg || '', fg: entry.fg || '' };
+      }
+      
+      // Load highlight colors for players and squadrons
+      async function fetchHighlights() {
+        try {
+          const resp = await fetch('/api/highlights');
+          const data = await resp.json();
+          if (data && typeof data === 'object') {
+            highlights = {
+              players: data.players || {},
+              squadrons: data.squadrons || {}
+            };
+          }
+        } catch (_) { /* keep defaults */ }
+      }
       const canvas = document.getElementById('map-canvas');
       const ctx = canvas.getContext('2d');
       const URL_BASE = '/api/map-img?gen='; // we'll append map_generation
@@ -54,9 +332,99 @@
       const state = { objects: [] };
       // blink timers (to mimic localhost.htm behaviour)
       let lastT = null, blinkNormalT = 0, blinkHeavyT = 0, blinkNormalVal = 0, blinkHeavyVal = 0;
-      // Server-driven movement tracking: populated from backend /api/map-tracks
-      const tracks = new Map(); // key: trackId (string) -> {points:[{x,y}], color, meta}
-      let nextTrackId = 1; // unused client-side now
+      // movement tracking (ID-less correlation)
+      const tracks = new Map(); // key: trackId (string) -> {points:[{x,y}], color, meta, lastSeen}
+      let nextTrackId = 1;
+      const TRACK_MAX_POINTS = 2000; // cap for memory
+      const MATCH_MAX_DIST = 0.01; // max normalized distance to associate (~3.5% of map)
+      const MOVEMENT_EPS = 0.001; // minimum normalized move to record a new point
+      // Tracks persist indefinitely; we will clear them when map generation changes
+      // const TRACK_TTL_MS = 2 * 60 * 1000;
+      // Prediction/correlation tuning
+      const PRED_MAX_SECS = 2.0;        // cap time gap used for prediction
+      const MAX_SPEED_NORM = 0.05;       // clamp speed (normalized units per second)
+      const PRED_GAIN = 1.0;            // scale applied to velocity during prediction
+      // Assignment/cost tuning
+      const USE_HUNGARIAN = true;       // switch to global optimal assignment
+      const DIR_PENALTY_GAIN = 0.5;     // weight for direction penalty (0..1 typical)
+
+      // --- Helpers: prediction and math ---
+      function predictTrack(tr, now){
+        const n = tr.points.length;
+        const last = tr.points[n-1];
+        const prev = n >= 2 ? tr.points[n-2] : null;
+        let px = last.x, py = last.y, vx = 0, vy = 0, hasVel = false;
+        if (prev && Number.isFinite(last.t) && Number.isFinite(prev.t)) {
+          const dt = Math.max(0.001, (last.t - prev.t) * 0.001);
+          vx = (last.x - prev.x) / dt; vy = (last.y - prev.y) / dt;
+          const vlen = Math.hypot(vx, vy);
+          if (vlen > 0) {
+            const vmax = MAX_SPEED_NORM;
+            if (vlen > vmax) { const k = vmax / vlen; vx *= k; vy *= k; }
+            const dtNow = Math.min(PRED_MAX_SECS, Math.max(0, (now - (Number.isFinite(last.t) ? last.t : now)) * 0.001));
+            px = last.x + vx * dtNow * PRED_GAIN;
+            py = last.y + vy * dtNow * PRED_GAIN;
+            hasVel = true;
+          }
+        }
+        return { px, py, vx, vy, hasVel, last };
+      }
+
+      function dirPenalty(vx, vy, fromx, fromy, tox, toy){
+        // penalty in [0,2]; 0 if directions align, ~1 if orthogonal, 2 if opposite
+        const ax = tox - fromx, ay = toy - fromy;
+        const al = Math.hypot(ax, ay);
+        const vl = Math.hypot(vx, vy);
+        if (al <= 1e-6 || vl <= 1e-6) return 0;
+        const dot = (ax*vx + ay*vy) / (al * vl);
+        const c = Math.max(-1, Math.min(1, dot));
+        return (1 - c) * 1.0; // 0 align, 2 opposite after scaling by 2 if desired
+      }
+
+      // Minimal Hungarian Algorithm for rectangular cost matrices
+      // Returns array of column index for each row, or -1 if unassigned
+      function hungarian(cost) {
+        const nRows = cost.length;
+        const nCols = cost[0]?.length || 0;
+        const n = Math.max(nRows, nCols);
+        // Build square matrix filled with large cost
+        const INF = 1e9;
+        const a = Array.from({length:n}, (_, i) =>
+          Array.from({length:n}, (_, j) => (i < nRows && j < nCols ? cost[i][j] : 0))
+        );
+        const u = Array(n+1).fill(0), v = Array(n+1).fill(0), p = Array(n+1).fill(0), way = Array(n+1).fill(0);
+        for (let i = 1; i <= n; i++) {
+          p[0] = i;
+          let j0 = 0;
+          const minv = Array(n+1).fill(INF);
+          const used = Array(n+1).fill(false);
+          do {
+            used[j0] = true;
+            const i0 = p[j0];
+            let delta = INF, j1 = 0;
+            for (let j = 1; j <= n; j++) if (!used[j]) {
+              const cur = a[i0-1][j-1] - u[i0] - v[j];
+              if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+              if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+            }
+            for (let j = 0; j <= n; j++) {
+              if (used[j]) { u[p[j]] += delta; v[j] -= delta; }
+              else { minv[j] -= delta; }
+            }
+            j0 = j1;
+          } while (p[j0] !== 0);
+          do {
+            const j1 = way[j0];
+            p[j0] = p[j1];
+            j0 = j1;
+          } while (j0 !== 0);
+        }
+        const ans = Array(nRows).fill(-1);
+        for (let j = 1; j <= n; j++) if (p[j] > 0 && p[j] <= nRows && j <= nCols) {
+          ans[p[j]-1] = j-1;
+        }
+        return ans;
+      }
 
       // Icon cache and loader for drawing object-specific icons
       const iconCache = new Map(); // name -> Image|null (null marks missing)
@@ -284,7 +652,7 @@
         // If generation changed, reload image and reset view
         const newGen = (typeof info.mapGen === 'number') ? info.mapGen : prevGen;
         if (newGen !== prevGen) {
-          // Clear tracks when background image (map generation) changes (backend also resets)
+          // Clear tracks when background image (map generation) changes
           tracks.clear();
           nextTrackId = 1;
           setMapImageSrc(newGen);
@@ -294,25 +662,47 @@
         }
       }
 
-      // --- Tracks: fetch from backend periodically ---
-      let tracksTimer = null;
-      async function refreshTracks() {
+      // --- Persistence: serialize and POST tracks to server ---
+      function serializeTracks() {
+        const out = [];
+        tracks.forEach((tr, tid) => {
+          if (!tr || !Array.isArray(tr.points) || tr.points.length === 0) return;
+          out.push({ id: String(tid), meta: tr.meta || '', color: tr.color || '#59a3ff', points: tr.points.map(p => ({ x: +p.x, y: +p.y, t: Number.isFinite(p.t) ? +p.t : undefined })) });
+        });
+        return out;
+      }
+
+      async function postTracks() {
+        try {
+          const arr = serializeTracks();
+          // avoid spamming empty payloads
+          if (!arr.length) return;
+          await fetch('/api/map-tracks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tracks: arr }),
+            cache: 'no-store',
+          });
+        } catch (_) { /* ignore */ }
+      }
+
+      // Load existing persisted tracks once and merge
+      async function loadExistingTracks() {
         try {
           const resp = await fetch('/api/map-tracks', { cache: 'no-store' });
           if (!resp.ok) return;
           const j = await resp.json();
           const arr = (j && Array.isArray(j.tracks)) ? j.tracks : [];
-          // Replace local map
-          tracks.clear();
           for (const t of arr) {
             if (!t || !Array.isArray(t.points) || t.points.length === 0) continue;
             const key = (t.id != null ? String(t.id) : undefined);
-            if (!key) continue;
-            tracks.set(key, {
-              points: t.points.map(p => ({ x: +p.x, y: +p.y, t: Number.isFinite(p?.t) ? +p.t : undefined })),
-              color: (typeof t.color === 'string' ? t.color : undefined),
-              meta: (t.meta != null ? String(t.meta) : undefined),
-            });
+            if (key && !tracks.has(key)) {
+              tracks.set(key, {
+                points: t.points.map(p => ({ x: +p.x, y: +p.y, t: Number.isFinite(p?.t) ? +p.t : undefined })),
+                color: (typeof t.color === 'string' ? t.color : undefined),
+                meta: (t.meta != null ? String(t.meta) : undefined),
+              });
+            }
           }
           render();
         } catch (_) { /* ignore */ }
@@ -474,7 +864,100 @@
         return null;
       }
 
-      // Client no longer correlates tracks; backend owns it.
+      function metaKey(o){
+        return `${o.icon||''}|${o.type||''}|${o.team||''}`;
+      }
+
+      function correlateTracks(objs){
+        const now = Date.now();
+        // build candidates with normalized coords
+        const cand = [];
+        for (const o of objs) {
+          const p = normalizeXY(o);
+          if (!p) continue;
+          o._nx = p.x; o._ny = p.y; // stash for draw
+          o._meta = metaKey(o);
+          cand.push(o);
+        }
+        // prepare unmatched sets
+        const trackIds = Array.from(tracks.keys());
+        const matchedTracks = new Set();
+        const matchedObjs = new Set();
+
+        // Group by meta to reduce cross-type confusion
+        const byMetaTracks = new Map();
+        const byMetaObjs = new Map();
+        for (const tid of trackIds) {
+          const tr = tracks.get(tid);
+          if (!tr || !tr.points?.length) continue;
+          const key = tr.meta || '';
+          if (!byMetaTracks.has(key)) byMetaTracks.set(key, []);
+          byMetaTracks.get(key).push(tid);
+        }
+        for (let i=0; i<cand.length; i++) {
+          const m = cand[i]._meta || '';
+          if (!byMetaObjs.has(m)) byMetaObjs.set(m, []);
+          byMetaObjs.get(m).push(i);
+        }
+
+        const metas = new Set([...byMetaTracks.keys(), ...byMetaObjs.keys()]);
+        const BIG = 1e6;
+        for (const meta of metas) {
+          const tids = byMetaTracks.get(meta) || [];
+          const idxs = byMetaObjs.get(meta) || [];
+          if (tids.length === 0 || idxs.length === 0) continue;
+          // Build cost matrix
+          const preds = tids.map(tid => ({ tid, pred: predictTrack(tracks.get(tid), now) }));
+          const cost = preds.map(({ pred }) => idxs.map(i => {
+            const o = cand[i];
+            const d = Math.hypot(o._nx - pred.px, o._ny - pred.py);
+            if (d > MATCH_MAX_DIST) return BIG;
+            const dirPen = DIR_PENALTY_GAIN * dirPenalty(pred.vx, pred.vy, pred.last.x, pred.last.y, o._nx, o._ny);
+            return d + dirPen;
+          }));
+          let assignment;
+          if (USE_HUNGARIAN) assignment = hungarian(cost); else assignment = cost.map((row, r) => {
+            // simple greedy per row if disabled (not optimal)
+            let best = -1, bestVal = BIG;
+            row.forEach((v, c) => { if (v < bestVal) { bestVal = v; best = c; } });
+            return best;
+          });
+          // Apply assignment
+          for (let r = 0; r < assignment.length; r++) {
+            const c = assignment[r];
+            if (c == null || c < 0 || c >= idxs.length) continue;
+            const costVal = cost[r][c];
+            if (!(costVal < BIG)) continue; // filtered by distance
+            const tid = tids[r];
+            const objIndex = idxs[c];
+            if (matchedTracks.has(tid) || matchedObjs.has(objIndex)) continue;
+            const tr = tracks.get(tid);
+            const o = cand[objIndex];
+            const last = tr.points[tr.points.length - 1];
+            const move = Math.hypot(o._nx - last.x, o._ny - last.y);
+            if (move > MOVEMENT_EPS) {
+              tr.points.push({ x: o._nx, y: o._ny, t: now });
+              if (tr.points.length > TRACK_MAX_POINTS) tr.points.splice(0, tr.points.length - TRACK_MAX_POINTS);
+            }
+            if (tr.points.length > TRACK_MAX_POINTS) tr.points.splice(0, tr.points.length - TRACK_MAX_POINTS);
+            tr.lastSeen = now;
+            o._tid = tid;
+            matchedTracks.add(tid);
+            matchedObjs.add(objIndex);
+          }
+        }
+
+        // start new tracks for remaining objects (unmatched)
+        for (let i = 0; i < cand.length; i++) {
+          if (matchedObjs.has(i)) continue;
+          const o = cand[i];
+          const tid = String(nextTrackId++);
+          const color = (typeof o.color === 'string') ? o.color : '#59a3ff';
+          tracks.set(tid, { points: [{ x: o._nx, y: o._ny, t: now }], color, meta: o._meta, lastSeen: now });
+          o._tid = tid;
+        }
+        // No time-based pruning; tracks persist until map generation changes
+      }
 
       function drawTrail(o){
         const key = o._tid || null;
@@ -623,13 +1106,14 @@
         // Grid overlay
         drawGridScaled();
 
-        // Draw objects (no client-side tracking)
+        // Correlate and draw objects
         if (state.objects && state.objects.length) {
+          // correlate tracks for current snapshot (handles missing persistent IDs)
+          correlateTracks(state.objects);
           let player = null;
           for (const o of state.objects) {
-            // Ensure normalized coords for drawing
-            const p = normalizeXY(o);
-            if (p) { o.x = p.x; o.y = p.y; }
+            // use normalized coords prepared by correlateTracks
+            if (typeof o._nx === 'number' && typeof o._ny === 'number') { o.x = o._nx; o.y = o._ny; }
             if (o && o.type === 'airfield') {
               drawAirfield(o);
             } else if (o && o.icon === 'Player') {
@@ -705,8 +1189,182 @@
 
       // Periodically persist tracks (every 15s)
       let persistTimer = null;
-      function startPersist() { /* no-op: backend persists */ }
-      function stopPersist() { /* no-op */ }
+      function startPersist() {
+        if (persistTimer) return;
+        persistTimer = setInterval(postTracks, 15000);
+      }
+      function stopPersist() {
+        if (persistTimer) { clearInterval(persistTimer); persistTimer = null; }
+      }
+
+      // --- Right column: minimal data fetch/render ---
+      // Adopt filtering controls like index.html but scoped to right column
+      let rowsR = [];
+      let statusFilterR = 'all';
+      function normalizeTypeR(cls){
+        if (!cls) return 'other';
+        const c = String(cls).toLowerCase();
+        if (c === 'light tank') return 'light tank';
+        if (c === 'medium tank') return 'medium tank';
+        if (c === 'heavy tank') return 'heavy tank';
+        if (c === 'tank destroyer') return 'spg';
+        if (c === 'spaa') return 'spaa';
+        if (c === 'fighter') return 'fighter';
+        if (c === 'attacker') return 'attacker';
+        if (c === 'bomber') return 'bomber';
+        if (c === 'helicopter') return 'helicopter';
+        return 'other';
+      }
+      async function fetchGamesR(){
+        const [gamesResp, currentResp] = await Promise.all([
+          fetch('/api/games-list'), fetch('/api/current-game')
+        ]);
+        const games = await gamesResp.json();
+        const current = (await currentResp.json()).currentGame;
+        return { games, current };
+      }
+      async function fetchRowsForGameR(game){
+        if (game === 'all') {
+          const gl = await (await fetch('/api/games-list')).json();
+          const results = await Promise.all(gl.map(g => fetch('/api/active-vehicles?game=' + encodeURIComponent(g)).then(r=>r.json()).then(list => list.map(it => { if (it && (it.game==null)) it.game = g; return it; }))));
+          rowsR = [].concat.apply([], results);
+        } else {
+          if (game === 'current') {
+            try { const j = await (await fetch('/api/current-game')).json(); game = String(j.currentGame); } catch (_) {}
+          }
+          const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
+          rowsR = await resp.json();
+          rowsR = rowsR.map(it => { if (it && (it.game==null)) it.game = game; return it; });
+        }
+      }
+      function populateFilterR(selectId, values, placeholder){
+        const sel = document.getElementById(selectId);
+        const prev = sel.value;
+        sel.innerHTML = '';
+        const allOpt = document.createElement('option');
+        allOpt.value = 'all'; allOpt.textContent = placeholder; sel.appendChild(allOpt);
+        values.forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.appendChild(opt); });
+        if (values.includes(prev)) sel.value = prev; else sel.value = 'all';
+      }
+      function renderCurrentGameTableR(list){
+        const tbody = document.getElementById('curGameTableBody');
+        if (!tbody) return;
+        if (!Array.isArray(list) || list.length === 0) { 
+          tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">No data</td></tr>'; 
+          return; 
+        }
+        
+        tbody.innerHTML = list.map(r => {
+          const statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
+          const statusText = (r.status === 'destroyed') ? 'dead' : 'alive';
+          
+          // Get highlight colors - player highlight overrides squadron highlight
+          let hl = getColorPair(highlights.players[r.player]);
+          if (!hl.bg && !hl.fg) {
+            hl = getColorPair(highlights.squadrons[r.squadron]);
+          }
+          
+          // Build style string
+          const styles = [];
+          if (hl.bg) styles.push(`background-color: ${hl.bg}`);
+          if (hl.fg) styles.push(`color: ${hl.fg}`);
+          const styleAttr = styles.length ? ` style="${styles.join('; ')};"` : '';
+          
+          return '<tr' + styleAttr + '>' +
+            '<td>' + (r.squadron ?? '') + '</td>' +
+            '<td>' + (r.player ?? '') + '</td>' +
+            '<td>' + (r.vehicle ?? '') + '</td>' +
+            '<td class="' + statusClass + '">' + statusText + '</td>' +
+            '<td>' + (r.kills ?? 0) + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+      function applyFiltersAndRenderR(){
+        const squadron = document.getElementById('filterSquadronR').value;
+        const player = document.getElementById('filterPlayerR').value;
+        const vehicle = document.getElementById('filterVehicleR').value;
+        const type = document.getElementById('filterTypeR').value;
+        const filtered = rowsR.filter(r => (
+          (squadron === 'all' || r.squadron === squadron) &&
+          (player === 'all' || r.player === player) &&
+          (vehicle === 'all' || r.vehicle === vehicle) &&
+          (statusFilterR === 'all' || r.status === statusFilterR) &&
+          (type === 'all' || normalizeTypeR(r.classification) === type)
+        ));
+        // update dependent filters from rowsR
+        populateFilterR('filterSquadronR', Array.from(new Set(rowsR.map(r=>r.squadron))).sort(), 'All Squadrons');
+        populateFilterR('filterPlayerR', Array.from(new Set(rowsR.map(r=>r.player))).sort(), 'All Players');
+        populateFilterR('filterVehicleR', Array.from(new Set(rowsR.map(r=>r.vehicle))).sort(), 'All Vehicles');
+        renderCurrentGameTableR(filtered);
+      }
+      async function initRightControls(){
+        const { games, current } = await fetchGamesR();
+        await fetchHighlights(); // Load highlight colors
+        const sel = document.getElementById('filterGameR');
+        const saved = localStorage.getItem('selectedGameR');
+        const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved,10)) ? saved : 'current');
+        sel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(g => '<option value="'+g+'">Game '+g+'</option>').join('');
+        sel.value = initial;
+        localStorage.setItem('selectedGameR', sel.value);
+        await fetchRowsForGameR(sel.value);
+        document.getElementById('filterTypeR').value = 'all';
+        applyFiltersAndRenderR();
+        // wire events
+        ['filterGameR','filterSquadronR','filterPlayerR','filterVehicleR','filterTypeR'].forEach(id => {
+          document.getElementById(id).addEventListener('change', async (e) => {
+            if (id === 'filterGameR') {
+              localStorage.setItem('selectedGameR', e.target.value);
+              await fetchRowsForGameR(e.target.value);
+            }
+            applyFiltersAndRenderR();
+          });
+        });
+        // prev/next
+        const prevBtn = document.getElementById('btnPrevGameR');
+        const nextBtn = document.getElementById('btnNextGameR');
+        prevBtn.addEventListener('click', async () => {
+          const sorted = games.slice().sort((a,b)=>a-b);
+          let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
+          let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.max(0, idx - 1);
+          sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
+          await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
+        });
+        nextBtn.addEventListener('click', async () => {
+          const sorted = games.slice().sort((a,b)=>a-b);
+          let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
+          let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.min(sorted.length - 1, idx + 1);
+          sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
+          await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
+        });
+        // status buttons
+        const bAlive = document.getElementById('btnStatusAliveR');
+        const bDestroyed = document.getElementById('btnStatusDestroyedR');
+        const bReset = document.getElementById('btnStatusResetR');
+        function reflect(){
+          bAlive.classList.toggle('selected', statusFilterR==='active');
+          bDestroyed.classList.toggle('selected', statusFilterR==='destroyed');
+          bReset.classList.toggle('selected', statusFilterR==='all');
+        }
+        window.setStatusFilterR = function(v){ statusFilterR = v; localStorage.setItem('statusFilterR', v); reflect(); applyFiltersAndRenderR(); };
+        bAlive.addEventListener('click', ()=> setStatusFilterR('active'));
+        bDestroyed.addEventListener('click', ()=> setStatusFilterR('destroyed'));
+        bReset.addEventListener('click', ()=> setStatusFilterR('all'));
+        try { const savedS = localStorage.getItem('statusFilterR'); statusFilterR = (savedS==='active'||savedS==='destroyed'||savedS==='all')?savedS:'all'; } catch (_) { statusFilterR='all'; }
+        reflect();
+      }
+
+      async function refreshRightAllGamesSummary(){
+        const tgt = document.getElementById('rightAllGamesSummaryBody');
+        if (!tgt) return;
+        try {
+          const resp = await fetch('/api/merged-summary');
+          const j = await resp.json();
+          const lines = (j && Array.isArray(j.lines)) ? j.lines : [];
+          tgt.innerHTML = (lines && lines.length) ? lines.map(l => '<tr><td>' + l + '</td></tr>').join('') : '<tr><td>No data</td></tr>';
+        } catch (_) {
+          tgt.innerHTML = '<tr><td>No data</td></tr>';
+        }
+      }
 
       document.getElementById('btnRefresh').addEventListener('click', () => { loadMapImageOnce(); refreshObjects(); });
       const chk = document.getElementById('chkAuto');
@@ -720,10 +1378,28 @@
       refreshInfo();
       loadMapImageOnce();
       refreshObjects();
-      refreshTracks();
+      // Merge any previously saved tracks so trails appear immediately
+      loadExistingTracks();
       startAuto();
-      // Start tracks polling
-      if (!tracksTimer) tracksTimer = setInterval(refreshTracks, 1000);
+      startPersist();
+
+      // Initial render on right column
+      initRightControls();
+      refreshRightAllGamesSummary();
+      // Periodic refresh every 5s
+      setInterval(async () => { const sel = document.getElementById('filterGameR'); if (sel) { await fetchRowsForGameR(sel.value); applyFiltersAndRenderR(); } }, 5000);
+      setInterval(refreshRightAllGamesSummary, 7000);
+
+      // Save on unload using sendBeacon
+      window.addEventListener('beforeunload', () => {
+        try {
+          const arr = serializeTracks();
+          if (!arr.length) return;
+          const blob = new Blob([JSON.stringify({ tracks: arr })], { type: 'application/json' });
+          // sendBeacon ignores response; best-effort
+          navigator.sendBeacon('/api/map-tracks', blob);
+        } catch (_) { /* ignore */ }
+      });
     })();
   </script>
 </body>

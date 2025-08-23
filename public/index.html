@@ -433,8 +433,15 @@
             mergedHtml += `<tr><td>AC: ${meta.ac || ''}</td></tr>`;
             mergedHtml += `<tr><td>GC: ${meta.gc || ''}</td></tr>`;
           } catch (_) {}
+          
           let lines = (mergedSummary && Array.isArray(mergedSummary.lines)) ? mergedSummary.lines : [];
           if (!lines || lines.length === 0) {
+            if (selGame !== 'all' && String(s.game) === String((gameMeta && gameMeta.game) || s.game)) {
+              const meta = gameMeta || { squadNo: '', gc: '', ac: '' };
+              mergedHtml += '<tr><td><strong>Squad:</strong> ' + (meta.squadNo || '') + '</td></tr>';
+              mergedHtml += '<tr><td><strong>GC:</strong> ' + (meta.gc || '') + '</td></tr>';
+              mergedHtml += '<tr><td><strong>AC:</strong> ' + (meta.ac || '') + '</td></tr>';
+            }
             // Fallback: build client-side from allSummaries + resultsMap (legacy logic)
             const grouped = new Map(); // game -> { totals, squads }
             (allSummaries || []).forEach(item => {

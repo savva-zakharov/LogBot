@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const state = require('./state');
-const { startMapTracker } = require('./mapTracker');
 const { loadSettings } = require('./config');
 const discord = require('./discordBot');
 const { processMissionEnd, postLogs } = require('./missionEnd');
@@ -545,8 +544,6 @@ function startServer() {
     console.log('📡 WebSocket client connected');
   });
   console.log(`📡 WebSocket server running on port ${wsPort}`);
-  // Start background server-side map tracker
-  try { startMapTracker(); } catch (e) { console.warn('MapTracker failed to start:', e && e.message ? e.message : e); }
   
   return { server, wss };
 }
