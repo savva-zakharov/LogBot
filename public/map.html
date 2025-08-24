@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>L0gB1rd Map</title>
+  <title>LogBird Map Viewer</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <style>
@@ -21,12 +21,12 @@
       font-family: Arial, sans-serif; 
       background: #121212; 
       color: var(--text-color); 
-      margin: 0;
+      margin: 20px;
       min-height: 100vh;
     }
     
     .container { 
-      max-width: 1800px; 
+      max-width: 2000px; 
       margin: 0 auto; 
       padding: 20px;
       display: flex;
@@ -56,16 +56,39 @@
     }
     /* Match index page controls */
     .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
+    select, .dropdown {
+      background: #1e1e1e;
+      color: #ddd;
+      border: 1px solid #1e1e1e;
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9em;
+      cursor: pointer;
+      transition: border-color 0.2s, background-color 0.2s;
+    }
+    select:hover, .dropdown:hover {
+      /* background: #252525; */
+    }
+    select:focus, .dropdown:focus {
+      outline: none;
+      /* border-color: #252525; */
+      /* box-shadow: 0 0 0 2px rgba(144, 202, 249, 0.2); */
+    }
     .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
     .btn:hover { background: #333; }
-    .btn-alive { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
+    .btn-win { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
+    .btn-win:hover { background: #1b5e20; }
+    .btn-loss { background: #c62828; border-color: #8e0000; color: #ffebee; }
+    .btn-loss:hover { background: #8e0000; }
+    .btn-alive { background: #1e1e1e; border-color: #1e1e1e; color: #2ad639; }
     .btn-alive:hover { background: #1b5e20; }
-    .btn-destroyed { background: #c62828; border-color: #8e0000; color: #ffebee; }
+    .btn-alive.selected { background: #2e7d32; border-color: #1b5e20; color: #fff; }
+    .btn-destroyed { background: #1e1e1e; border-color: #1e1e1e; color: #c62828; }
     .btn-destroyed:hover { background: #8e0000; }
+    .btn-destroyed.selected { background: #c62828; border-color: #8e0000; color: #fff; }
     .btn-neutral { background: #3a3a3a; border-color: #555; color: #ddd; }
     .btn-neutral:hover { background: #2f2f2f; }
-    .btn.selected { outline: 2px solid #90CAF9; }
     .game-switcher { display: flex; align-items: center; gap: 6px; }
     .status-switcher { display: flex; align-items: center; gap: 6px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
@@ -75,18 +98,74 @@
     .status-destroyed { color: #EF5350; }
     .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .mono-table td { white-space: pre; }
+
     .scrollable-table { max-height: 400px; overflow-y: auto; display: block; margin-bottom: 12px; }
     .scrollable-table table { margin-bottom: 0; }
+
+    
+    h1 { color: #4CAF50; margin: 0 0 12px 0; }
+    h2 { margin: 16px 0 8px 0; color: #90CAF9; }
+        
+    .top-bar {
+    display: flex;
+    justify-content: space-between; /* Pushes left and right sections to edges */
+    align-items: center; /* Vertically centers items */
+    background: var(--panel-bg); 
+    border: 1px solid var(--border-color); 
+    padding: 12px; 
+    border-radius: 6px; 
+    width: 100%;
+    }
+    .section-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    }
+    .left-section, .right-section {
+    display: flex;
+    gap: 10px; /* Space between items */
+    align-items: center;
+    }
+    .center-section {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    }
+    @media (max-width: 768px) {
+    .top-bar {
+        flex-direction: column;
+        gap: 10px;
+    }
+    .center-section {
+        position: static;
+        transform: none;
+        order: -1; /* Move to top on mobile */
+    }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="topnav">
-      <a href="/">Home</a>
-      <span>/</span>
-      <strong>Map</strong>
-      <h1>Map Viewer</h1>
-    </div>
+
+
+        <div class="top-bar">
+            <div class="left-section">
+              <a href="/">Home</a>
+              <span>/</span>
+              <strong>Map</strong>
+            </div>
+            <div class="center-section">
+              <h1>LogBird Map Viewer</h1>
+            </div>
+            <div class="right-section">
+                <button id="btnWin" class="btn btn-win">Record Win</button>
+                <button id="btnLoss" class="btn btn-loss">Record Loss</button>
+                <button id="btnPostLogs">Post Logs</button>
+                <button id="btnSubmitJson" class="btn">Submit JSON</button>
+                <button id="btnReset" class="btn">Reset</button>
+            </div>
+          </div>
 
     <div class="main-content">
       <div class="map-container">
@@ -115,43 +194,45 @@
       
       <div class="sidebar">
           <div class="panel">
-            <h2 style="margin-top:0;">Current Game</h2>
-            <div class="filters" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 12px;">
-              <div class="game-switcher" style="display:flex; align-items:center; gap:6px;">
-                <button id="btnPrevGameR" class="btn" title="Previous game" type="button">◀</button>
-                <select id="filterGameR"></select>
-                <button id="btnNextGameR" class="btn" title="Next game" type="button">▶</button>
-              </div>
-              <select id="filterSquadronR"><option value="all">All Squadrons</option></select>
-              <select id="filterPlayerR"><option value="all">All Players</option></select>
-              <select id="filterVehicleR"><option value="all">All Vehicles</option></select>
-              <div class="status-switcher" style="display:flex; align-items:center; gap:6px;">
-                <button id="btnStatusAliveR" class="btn btn-alive" type="button" title="Show Active">Active</button>
-                <button id="btnStatusDestroyedR" class="btn btn-destroyed" type="button" title="Show Destroyed">Destroyed</button>
-                <button id="btnStatusResetR" class="btn btn-neutral" type="button" title="Show All">Both</button>
-              </div>
-              <select id="filterTypeR">
-                <option value="all">All Types</option>
-                <option value="light tank">Light Tank</option>
-                <option value="medium tank">Medium Tank</option>
-                <option value="heavy tank">Heavy Tank</option>
-                <option value="spg">SPG</option>
-                <option value="spaa">SPAA</option>
-                <option value="fighter">Fighter</option>
-                <option value="attacker">Attacker</option>
-                <option value="bomber">Bomber</option>
-                <option value="helicopter">Helicopter</option>
-                <option value="other">Other</option>
-              </select>
+            <div class="section-bar">
+                <div class="left-section">
+                <h2 style="margin-top:0;">Current Game</h2>
+                </div>
+                <div class="right-section">
+                    <div class="game-switcher" style="display:flex; align-items:center; gap:6px;">
+                        <button id="btnPrevGameR" class="btn" title="Previous game" type="button">◀</button>
+                        <select id="filterGameR"></select>
+                        <button id="btnNextGameR" class="btn" title="Next game" type="button">▶</button>
+                    </div>
+                </div>
             </div>
+            
+            <!-- Filters moved to table headers below -->
             <div class="scrollable-table">
               <table style="width:100%; border-collapse:collapse;">
                 <thead>
                   <tr>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Squadron</th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Player</th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Vehicle</th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Status</th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
+                      <select id="filterSquadronR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
+                      <select id="filterPlayerR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
+                      <select id="filterVehicleR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
+                      <div style="display: flex; gap: 4px; margin-top: 4px;">
+                        <button id="btnStatusAliveR" class="btn btn-alive" type="button" title="Show Active (click again to clear filter)" style="flex: 1; padding: 2px 0px; font-size: 0.9em;">A</button>
+                        <button id="btnStatusDestroyedR" class="btn btn-destroyed" type="button" title="Show Destroyed (click again to clear filter)" style="flex: 1; padding: 2px 0px; font-size: 0.9em;">D</button>
+                      </div>
+                    </th>
                     <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Kills</th>
                   </tr>
                 </thead>
@@ -160,12 +241,9 @@
             </div>
           </div>
           <div class="panel" style="margin-top:12px;">
-            <h2 style="margin-top:0;">All Games Summary</h2>
+            <h2 class="section-title">Game Logs</h2>
             <div class="scrollable-table">
               <table class="mono-table" style="width:100%; border-collapse:collapse;">
-                <thead>
-                  <tr><th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Summary</th></tr>
-                </thead>
                 <tbody id="rightAllGamesSummaryBody"><tr><td style="color:#888;">Loading...</td></tr></tbody>
               </table>
             </div>
@@ -183,7 +261,8 @@
       
       .map-container {
         flex: 1;
-        min-width: 0;
+        min-width: 33%;
+        max-width: 66%;
         display: flex;
         flex-direction: column;
       }
@@ -223,8 +302,7 @@
       }
       
       .sidebar {
-        width: 40%;
-        min-width: 350px;
+        min-width: 300px;
         display: flex;
         flex-direction: column;
         gap: 20px;
@@ -293,6 +371,73 @@
   </div>
   <script>
     (function(){
+      'use strict';
+      
+      // Main application code
+      
+      // Initialize the application
+      function initApplication() {
+        // Set up event listeners
+        const btnRefresh = document.getElementById('btnRefresh');
+        if (btnRefresh) {
+          btnRefresh.addEventListener('click', () => { 
+            loadMapImageOnce(); 
+            refreshObjects(); 
+          });
+        }
+        
+        const chk = document.getElementById('chkAuto');
+        if (chk) {
+          chk.addEventListener('change', () => {
+            if (chk.checked) startAuto(); 
+            else stopAuto();
+          });
+        }
+
+        // Set up resize handler
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Initial setup
+        resizeCanvas();
+        refreshInfo();
+        loadMapImageOnce();
+        refreshObjects();
+        loadExistingTracks();
+        startAuto();
+        startPersist();
+        
+        // Initialize right column
+        initRightControls();
+        refreshRightAllGamesSummary();
+        
+        // Periodic refresh every 5s
+        setInterval(async () => { 
+          const sel = document.getElementById('filterGameR'); 
+          if (sel) { 
+            await fetchRowsForGameR(sel.value); 
+            applyFiltersAndRenderR(); 
+          } 
+        }, 5000);
+        
+        setInterval(refreshRightAllGamesSummary, 7000);
+      }
+      
+      // Save on unload using sendBeacon
+      window.addEventListener('beforeunload', () => {
+        try {
+          const arr = serializeTracks();
+          if (!arr.length) return;
+          const blob = new Blob([JSON.stringify({ tracks: arr })], { type: 'application/json' });
+          navigator.sendBeacon('/api/map-tracks', blob);
+        } catch (_) { /* ignore */ }
+      });
+      
+      // Initialize when DOM is loaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApplication);
+      } else {
+        initApplication();
+      }
       // Highlight colors for players and squadrons
       let highlights = { players: {}, squadrons: {} };
       
@@ -1126,281 +1271,429 @@
         }
       }
 
-      // Interaction: drag to pan
-      canvas.addEventListener('mousedown', (e) => {
-        dragging = true;
-        const rect = canvas.getBoundingClientRect();
-        dragStart.x = e.clientX - rect.left;
-        dragStart.y = e.clientY - rect.top;
-        startOffset.x = view.offsetX; startOffset.y = view.offsetY;
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        const rect = canvas.getBoundingClientRect();
-        const cx = e.clientX - rect.left;
-        const cy = e.clientY - rect.top;
-        view.offsetX = startOffset.x + (cx - dragStart.x);
-        view.offsetY = startOffset.y + (cy - dragStart.y);
-        render();
-      });
-      window.addEventListener('mouseup', () => { dragging = false; });
+      // Touch state
+      let touchStartDistance = 0;
+      let initialScale = 1;
+      let lastTouchTime = 0;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartOffsetX = 0;
+      let touchStartOffsetY = 0;
 
-      // Wheel to zoom (zoom to cursor)
-      canvas.addEventListener('wheel', (e) => {
+      // Touch start handler
+      function handleTouchStart(e) {
+        if (e.touches.length === 1) {
+          const touch = e.touches[0];
+          const rect = canvas.getBoundingClientRect();
+          touchStartX = touch.clientX - rect.left;
+          touchStartY = touch.clientY - rect.top;
+          touchStartOffsetX = view.offsetX;
+          touchStartOffsetY = view.offsetY;
+          
+          // Handle double tap
+          const currentTime = new Date().getTime();
+          if (currentTime - lastTouchTime < 300) { // 300ms threshold for double tap
+            // Reset view on double tap
+            view.scale = 1;
+            view.offsetX = 0;
+            view.offsetY = 0;
+            render();
+          }
+          lastTouchTime = currentTime;
+        } else if (e.touches.length === 2) {
+          // Store initial distance for pinch zoom
+          const touch1 = e.touches[0];
+          const touch2 = e.touches[1];
+          touchStartDistance = Math.hypot(
+            touch2.clientX - touch1.clientX,
+            touch2.clientY - touch1.clientY
+          );
+          initialScale = view.scale;
+        }
+      }
+
+      // Touch move handler
+      function handleTouchMove(e) {
         e.preventDefault();
-        const delta = -Math.sign(e.deltaY) * 0.2;
-        const oldScale = view.scale;
-        let newScale = Math.min(limits.maxScale, Math.max(limits.minScale, oldScale * (1 + delta)));
-        const rect = canvas.getBoundingClientRect();
-        const cx = e.clientX - rect.left;
-        const cy = e.clientY - rect.top;
-        // Compute world point under cursor before zoom
-        const wx = (cx - view.offsetX) / oldScale;
-        const wy = (cy - view.offsetY) / oldScale;
-        view.scale = newScale;
-        // Keep point under cursor stationary
-        view.offsetX = cx - wx * newScale;
-        view.offsetY = cy - wy * newScale;
-        render();
-      }, { passive: false });
-
-      // Controls
-      document.getElementById('btnZoomIn').addEventListener('click', () => {
-        const evt = new WheelEvent('wheel', { deltaY: -100, bubbles: true });
-        canvas.dispatchEvent(evt);
-      });
-      document.getElementById('btnZoomOut').addEventListener('click', () => {
-        const evt = new WheelEvent('wheel', { deltaY: 100, bubbles: true });
-        canvas.dispatchEvent(evt);
-      });
-      document.getElementById('btnReset').addEventListener('click', () => {
-        view.scale = 1; view.offsetX = 0; view.offsetY = 0; render();
-      });
-
-      function startAuto() {
-        if (timer) return;
-        timer = setInterval(() => { loadMapImageOnce(); refreshInfo(); }, 1000);
-        if (!objTimer) objTimer = setInterval(refreshObjects, 1000);
-      }
-      function stopAuto() {
-        if (timer) { clearInterval(timer); timer = null; }
-        if (objTimer) { clearInterval(objTimer); objTimer = null; }
-      }
-
-      // Periodically persist tracks (every 15s)
-      let persistTimer = null;
-      function startPersist() {
-        if (persistTimer) return;
-        persistTimer = setInterval(postTracks, 15000);
-      }
-      function stopPersist() {
-        if (persistTimer) { clearInterval(persistTimer); persistTimer = null; }
-      }
-
-      // --- Right column: minimal data fetch/render ---
-      // Adopt filtering controls like index.html but scoped to right column
-      let rowsR = [];
-      let statusFilterR = 'all';
-      function normalizeTypeR(cls){
-        if (!cls) return 'other';
-        const c = String(cls).toLowerCase();
-        if (c === 'light tank') return 'light tank';
-        if (c === 'medium tank') return 'medium tank';
-        if (c === 'heavy tank') return 'heavy tank';
-        if (c === 'tank destroyer') return 'spg';
-        if (c === 'spaa') return 'spaa';
-        if (c === 'fighter') return 'fighter';
-        if (c === 'attacker') return 'attacker';
-        if (c === 'bomber') return 'bomber';
-        if (c === 'helicopter') return 'helicopter';
-        return 'other';
-      }
-      async function fetchGamesR(){
-        const [gamesResp, currentResp] = await Promise.all([
-          fetch('/api/games-list'), fetch('/api/current-game')
-        ]);
-        const games = await gamesResp.json();
-        const current = (await currentResp.json()).currentGame;
-        return { games, current };
-      }
-      async function fetchRowsForGameR(game){
-        if (game === 'all') {
-          const gl = await (await fetch('/api/games-list')).json();
-          const results = await Promise.all(gl.map(g => fetch('/api/active-vehicles?game=' + encodeURIComponent(g)).then(r=>r.json()).then(list => list.map(it => { if (it && (it.game==null)) it.game = g; return it; }))));
-          rowsR = [].concat.apply([], results);
-        } else {
-          if (game === 'current') {
-            try { const j = await (await fetch('/api/current-game')).json(); game = String(j.currentGame); } catch (_) {}
-          }
-          const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
-          rowsR = await resp.json();
-          rowsR = rowsR.map(it => { if (it && (it.game==null)) it.game = game; return it; });
-        }
-      }
-      function populateFilterR(selectId, values, placeholder){
-        const sel = document.getElementById(selectId);
-        const prev = sel.value;
-        sel.innerHTML = '';
-        const allOpt = document.createElement('option');
-        allOpt.value = 'all'; allOpt.textContent = placeholder; sel.appendChild(allOpt);
-        values.forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.appendChild(opt); });
-        if (values.includes(prev)) sel.value = prev; else sel.value = 'all';
-      }
-      function renderCurrentGameTableR(list){
-        const tbody = document.getElementById('curGameTableBody');
-        if (!tbody) return;
-        if (!Array.isArray(list) || list.length === 0) { 
-          tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">No data</td></tr>'; 
-          return; 
-        }
         
-        tbody.innerHTML = list.map(r => {
-          const statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
-          const statusText = (r.status === 'destroyed') ? 'dead' : 'alive';
+        if (e.touches.length === 1) {
+          // Pan with one finger
+          const touch = e.touches[0];
+          const rect = canvas.getBoundingClientRect();
+          const touchX = touch.clientX - rect.left;
+          const touchY = touch.clientY - rect.top;
           
-          // Get highlight colors - player highlight overrides squadron highlight
-          let hl = getColorPair(highlights.players[r.player]);
-          if (!hl.bg && !hl.fg) {
-            hl = getColorPair(highlights.squadrons[r.squadron]);
+          view.offsetX = touchStartOffsetX + (touchX - touchStartX);
+          view.offsetY = touchStartOffsetY + (touchY - touchStartY);
+          render();
+        } else if (e.touches.length === 2) {
+          // Pinch zoom with two fingers
+          const touch1 = e.touches[0];
+          const touch2 = e.touches[1];
+          const currentDistance = Math.hypot(
+            touch2.clientX - touch1.clientX,
+            touch2.clientY - touch1.clientY
+          );
+          
+          if (touchStartDistance > 0) {
+            const scale = initialScale * (currentDistance / touchStartDistance);
+            view.scale = Math.max(0.1, Math.min(scale, 10)); // Limit zoom range
+            render();
           }
-          
-          // Build style string
-          const styles = [];
-          if (hl.bg) styles.push(`background-color: ${hl.bg}`);
-          if (hl.fg) styles.push(`color: ${hl.fg}`);
-          const styleAttr = styles.length ? ` style="${styles.join('; ')};"` : '';
-          
-          return '<tr' + styleAttr + '>' +
-            '<td>' + (r.squadron ?? '') + '</td>' +
-            '<td>' + (r.player ?? '') + '</td>' +
-            '<td>' + (r.vehicle ?? '') + '</td>' +
-            '<td class="' + statusClass + '">' + statusText + '</td>' +
-            '<td>' + (r.kills ?? 0) + '</td>' +
-          '</tr>';
-        }).join('');
-      }
-      function applyFiltersAndRenderR(){
-        const squadron = document.getElementById('filterSquadronR').value;
-        const player = document.getElementById('filterPlayerR').value;
-        const vehicle = document.getElementById('filterVehicleR').value;
-        const type = document.getElementById('filterTypeR').value;
-        const filtered = rowsR.filter(r => (
-          (squadron === 'all' || r.squadron === squadron) &&
-          (player === 'all' || r.player === player) &&
-          (vehicle === 'all' || r.vehicle === vehicle) &&
-          (statusFilterR === 'all' || r.status === statusFilterR) &&
-          (type === 'all' || normalizeTypeR(r.classification) === type)
-        ));
-        // update dependent filters from rowsR
-        populateFilterR('filterSquadronR', Array.from(new Set(rowsR.map(r=>r.squadron))).sort(), 'All Squadrons');
-        populateFilterR('filterPlayerR', Array.from(new Set(rowsR.map(r=>r.player))).sort(), 'All Players');
-        populateFilterR('filterVehicleR', Array.from(new Set(rowsR.map(r=>r.vehicle))).sort(), 'All Vehicles');
-        renderCurrentGameTableR(filtered);
-      }
-      async function initRightControls(){
-        const { games, current } = await fetchGamesR();
-        await fetchHighlights(); // Load highlight colors
-        const sel = document.getElementById('filterGameR');
-        const saved = localStorage.getItem('selectedGameR');
-        const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved,10)) ? saved : 'current');
-        sel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(g => '<option value="'+g+'">Game '+g+'</option>').join('');
-        sel.value = initial;
-        localStorage.setItem('selectedGameR', sel.value);
-        await fetchRowsForGameR(sel.value);
-        document.getElementById('filterTypeR').value = 'all';
-        applyFiltersAndRenderR();
-        // wire events
-        ['filterGameR','filterSquadronR','filterPlayerR','filterVehicleR','filterTypeR'].forEach(id => {
-          document.getElementById(id).addEventListener('change', async (e) => {
-            if (id === 'filterGameR') {
-              localStorage.setItem('selectedGameR', e.target.value);
-              await fetchRowsForGameR(e.target.value);
-            }
-            applyFiltersAndRenderR();
-          });
-        });
-        // prev/next
-        const prevBtn = document.getElementById('btnPrevGameR');
-        const nextBtn = document.getElementById('btnNextGameR');
-        prevBtn.addEventListener('click', async () => {
-          const sorted = games.slice().sort((a,b)=>a-b);
-          let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
-          let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.max(0, idx - 1);
-          sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
-          await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
-        });
-        nextBtn.addEventListener('click', async () => {
-          const sorted = games.slice().sort((a,b)=>a-b);
-          let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
-          let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.min(sorted.length - 1, idx + 1);
-          sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
-          await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
-        });
-        // status buttons
-        const bAlive = document.getElementById('btnStatusAliveR');
-        const bDestroyed = document.getElementById('btnStatusDestroyedR');
-        const bReset = document.getElementById('btnStatusResetR');
-        function reflect(){
-          bAlive.classList.toggle('selected', statusFilterR==='active');
-          bDestroyed.classList.toggle('selected', statusFilterR==='destroyed');
-          bReset.classList.toggle('selected', statusFilterR==='all');
-        }
-        window.setStatusFilterR = function(v){ statusFilterR = v; localStorage.setItem('statusFilterR', v); reflect(); applyFiltersAndRenderR(); };
-        bAlive.addEventListener('click', ()=> setStatusFilterR('active'));
-        bDestroyed.addEventListener('click', ()=> setStatusFilterR('destroyed'));
-        bReset.addEventListener('click', ()=> setStatusFilterR('all'));
-        try { const savedS = localStorage.getItem('statusFilterR'); statusFilterR = (savedS==='active'||savedS==='destroyed'||savedS==='all')?savedS:'all'; } catch (_) { statusFilterR='all'; }
-        reflect();
-      }
-
-      async function refreshRightAllGamesSummary(){
-        const tgt = document.getElementById('rightAllGamesSummaryBody');
-        if (!tgt) return;
-        try {
-          const resp = await fetch('/api/merged-summary');
-          const j = await resp.json();
-          const lines = (j && Array.isArray(j.lines)) ? j.lines : [];
-          tgt.innerHTML = (lines && lines.length) ? lines.map(l => '<tr><td>' + l + '</td></tr>').join('') : '<tr><td>No data</td></tr>';
-        } catch (_) {
-          tgt.innerHTML = '<tr><td>No data</td></tr>';
         }
       }
 
-      document.getElementById('btnRefresh').addEventListener('click', () => { loadMapImageOnce(); refreshObjects(); });
-      const chk = document.getElementById('chkAuto');
-      chk.addEventListener('change', () => {
-        if (chk.checked) startAuto(); else stopAuto();
-      });
+      // Touch end handler
+      function handleTouchEnd() {
+        touchStartDistance = 0;
+      }
 
-      // Initial
-      window.addEventListener('resize', resizeCanvas);
-      resizeCanvas();
+      // Add touch event listeners
+      canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+      canvas.addEventListener('touchend', handleTouchEnd);
+
+      // Button event handlers
+      document.getElementById('btnWin').addEventListener('click', () => recordResult('win'));
+      document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
+      
+      const postBtn = document.getElementById('btnPostLogs');
+      if (postBtn) postBtn.addEventListener('click', postLogs);
+      
+      const submitBtn = document.getElementById('btnSubmitJson');
+      if (submitBtn) submitBtn.addEventListener('click', submitJson);
+      
+      const resetBtn = document.getElementById('btnReset');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+          const ok = window.confirm('Are you sure you want to reset? This will clear entries and reset the game counter.');
+          if (ok) resetState();
+        });
+      }
+
+      // Interaction: drag to pan (mouse)
+canvas.addEventListener('mousedown', (e) => {
+  dragging = true;
+  const rect = canvas.getBoundingClientRect();
+  dragStart.x = e.clientX - rect.left;
+  dragStart.y = e.clientY - rect.top;
+  startOffset.x = view.offsetX; startOffset.y = view.offsetY;
+});
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  view.offsetX = startOffset.x + (cx - dragStart.x);
+  view.offsetY = startOffset.y + (cy - dragStart.y);
+  render();
+});
+window.addEventListener('mouseup', () => { dragging = false; });
+
+// Wheel to zoom (zoom to cursor)
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = -Math.sign(e.deltaY) * 0.2;
+  const oldScale = view.scale;
+  let newScale = Math.min(limits.maxScale, Math.max(limits.minScale, oldScale * (1 + delta)));
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  // Compute world point under cursor before zoom
+  const wx = (cx - view.offsetX) / oldScale;
+  const wy = (cy - view.offsetY) / oldScale;
+  view.scale = newScale;
+  // Keep point under cursor stationary
+  view.offsetX = cx - wx * newScale;
+  view.offsetY = cy - wy * newScale;
+  render();
+}, { passive: false });
+
+// Controls
+document.getElementById('btnZoomIn').addEventListener('click', () => {
+  const evt = new WheelEvent('wheel', { deltaY: -100, bubbles: true });
+  canvas.dispatchEvent(evt);
+});
+document.getElementById('btnZoomOut').addEventListener('click', () => {
+  const evt = new WheelEvent('wheel', { deltaY: 100, bubbles: true });
+  canvas.dispatchEvent(evt);
+});
+document.getElementById('btnReset').addEventListener('click', () => {
+  view.scale = 1; view.offsetX = 0; view.offsetY = 0; render();
+});
+
+function startAuto() {
+  if (timer) return;
+  timer = setInterval(() => { loadMapImageOnce(); refreshInfo(); }, 1000);
+  if (!objTimer) objTimer = setInterval(refreshObjects, 1000);
+}
+function stopAuto() {
+  if (timer) { clearInterval(timer); timer = null; }
+  if (objTimer) { clearInterval(objTimer); objTimer = null; }
+}
+
+// Periodically persist tracks (every 15s)
+let persistTimer = null;
+function startPersist() {
+  if (persistTimer) return;
+  persistTimer = setInterval(postTracks, 15000);
+}
+function stopPersist() {
+  if (persistTimer) { clearInterval(persistTimer); persistTimer = null; }
+}
+
+// --- Right column: minimal data fetch/render ---
+// Adopt filtering controls like index.html but scoped to right column
+let rowsR = [];
+let statusFilterR = 'all';
+function normalizeTypeR(cls){
+  if (!cls) return 'other';
+  const c = String(cls).toLowerCase();
+  if (c === 'light tank') return 'light tank';
+  if (c === 'medium tank') return 'medium tank';
+  if (c === 'heavy tank') return 'heavy tank';
+  if (c === 'tank destroyer') return 'spg';
+  if (c === 'spaa') return 'spaa';
+  if (c === 'fighter') return 'fighter';
+  if (c === 'attacker') return 'attacker';
+  if (c === 'bomber') return 'bomber';
+  if (c === 'helicopter') return 'helicopter';
+  return 'other';
+}
+async function fetchGamesR(){
+  const [gamesResp, currentResp] = await Promise.all([
+    fetch('/api/games-list'), fetch('/api/current-game')
+  ]);
+  const games = await gamesResp.json();
+  const current = (await currentResp.json()).currentGame;
+  return { games, current };
+}
+async function fetchRowsForGameR(game){
+  if (game === 'all') {
+    const gl = await (await fetch('/api/games-list')).json();
+    const results = await Promise.all(gl.map(g => fetch('/api/active-vehicles?game=' + encodeURIComponent(g)).then(r=>r.json()).then(list => list.map(it => { if (it && (it.game==null)) it.game = g; return it; }))));
+    rowsR = [].concat.apply([], results);
+  } else {
+    if (game === 'current') {
+      try { const j = await (await fetch('/api/current-game')).json(); game = String(j.currentGame); } catch (_) {}
+    }
+    const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
+    rowsR = await resp.json();
+    rowsR = rowsR.map(it => { if (it && (it.game==null)) it.game = game; return it; });
+  }
+}
+function populateFilterR(selectId, values, placeholder){
+  const sel = document.getElementById(selectId);
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const allOpt = document.createElement('option');
+  allOpt.value = 'all'; allOpt.textContent = placeholder; sel.appendChild(allOpt);
+  values.forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.appendChild(opt); });
+  if (values.includes(prev)) sel.value = prev; else sel.value = 'all';
+}
+function renderCurrentGameTableR(list){
+  const tbody = document.getElementById('curGameTableBody');
+  if (!tbody) return;
+  if (!Array.isArray(list) || list.length === 0) { 
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">No data</td></tr>'; 
+    return; 
+  }
+  
+  tbody.innerHTML = list.map(r => {
+    const statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
+    const statusText = (r.status === 'destroyed') ? 'dead' : 'alive';
+    
+    // Get highlight colors - player highlight overrides squadron highlight
+    let hl = getColorPair(highlights.players[r.player]);
+    if (!hl.bg && !hl.fg) {
+      hl = getColorPair(highlights.squadrons[r.squadron]);
+    }
+    
+    // Build style string
+    const styles = [];
+    if (hl.bg) styles.push(`background-color: ${hl.bg}`);
+    if (hl.fg) styles.push(`color: ${hl.fg}`);
+    const styleAttr = styles.length ? ` style="${styles.join('; ')};"` : '';
+    
+    return '<tr' + styleAttr + '>' +
+      '<td>' + (r.squadron ?? '') + '</td>' +
+      '<td>' + (r.player ?? '') + '</td>' +
+      '<td>' + (r.vehicle ?? '') + '</td>' +
+      '<td class="' + statusClass + '">' + statusText + '</td>' +
+      '<td>' + (r.kills ?? 0) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+function applyFiltersAndRenderR(){
+  const squadron = document.getElementById('filterSquadronR').value;
+  const player = document.getElementById('filterPlayerR').value;
+  const vehicle = document.getElementById('filterVehicleR').value;
+  const filtered = rowsR.filter(r => (
+    (squadron === 'all' || r.squadron === squadron) &&
+    (player === 'all' || r.player === player) &&
+    (vehicle === 'all' || r.vehicle === vehicle) &&
+    (statusFilterR === 'all' || r.status === statusFilterR)
+  ));
+  // update dependent filters from rowsR
+  populateFilterR('filterSquadronR', Array.from(new Set(rowsR.map(r=>r.squadron))).sort(), 'All Squadrons');
+  populateFilterR('filterPlayerR', Array.from(new Set(rowsR.map(r=>r.player))).sort(), 'All Players');
+  populateFilterR('filterVehicleR', Array.from(new Set(rowsR.map(r=>r.vehicle))).sort(), 'All Vehicles');
+  renderCurrentGameTableR(filtered);
+}
+async function initRightControls(){
+  const { games, current } = await fetchGamesR();
+  await fetchHighlights(); // Load highlight colors
+  const sel = document.getElementById('filterGameR');
+  const saved = localStorage.getItem('selectedGameR');
+  const initial = (saved === 'all' || saved === 'current') ? saved : (saved && games.includes(parseInt(saved,10)) ? saved : 'current');
+  sel.innerHTML = '<option value="current">Current Game</option><option value="all">All Games</option>' + games.map(g => '<option value="'+g+'">Game '+g+'</option>').join('');
+  sel.value = initial;
+  localStorage.setItem('selectedGameR', sel.value);
+  await fetchRowsForGameR(sel.value);
+  applyFiltersAndRenderR();
+  // wire events
+  ['filterGameR','filterSquadronR','filterPlayerR','filterVehicleR'].forEach(id => {
+    document.getElementById(id).addEventListener('change', async (e) => {
+      if (id === 'filterGameR') {
+        localStorage.setItem('selectedGameR', e.target.value);
+        await fetchRowsForGameR(e.target.value);
+      }
+      applyFiltersAndRenderR();
+    });
+  });
+  // prev/next
+  const prevBtn = document.getElementById('btnPrevGameR');
+  const nextBtn = document.getElementById('btnNextGameR');
+  prevBtn.addEventListener('click', async () => {
+    const sorted = games.slice().sort((a,b)=>a-b);
+    let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
+    let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.max(0, idx - 1);
+    sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
+    await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
+  });
+  nextBtn.addEventListener('click', async () => {
+    const sorted = games.slice().sort((a,b)=>a-b);
+    let curVal = sel.value === 'current' ? String(current) : (sel.value === 'all' ? String(current) : sel.value);
+    let idx = sorted.findIndex(g => String(g) === String(curVal)); if (idx < 0) idx = 0; const nextIdx = Math.min(sorted.length - 1, idx + 1);
+    sel.value = String(sorted[nextIdx]); localStorage.setItem('selectedGameR', sel.value);
+    await fetchRowsForGameR(sel.value); applyFiltersAndRenderR();
+  });
+  // status buttons
+  const bAlive = document.getElementById('btnStatusAliveR');
+  const bDestroyed = document.getElementById('btnStatusDestroyedR');
+  
+  function toggleStatusFilter(clickedStatus) {
+    // If clicking the same status that's already active, reset to 'all'
+    statusFilterR = statusFilterR === clickedStatus ? 'all' : clickedStatus;
+    localStorage.setItem('statusFilterR', statusFilterR);
+    updateStatusButtons();
+    applyFiltersAndRenderR();
+  }
+  
+  function updateStatusButtons() {
+    bAlive.classList.toggle('selected', statusFilterR === 'active');
+    bDestroyed.classList.toggle('selected', statusFilterR === 'destroyed');
+  }
+  
+  // Set up event listeners
+  bAlive.addEventListener('click', () => toggleStatusFilter('active'));
+  bDestroyed.addEventListener('click', () => toggleStatusFilter('destroyed'));
+  
+  // Initialize status filter
+  try { 
+    const savedS = localStorage.getItem('statusFilterR'); 
+    statusFilterR = (savedS === 'active' || savedS === 'destroyed' || savedS === 'all') ? savedS : 'all'; 
+  } catch (_) { 
+    statusFilterR = 'all'; 
+  }
+  updateStatusButtons();
+}
+
+async function refreshRightAllGamesSummary(){
+  const tgt = document.getElementById('rightAllGamesSummaryBody');
+  if (!tgt) return;
+  try {
+    const resp = await fetch('/api/merged-summary');
+    const j = await resp.json();
+    const lines = (j && Array.isArray(j.lines)) ? j.lines : [];
+    tgt.innerHTML = (lines && lines.length) ? lines.map(l => '<tr><td>' + l + '</td></tr>').join('') : '<tr><td>No data</td></tr>';
+  } catch (_) {
+    tgt.innerHTML = '<tr><td>No data</td></tr>';
+  }
+}
+
+
+    // Helper functions for button actions
+async function recordResult(kind) {
+  try {
+    const response = await fetch(`/api/record-${kind}`, { method: 'POST' });
+    const result = await response.json();
+    if (!result.success) {
+      console.error(`Failed to record ${kind}:`, result.message || 'Unknown error');
+    }
+    // Refresh both the main info and the summary table
+    await Promise.all([
+      refreshInfo(),
+      refreshRightAllGamesSummary()
+    ]);
+  } catch (e) {
+    console.error(`Error recording ${kind}:`, e);
+  }
+}
+
+async function postLogs() {
+  try {
+    const response = await fetch('/api/post-logs', { method: 'POST' });
+    const result = await response.json();
+    if (result.success) {
+      alert('Logs posted successfully!');
+    } else {
+      alert(`Failed to post logs: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error posting logs:', e);
+    alert(`Error posting logs: ${e.message}`);
+  }
+}
+
+async function submitJson() {
+  try {
+    const ok = window.confirm('Submit current parsed JSON to backend?');
+    if (!ok) return;
+    
+    const response = await fetch('/api/submit-json', { method: 'POST' });
+    const result = await response.json();
+    
+    if (result.success) {
+      alert('JSON submitted successfully!');
+    } else {
+      alert(`Failed to submit JSON: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error submitting JSON:', e);
+    alert(`Error submitting JSON: ${e.message}`);
+  }
+}
+
+async function resetState() {
+  try {
+    const response = await fetch('/api/reset', { method: 'POST' });
+    const result = await response.json();
+    
+    if (result.success) {
+      alert('State reset successfully!');
       refreshInfo();
-      loadMapImageOnce();
-      refreshObjects();
-      // Merge any previously saved tracks so trails appear immediately
-      loadExistingTracks();
-      startAuto();
-      startPersist();
+    } else {
+      alert(`Failed to reset state: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error resetting state:', e);
+    alert(`Error resetting state: ${e.message}`);
+  }
+}
 
-      // Initial render on right column
-      initRightControls();
-      refreshRightAllGamesSummary();
-      // Periodic refresh every 5s
-      setInterval(async () => { const sel = document.getElementById('filterGameR'); if (sel) { await fetchRowsForGameR(sel.value); applyFiltersAndRenderR(); } }, 5000);
-      setInterval(refreshRightAllGamesSummary, 7000);
-
-      // Save on unload using sendBeacon
-      window.addEventListener('beforeunload', () => {
-        try {
-          const arr = serializeTracks();
-          if (!arr.length) return;
-          const blob = new Blob([JSON.stringify({ tracks: arr })], { type: 'application/json' });
-          // sendBeacon ignores response; best-effort
-          navigator.sendBeacon('/api/map-tracks', blob);
-        } catch (_) { /* ignore */ }
-      });
     })();
-  </script>
+
+      </script>
 </body>
 </html>

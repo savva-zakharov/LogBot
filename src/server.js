@@ -87,6 +87,26 @@ function startServer() {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Failed to read map tracks' }));
             }
+        } else if (pathname === '/api/record-win' && req.method === 'POST') {
+            try {
+                const gameParam = String(state.getCurrentGame());
+                state.recordResult(gameParam, 'win');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, game: gameParam, result: 'win' }));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Failed to record win' }));
+            }
+        } else if (pathname === '/api/record-loss' && req.method === 'POST') {
+            try {
+                const gameParam = String(state.getCurrentGame());
+                state.recordResult(gameParam, 'loss');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, game: gameParam, result: 'loss' }));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Failed to record loss' }));
+            }
         } else if (pathname === '/api/map-tracks' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => { body += chunk; if (body.length > 2e7) req.destroy(); });

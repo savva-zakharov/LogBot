@@ -2,11 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Summary output columns order
-const OUTPUT_ORDER = [
+// Default configuration for output order and category mapping
+const DEFAULT_OUTPUT_ORDER = [
+  'Light',
   'Medium',
   'Heavy',
-  'Light',
   'SPG',
   'Fighter',
   'Attacker',
@@ -15,8 +15,7 @@ const OUTPUT_ORDER = [
   'SPAA'
 ];
 
-// Map Title Case categories from classifier to summary labels
-const CATEGORY_TO_OUTPUT = {
+const DEFAULT_CATEGORY_TO_OUTPUT = {
   'Medium Tank': 'Medium',
   'Heavy Tank': 'Heavy',
   'Light Tank': 'Light',
@@ -28,82 +27,9 @@ const CATEGORY_TO_OUTPUT = {
   'SPAA': 'SPAA',
 };
 
-// Settings loader: reads settings.json and settings.env, with env taking precedence
-function loadSettings() {
-  const defaults = { players: {}, squadrons: {}, telemetryUrl: 'http://localhost:8111', discordBotToken: '', discordChannel: '#general', clientId: '', guildId: '', port: 3000, wsPort: 3001, squadronPageUrl: '', waitingVoiceChannel: '', discordLogsChannel: '', discordDataChannel: '', discordWinLossChannell: '', disablePerGameSummaries: false, summaryWebhookUrl: '', dataWebhookUrl: '' };
-  try {
-    const cwd = process.cwd();
-    const envPath = path.join(cwd, 'settings.env');
-    const envMap = loadEnvFile(envPath);
-    const candidates = [
-      path.join(cwd, 'settings.json'),
-      path.join(cwd, 'highlights.json'), // fallback for legacy name
-      path.join(__dirname, '../', 'settings.json'), // Adjusted path for src directory
-      path.join(__dirname, '../', 'highlights.json'),
-    ];
-    const fileToRead = candidates.find(p => { try { return fs.existsSync(p); } catch (_) { return false; } }) || null;
-    if (!fileToRead) return defaults;
-    const raw = fs.readFileSync(fileToRead, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      const base = {
-        players: parsed.players || {},
-        squadrons: parsed.squadrons || {},
-        telemetryUrl: parsed.telemetryUrl || defaults.telemetryUrl,
-        discordBotToken: typeof parsed.discordBotToken === 'string' ? parsed.discordBotToken : defaults.discordBotToken,
-        // Always from settings.json for these three
-        discordChannel: typeof parsed.discordChannel === 'string' ? parsed.discordChannel : defaults.discordChannel,
-        // New JSON-only channels
-        discordLogsChannel: typeof parsed.discordLogsChannel === 'string' ? parsed.discordLogsChannel : defaults.discordLogsChannel,
-        discordDataChannel: typeof parsed.discordDataChannel === 'string' ? parsed.discordDataChannel : defaults.discordDataChannel,
-        discordWinLossChannell: typeof parsed.discordWinLossChannell === 'string' ? parsed.discordWinLossChannell : defaults.discordWinLossChannell,
-        disablePerGameSummaries: typeof parsed.disablePerGameSummaries === 'boolean' ? parsed.disablePerGameSummaries : defaults.disablePerGameSummaries,
-        summaryWebhookUrl: typeof parsed.summaryWebhookUrl === 'string' ? parsed.summaryWebhookUrl : defaults.summaryWebhookUrl,
-        dataWebhookUrl: typeof parsed.dataWebhookUrl === 'string' ? parsed.dataWebhookUrl : defaults.dataWebhookUrl,
-        clientId: typeof parsed.clientId === 'string' ? parsed.clientId : defaults.clientId,
-        guildId: typeof parsed.guildId === 'string' ? parsed.guildId : defaults.guildId,
-        port: (typeof parsed.port === 'number' && Number.isFinite(parsed.port)) ? parsed.port : defaults.port,
-        wsPort: (typeof parsed.wsPort === 'number' && Number.isFinite(parsed.wsPort)) ? parsed.wsPort : defaults.wsPort,
-        // Always from settings.json for these three
-        squadronPageUrl: typeof parsed.squadronPageUrl === 'string' ? parsed.squadronPageUrl : defaults.squadronPageUrl,
-        waitingVoiceChannel: typeof parsed.waitingVoiceChannel === 'string' ? parsed.waitingVoiceChannel
-          : (typeof parsed.waitingVoiceChannelId === 'string' ? parsed.waitingVoiceChannelId : defaults.waitingVoiceChannel),
-      };
-      // Override with settings.env values if present, then process.env
-      const envOverrides = {
-        telemetryUrl: envMap.TELEMETRY_URL || process.env.TELEMETRY_URL,
-        discordBotToken: envMap.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN,
-        clientId: envMap.CLIENT_ID || process.env.CLIENT_ID,
-        guildId: envMap.GUILD_ID || process.env.GUILD_ID,
-        port: parsePort(envMap.PORT || process.env.PORT),
-        wsPort: parsePort(envMap.WS_PORT || process.env.WS_PORT),
-        // Do not allow env to override these three anymore
-      };
-      return {
-        players: base.players,
-        squadrons: base.squadrons,
-        telemetryUrl: envOverrides.telemetryUrl || base.telemetryUrl || defaults.telemetryUrl,
-        discordBotToken: (envOverrides.discordBotToken !== undefined ? envOverrides.discordBotToken : base.discordBotToken) || defaults.discordBotToken,
-        // Always from JSON
-        discordChannel: base.discordChannel || defaults.discordChannel,
-        discordLogsChannel: base.discordLogsChannel || defaults.discordLogsChannel,
-        discordDataChannel: base.discordDataChannel || defaults.discordDataChannel,
-        discordWinLossChannell: base.discordWinLossChannell || defaults.discordWinLossChannell,
-        disablePerGameSummaries: typeof base.disablePerGameSummaries === 'boolean' ? base.disablePerGameSummaries : defaults.disablePerGameSummaries,
-        summaryWebhookUrl: base.summaryWebhookUrl || defaults.summaryWebhookUrl,
-        dataWebhookUrl: base.dataWebhookUrl || defaults.dataWebhookUrl,
-        clientId: (envOverrides.clientId !== undefined ? envOverrides.clientId : base.clientId) || defaults.clientId,
-        guildId: (envOverrides.guildId !== undefined ? envOverrides.guildId : base.guildId) || defaults.guildId,
-        port: Number.isFinite(envOverrides.port) ? envOverrides.port : base.port,
-        wsPort: Number.isFinite(envOverrides.wsPort) ? envOverrides.wsPort : base.wsPort,
-        // Always from JSON
-        squadronPageUrl: base.squadronPageUrl || defaults.squadronPageUrl,
-        waitingVoiceChannel: base.waitingVoiceChannel || defaults.waitingVoiceChannel,
-      };
-    }
-  } catch (_) {}
-  return defaults;
-}
+// Will be populated by loadSettings(); keep references stable
+let OUTPUT_ORDER = [...DEFAULT_OUTPUT_ORDER];
+let CATEGORY_TO_OUTPUT = { ...DEFAULT_CATEGORY_TO_OUTPUT };
 
 function parsePort(v) {
   const n = Number(v);
@@ -128,6 +54,117 @@ function loadEnvFile(filePath) {
   } catch (_) {}
   return map;
 }
+
+// Settings loader: reads settings.json and settings.env, with env taking precedence
+function loadSettings() {
+  const defaults = { 
+    players: {}, 
+    squadrons: {}, 
+    telemetryUrl: 'http://localhost:8111', 
+    discordBotToken: '', 
+    discordChannel: '#general', 
+    clientId: '', 
+    guildId: '', 
+    port: 3000, 
+    wsPort: 3001, 
+    squadronPageUrl: '', 
+    waitingVoiceChannel: '', 
+    discordLogsChannel: '', 
+    discordDataChannel: '', 
+    discordWinLossChannell: '', 
+    disablePerGameSummaries: false, 
+    summaryWebhookUrl: '', 
+    dataWebhookUrl: '',
+    outputOrder: [...DEFAULT_OUTPUT_ORDER],
+    categoryToOutput: {...DEFAULT_CATEGORY_TO_OUTPUT}
+  };
+
+  try {
+    const cwd = process.cwd();
+    const settingsPath = path.join(cwd, 'settings.json');
+    const envPath = path.join(cwd, 'settings.env');
+    const envMap = loadEnvFile(envPath);
+
+    // Determine which file to read (settings.json preferred)
+    const candidates = [
+      settingsPath,
+      path.join(cwd, 'highlights.json'),
+      path.join(__dirname, '..', 'settings.json'),
+      path.join(__dirname, '..', 'highlights.json'),
+    ];
+    const fileToRead = candidates.find(p => fs.existsSync(p));
+
+    // If no file exists at any of the candidate locations, create minimal settings.json
+    if (!fileToRead) {
+      try { fs.writeFileSync(settingsPath, JSON.stringify({ players: {}, squadrons: {} }, null, 2), 'utf8'); } catch (_) {}
+    }
+
+    let jsonSettings = {};
+    let rawForFile = '{}';
+    let loadedFromSettingsPath = false;
+    const readPath = fs.existsSync(settingsPath) ? settingsPath : fileToRead;
+    if (readPath && fs.existsSync(readPath)) {
+      try {
+        rawForFile = fs.readFileSync(readPath, 'utf8');
+        jsonSettings = JSON.parse(rawForFile || '{}');
+        loadedFromSettingsPath = (readPath === settingsPath);
+      } catch (e) {
+        console.error(`Error reading settings file ${readPath}:`, e && e.message ? e.message : e);
+        // Backup the bad file and replace with defaults to keep app running
+        try {
+          const backup = readPath.replace(/\.json$/i, `-bad-${Date.now()}.json`);
+          fs.writeFileSync(backup, rawForFile || '', 'utf8');
+          fs.writeFileSync(settingsPath, JSON.stringify(defaults, null, 2), 'utf8');
+          jsonSettings = { ...defaults };
+          loadedFromSettingsPath = true;
+        } catch (_) {}
+      }
+    }
+
+    // Merge defaults with file values (env overrides applied later, not persisted)
+    const settings = { ...defaults, ...jsonSettings };
+
+    // Normalize essential containers
+    if (!settings.players || typeof settings.players !== 'object') settings.players = {};
+    if (!settings.squadrons || typeof settings.squadrons !== 'object') settings.squadrons = {};
+
+    // Handle output configuration: mutate exported references in place
+    const desiredOrder = Array.isArray(jsonSettings.outputOrder) ? jsonSettings.outputOrder.slice() : DEFAULT_OUTPUT_ORDER.slice();
+    OUTPUT_ORDER.splice(0, OUTPUT_ORDER.length, ...desiredOrder);
+    settings.outputOrder = OUTPUT_ORDER.slice();
+
+    const desiredMap = (jsonSettings.categoryToOutput && typeof jsonSettings.categoryToOutput === 'object')
+      ? { ...DEFAULT_CATEGORY_TO_OUTPUT, ...jsonSettings.categoryToOutput }
+      : { ...DEFAULT_CATEGORY_TO_OUTPUT };
+    for (const k of Object.keys(CATEGORY_TO_OUTPUT)) delete CATEGORY_TO_OUTPUT[k];
+    Object.assign(CATEGORY_TO_OUTPUT, desiredMap);
+    settings.categoryToOutput = { ...CATEGORY_TO_OUTPUT };
+
+    // Apply env overrides (do not persist these to file here)
+    Object.assign(settings, envMap);
+
+    // Persist merged defaults back to settings.json if we read from it, or if it exists in cwd
+    try {
+      const currentOnDisk = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8') || '{}') : {};
+      const toPersist = { ...currentOnDisk, ...{ players: settings.players, squadrons: settings.squadrons, telemetryUrl: settings.telemetryUrl, discordBotToken: settings.discordBotToken, discordChannel: settings.discordChannel, clientId: settings.clientId, guildId: settings.guildId, port: settings.port, wsPort: settings.wsPort, squadronPageUrl: settings.squadronPageUrl, waitingVoiceChannel: settings.waitingVoiceChannel, discordLogsChannel: settings.discordLogsChannel, discordDataChannel: settings.discordDataChannel, discordWinLossChannell: settings.discordWinLossChannell, disablePerGameSummaries: settings.disablePerGameSummaries, summaryWebhookUrl: settings.summaryWebhookUrl, dataWebhookUrl: settings.dataWebhookUrl, outputOrder: settings.outputOrder, categoryToOutput: settings.categoryToOutput } };
+      // Only write if something changed compared to current file (ignoring env overrides)
+      const before = JSON.stringify(currentOnDisk);
+      const after = JSON.stringify(toPersist);
+      if (before !== after) {
+        fs.writeFileSync(settingsPath, JSON.stringify(toPersist, null, 2), 'utf8');
+      }
+    } catch (e) {
+      console.error('Error updating settings.json with defaults:', e && e.message ? e.message : e);
+    }
+
+    return settings;
+  } catch (error) {
+    console.error('Error loading settings:', error);
+    return defaults;
+  }
+}
+
+// (removed duplicate helper definitions)
 
 // Ensure an external settings.json exists in the writable working directory.
 function ensureExternalSettings() {
