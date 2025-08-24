@@ -257,6 +257,25 @@ function loadAndPrepareInitialState() {
     try { fs.unlinkSync(JSON_FILE_PATH); } catch (_) {}
   }
 
+  // Rotate map_data.json similar to parsed_data.json
+  try {
+    if (fs.existsSync(MAP_JSON_FILE_PATH)) {
+      const st = fs.statSync(MAP_JSON_FILE_PATH);
+      const age = Date.now() - st.mtimeMs;
+      if (age > ONE_HOUR_MS) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const archiveDir = path.join(WRITE_BASE_DIR, 'old_logs');
+        try { fs.mkdirSync(archiveDir, { recursive: true }); } catch (_) {}
+        const backupName = `map_data_${timestamp}.json`;
+        const backupPath = path.join(archiveDir, backupName);
+        try { fs.renameSync(MAP_JSON_FILE_PATH, backupPath); } catch (_) {}
+        console.log(`🗺️ Archived stale map_data.json to old_logs: ${path.basename(backupPath)}`);
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Could not rotate map_data.json:', e && e.message ? e.message : e);
+  }
+
   if (!loaded) {
     // Create a fresh file with a reset state
     const initialData = {
@@ -276,6 +295,14 @@ function loadAndPrepareInitialState() {
     state.lastGameIncrementTime = 0;
     state.telemetry = { lastEvtId: 0, lastDmgId: 0 };
     console.log('🔄 JSON file reset - starting fresh session');
+    // Ensure map_data.json exists with minimal structure
+    try {
+      if (!fs.existsSync(MAP_JSON_FILE_PATH)) {
+        const initMap = { _mapTracks: {}, _mapMeta: {} };
+        fs.writeFileSync(MAP_JSON_FILE_PATH, JSON.stringify(initMap, null, 2), 'utf8');
+        console.log('🗺️ Initialized new map_data.json');
+      }
+    } catch (_) { /* non-fatal */ }
   }
 }
 

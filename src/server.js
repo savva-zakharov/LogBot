@@ -315,17 +315,36 @@ function startServer() {
 
               fileStream.on('finish', () => {
                 try {
+                  // Determine size of the downloaded image
                   let size = null;
                   try { const st = fs.statSync(tmpPath); size = st.size; } catch (_) {}
-                  const prev = state.getMapImageInfo ? state.getMapImageInfo(gameId) : { size: null };
-                  if (prev && typeof prev.size === 'number' && size === prev.size) {
-                    // Same size as last saved; drop temp file
+
+                  // Look for an existing file in maps/ with the same size
+                  let reusedRel = null;
+                  if (size != null) {
+                    try {
+                      const files = fs.readdirSync(mapsDir);
+                      for (const f of files) {
+                        const p = path.join(mapsDir, f);
+                        try {
+                          const st = fs.statSync(p);
+                          if (st.isFile() && st.size === size) {
+                            reusedRel = path.join('maps', f).replace(/\\/g, '/');
+                            break;
+                          }
+                        } catch (_) { /* skip */ }
+                      }
+                    } catch (_) { /* ignore directory read issues */ }
+                  }
+
+                  if (reusedRel) {
+                    // A same-sized file already exists; discard temp and record existing path
                     try { fs.unlinkSync(tmpPath); } catch (_) {}
+                    state.setMapImageInfo(gameId, { path: reusedRel, gen, size });
                   } else {
-                    // Keep new file: rename temp -> final and update metadata
+                    // No existing match; keep new file: rename temp -> final and update metadata
                     try { fs.renameSync(tmpPath, absPath); } catch (_) { /* fallback: keep temp name if rename fails */ }
                     const finalExists = fs.existsSync(absPath);
-                    const savePath = finalExists ? absPath : tmpPath;
                     const rel = (finalExists ? relPath : path.join('maps', path.basename(tmpPath))).replace(/\\/g, '/');
                     state.setMapImageInfo(gameId, { path: rel, gen, size });
                   }
