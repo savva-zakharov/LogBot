@@ -40,27 +40,36 @@ module.exports = {
 
       // Create the embed
       const embed = new EmbedBuilder()
-        .setTitle(`📋 War Thunder Meta - ${br} BR`)
+        .setTitle(`War Thunder Meta - ${br} BR`)
         .setColor(0x00AE86)
         .setTimestamp()
-        .setFooter({ text: 'Data is community-sourced and may be subjective' });
 
       // Add fields for each category
+      const ratingColors = {
+        'Meta': '34', // Blue
+        'Good': '32', // Green
+        'Okay': '33', // Yellow
+        'Acceptable': '33', // Yellow
+        'Situational': '31', // Red (for Orange)
+        'Unrated': '37' // White
+      };
+
       for (const [category, ratings] of Object.entries(metaData)) {
         let fieldValue = '';
         
         // Add each rating (Meta, Good, etc.) and its vehicles
         for (const [rating, vehicles] of Object.entries(ratings)) {
           if (vehicles) {
-            fieldValue += `${rating}: ${vehicles}\n`;
+            const colorCode = ratingColors[rating] || '37';
+            fieldValue += `\u001b[0;${colorCode}m${rating}: ${vehicles}\u001b[0m\n`;
           }
         }
 
         if (fieldValue) {
           embed.addFields({
-            name: `\n${category}`,
-            value: '```\n' + fieldValue + '\n```',
-            inline: true,
+            name: `
+${category}`,
+            value: '```ansi\n' + fieldValue + '```',
           });
         }
       }
