@@ -25,6 +25,8 @@ if errorlevel 1 (
   goto :end
 )
 
+echo. > restart.flag
+
 :end
 echo [update-bot] Done.
 endlocal
