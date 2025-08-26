@@ -115,7 +115,7 @@ const webhookManager = require('./webhookManager');
 const { postToWebhook } = require('./postWebhook');
 const state = require('./state');
 const { loadSettings, OUTPUT_ORDER } = require('./config');
-const { buildMergedSummary } = require('./summaryFormatter');
+const { buildMergedSummary } = require('./utils/summaryFormatter');
 const waitingTracker = require('./waitingTracker');
 const collectWatcher = require('./collectWatcher');
 

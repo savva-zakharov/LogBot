@@ -466,7 +466,7 @@ function startServer() {
             }
         } else if (pathname === '/api/merged-summary' && req.method === 'GET') {
             try {
-                const { buildMergedSummary } = require('./summaryFormatter');
+                const { buildMergedSummary } = require('./utils/summaryFormatter');
                 const payload = buildMergedSummary();
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(payload));

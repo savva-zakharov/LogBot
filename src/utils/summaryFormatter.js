@@ -1,8 +1,8 @@
 // src/summaryFormatter.js
 // Builds the merged summary lines and meta once, to be used by both Discord and Web UI
 
-const state = require('./state');
-const { loadSettings, OUTPUT_ORDER } = require('./config');
+const state = require('../state');
+const { loadSettings, OUTPUT_ORDER } = require('../config');
 
 function isExcludedSquad(sqName, settings) {
   try {

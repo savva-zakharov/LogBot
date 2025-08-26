@@ -12,6 +12,7 @@ const scraper = require('./src/scraper');
 const { runSetupWizard } = require('./src/setup');
 const { startSquadronTracker } = require('./src/squadronTracker');
 const { postLogs } = require('./src/missionEnd');
+const metalistManager = require('./src/utils/metalistManager');
 
 // Global safety nets
 process.on('uncaughtException', (err) => {
@@ -23,6 +24,19 @@ process.on('unhandledRejection', (reason) => {
 
 async function main() {
   console.log('🚀 Starting War Thunder Log Monitor...');
+
+  // 0. Initialize Metalist data
+  try {
+    await metalistManager.loadMetalist();
+    const latestBR = metalistManager.getLatestBR();
+    if (latestBR) {
+      console.log(`✅ Loaded Metalist data (latest BR: ${latestBR})`);
+    } else {
+      console.log('⚠️  No Metalist data loaded');
+    }
+  } catch (error) {
+    console.error('❌ Failed to load Metalist data:', error.message);
+  }
 
   // 1. Initial configuration setup / interactive wizard
   const argv = process.argv.slice(2);
