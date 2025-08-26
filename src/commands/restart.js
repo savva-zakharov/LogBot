@@ -1,12 +1,12 @@
-// src/commands/updatebot.js
+// src/commands/restart.js
 const { PermissionFlagsBits } = require('discord.js');
-const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 module.exports = {
   data: {
-    name: 'updatebot',
-    description: 'Runs update-bot.bat to fetch git refs and update npm packages (owner/admin only)'
+    name: 'restart',
+    description: 'Restarts the bot (owner/admin only)'
   },
   async execute(interaction) {
     try {
@@ -26,20 +26,11 @@ module.exports = {
         }
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.reply({ content: 'Restarting bot...', ephemeral: true });
 
-      const scriptPath = path.join(process.cwd(), 'update-bot.bat');
-      const child = spawn('cmd.exe', ['/c', scriptPath], {
-        cwd: process.cwd(),
-        windowsHide: true,
-        env: { ...process.env },
-        detached: true,
-        stdio: 'ignore'
-      });
+      const flagPath = path.join(process.cwd(), 'restart.flag');
+      fs.writeFileSync(flagPath, new Date().toISOString());
 
-      child.unref();
-
-      await interaction.editReply('Update process started. I will not report the result of the script.');
     } catch (e) {
       try {
         if (interaction.deferred || interaction.replied) {
