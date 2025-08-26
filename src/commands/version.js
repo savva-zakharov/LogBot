@@ -13,7 +13,7 @@ module.exports = {
         interaction.reply({ content: 'Error getting version information.', ephemeral: true });
         return;
       }
-      interaction.reply({ content: `${stdout.trim()}`, ephemeral: true });
+      interaction.reply({ content: `\`\`\`${stdout.trim()}\`\`\``, ephemeral: true });
     });
   }
 };
