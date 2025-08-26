@@ -5,7 +5,8 @@
   <title>LogBird Map Viewer</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
-  <style>
+  <link rel="stylesheet" href="styles.css">
+  <!--
     :root {
       --panel-bg: #1e1e1e;
       --border-color: #333;
@@ -77,6 +78,8 @@
     }
     .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
     .btn:hover { background: #333; }
+    .btn-stealth { background: #1e1e1e; color: #ddd; border:none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+    
     .btn-win { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
     .btn-win:hover { background: #1b5e20; }
     .btn-loss { background: #c62828; border-color: #8e0000; color: #ffebee; }
@@ -138,7 +141,7 @@
     }
     .center-section { order: -1; /* Move to top on mobile */ }
     }
-  </style>
+  -->
 </head>
 <body>
   <div class="container">
@@ -157,20 +160,20 @@
             <div class="right-section">
                 <button id="btnWin" class="btn btn-win">Record Win</button>
                 <button id="btnLoss" class="btn btn-loss">Record Loss</button>
-                <button id="btnPostLogs">Post Logs</button>
+                <button id="btnPostLogs" class="btn">Post Logs</button>
                 <button id="btnSubmitJson" class="btn">Submit JSON</button>
                 <button id="btnReset" class="btn">Reset</button>
             </div>
           </div>
 
-    <div class="main-content" style="margin-top:10px;">
+    <div class="main-content">
       <div class="map-container">
         <div id="map-root" class="panel">
           <div class="map-wrapper">
             <canvas id="map-canvas">Please use a browser with canvas support</canvas>
           </div>
-          <div class="map-controls">
-            <div class="control-group">
+          <div class="section-bar" style="margin-top: 6px;">
+            <div class="left-section">
               <span>Source: <code>/api/map-img?gen=7</code></span>
               <button id="btnRefresh" class="btn">Refresh</button>
               <label class="checkbox-label">
@@ -178,7 +181,7 @@
                 Auto-refresh
               </label>
             </div>
-            <div class="control-group">
+            <div class="right-section">
               <span>View:</span>
               <button id="btnZoomIn" class="btn">+</button>
               <button id="btnZoomOut" class="btn">-</button>
@@ -192,54 +195,54 @@
           <div class="panel">
             <div class="section-bar">
                 <div class="left-section">
-                <h2 style="margin-top:0;">Current Game</h2>
+                <h2 class="no-top">Current Game</h2>
                 </div>
                 <div class="right-section">
-                    <div class="game-switcher" style="display:flex; align-items:center; gap:6px;">
-                        <button id="btnPrevGameR" class="btn" title="Previous game" type="button">◀</button>
+                    <div class="game-switcher">
+                        <button id="btnPrevGameR" class="btn-stealth" title="Previous game" type="button">◀</button>
                         <select id="filterGameR"></select>
-                        <button id="btnNextGameR" class="btn" title="Next game" type="button">▶</button>
+                        <button id="btnNextGameR" class="btn-stealth" title="Next game" type="button">▶</button>
                     </div>
                 </div>
             </div>
             
             <!-- Filters moved to table headers below -->
-            <div class="scrollable-table">
-              <table style="width:100%; border-collapse:collapse;">
+            <div class="scrollable-table bordered">
+              <table>
                 <thead>
                   <tr>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
-                      <select id="filterSquadronR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                    <th class="sticky-th compact-head">
+                      <select id="filterSquadronR" class="compact-select">
                         <option value="all">All</option>
                       </select>
                     </th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
-                      <select id="filterPlayerR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                    <th class="sticky-th compact-head">
+                      <select id="filterPlayerR" class="compact-select">
                         <option value="all">All</option>
                       </select>
                     </th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
-                      <select id="filterVehicleR" style="width: 100%; margin-top: 4px; padding: 2px; font-size: 0.9em;">
+                    <th class="sticky-th compact-head">
+                      <select id="filterVehicleR" class="compact-select">
                         <option value="all">All</option>
                       </select>
                     </th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1; padding-bottom: 5px;">
-                      <div style="display: flex; gap: 4px; margin-top: 4px;">
-                        <button id="btnStatusAliveR" class="btn btn-alive" type="button" title="Show Active (click again to clear filter)" style="flex: 1; padding: 2px 0px; font-size: 0.9em;">A</button>
-                        <button id="btnStatusDestroyedR" class="btn btn-destroyed" type="button" title="Show Destroyed (click again to clear filter)" style="flex: 1; padding: 2px 0px; font-size: 0.9em;">D</button>
+                    <th class="sticky-th compact-head">
+                      <div class="btn-row-compact">
+                        <button id="btnStatusAliveR" class="btn btn-alive btn-compact" type="button" title="Show Active (click again to clear filter)">A</button>
+                        <button id="btnStatusDestroyedR" class="btn btn-destroyed btn-compact" type="button" title="Show Destroyed (click again to clear filter)">D</button>
                       </div>
                     </th>
-                    <th style="text-align:left; position:sticky; top:0; background:#1e1e1e; z-index:1;">Kills</th>
+                    <th class="sticky-th">Kills</th>
                   </tr>
                 </thead>
-                <tbody id="curGameTableBody"><tr><td colspan="7" style="color:#888;">Loading...</td></tr></tbody>
+                <tbody id="curGameTableBody"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
               </table>
             </div>
           </div>
-          <div class="panel" style="margin-top:2px; min-height: none;">
+          <div class="panel">
             <h2 class="section-title">Game Logs</h2>
-            <div class="scrollable-table">
-              <table class="mono-table" style="width:100%; border-collapse:collapse;">
+            <div class="scrollable-table bordered">
+              <table class="mono-table">
                 <tbody id="rightAllGamesSummaryBody"><tr><td style="color:#888;">Loading...</td></tr></tbody>
               </table>
             </div>
@@ -247,7 +250,7 @@
       </div>
     </div>
     
-    <style>
+    <!--
       .main-content {
         display: flex;
         flex: 1;
@@ -365,7 +368,7 @@
           align-items: flex-start;
         }
       }
-    </style>
+    -->
   </div>
   <script>
     (function(){
@@ -490,6 +493,21 @@
       // Assignment/cost tuning
       const USE_HUNGARIAN = true;       // switch to global optimal assignment
       const DIR_PENALTY_GAIN = 0.5;     // weight for direction penalty (0..1 typical)
+
+      // Clamp pan so the map image never leaves canvas area.
+      // When scale == 1, pan is locked at 0,0. When scale > 1, allow panning within image bounds.
+      function clampView(){
+        const s = Math.max(limits.minScale, Math.min(view.scale, limits.maxScale));
+        const w = canvas.width, h = canvas.height;
+        const minX = w - w * s; // negative or 0
+        const minY = h - h * s;
+        // Lock to [min, 0]
+        view.scale = s;
+        if (view.offsetX < minX) view.offsetX = minX;
+        if (view.offsetX > 0) view.offsetX = 0;
+        if (view.offsetY < minY) view.offsetY = minY;
+        if (view.offsetY > 0) view.offsetY = 0;
+      }
 
       // --- Helpers: prediction and math ---
       function predictTrack(tr, now){
@@ -703,6 +721,7 @@
         canvas.height = newSize;
         canvas.style.width = newSize + 'px';
         canvas.style.height = newSize + 'px';
+        clampView();
         render();
       }
 
@@ -1295,6 +1314,7 @@
             view.scale = 1;
             view.offsetX = 0;
             view.offsetY = 0;
+            clampView();
             render();
           }
           lastTouchTime = currentTime;
@@ -1323,6 +1343,7 @@
           
           view.offsetX = touchStartOffsetX + (touchX - touchStartX);
           view.offsetY = touchStartOffsetY + (touchY - touchStartY);
+          clampView();
           render();
         } else if (e.touches.length === 2) {
           // Pinch zoom with two fingers
@@ -1336,6 +1357,7 @@
           if (touchStartDistance > 0) {
             const scale = initialScale * (currentDistance / touchStartDistance);
             view.scale = Math.max(0.1, Math.min(scale, 10)); // Limit zoom range
+            clampView();
             render();
           }
         }
@@ -1384,6 +1406,7 @@ window.addEventListener('mousemove', (e) => {
   const cy = e.clientY - rect.top;
   view.offsetX = startOffset.x + (cx - dragStart.x);
   view.offsetY = startOffset.y + (cy - dragStart.y);
+  clampView();
   render();
 });
 window.addEventListener('mouseup', () => { dragging = false; });
@@ -1404,6 +1427,7 @@ canvas.addEventListener('wheel', (e) => {
   // Keep point under cursor stationary
   view.offsetX = cx - wx * newScale;
   view.offsetY = cy - wy * newScale;
+  clampView();
   render();
 }, { passive: false });
 
@@ -1417,7 +1441,7 @@ document.getElementById('btnZoomOut').addEventListener('click', () => {
   canvas.dispatchEvent(evt);
 });
 document.getElementById('btnReset').addEventListener('click', () => {
-  view.scale = 1; view.offsetX = 0; view.offsetY = 0; render();
+  view.scale = 1; view.offsetX = 0; view.offsetY = 0; clampView(); render();
 });
 
 function startAuto() {

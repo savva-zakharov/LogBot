@@ -6,48 +6,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <link rel="shortcut icon" href="/favicon.ico">
-  <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: #e0e0e0; margin: 0; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { color: #4CAF50; margin: 0 0 12px 0; }
-    .topnav { margin: 6px 0 16px 0; }
-    .topnav a { color: #90CAF9; text-decoration: none; margin-left: 10px; }
-    .topnav {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    }
-    .meta-input { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 4px 6px; border-radius: 4px; width: 110px; }
-    .btn { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
-    .btn:hover { background: #333; }
-    .btn-win { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
-    .btn-win:hover { background: #1b5e20; }
-    .btn-loss { background: #c62828; border-color: #8e0000; color: #ffebee; }
-    .btn-loss:hover { background: #8e0000; }
-    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    select { background: #1e1e1e; color: #ddd; border: 1px solid #444; padding: 6px 8px; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
-    thead th { background: #1e1e1e; color: #aaa; padding: 8px; border-bottom: 1px solid #333; text-align: left; }
-    tbody td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; }
-    .status-active { color: #66BB6A; }
-    .status-destroyed { color: #EF5350; }
-    .section-title { margin: 16px 0 8px 0; color: #90CAF9; }
-    /* Monospace summary table to preserve alignment */
-    .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .mono-table td { white-space: pre; }
-    /* Collapsible sections */
-    .section-title { display: flex; align-items: center; gap: 8px; }
-    .toggle-btn { background: #1e1e1e; color: #bbb; border: 1px solid #444; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-    .toggle-btn:hover { background: #2a2a2a; color: #fff; }
-    .collapsed { display: none !important; }
-    .game-switcher { display: flex; align-items: center; gap: 6px; }
-    .status-switcher { display: flex; align-items: center; gap: 6px; }
-    .btn-alive { background: #2e7d32; border-color: #1b5e20; color: #e8f5e9; }
-    .btn-alive:hover { background: #1b5e20; }
-    .btn-destroyed { background: #c62828; border-color: #8e0000; color: #ffebee; }
-    .btn-destroyed:hover { background: #8e0000; }
-    .btn-neutral { background: #3a3a3a; border-color: #555; color: #ddd; }
-    .btn-neutral:hover { background: #2f2f2f; }
-    .btn.selected { outline: 2px solid #90CAF9; }
-  </style>
+  <link rel="stylesheet" href="/public/styles.css">
   <script>
     let rows = [];
     let summaries = [];
