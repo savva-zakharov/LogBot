@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const { getTodaysBr } = require('./brHelper');
+const { getTodaysBr } = require('./utils/brHelper');
 
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
 const COLLECTED_PATH = path.join(process.cwd(), 'collected_data.json');

@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const metalistManager = require('../utils/metalistManager');
-const { getTodaysBr } = require('../brHelper');
+const { getTodaysBr } = require('../utils/brHelper');
 
 module.exports = {
   data: {
