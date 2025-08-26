@@ -25,7 +25,7 @@ if errorlevel 1 (
   goto :end
 )
 
-echo. > restart.flag
+echo %DATE% %TIME% > restart.flag
 
 :end
 echo [update-bot] Done.
