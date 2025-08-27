@@ -47,11 +47,11 @@ module.exports = {
 
       child.on('close', (code) => {
         if (code === 0) {
-          interaction.reply(`Update successful. Restarting bot...\n\\${output}\\`);
+          interaction.reply('```\n' + output + '```\nUpdate successful. Restarting bot...');
           const flagPath = path.join(process.cwd(), 'restart.flag');
           fs.writeFileSync(flagPath, new Date().toISOString());
         } else {
-          interaction.editReply(`Update process exited with code ${code}. \n\\${output}\\`);
+          interaction.reply('```\n' + output + '```\nUpdate process exited with code ' + code);
         }
       });
 
