@@ -47,7 +47,7 @@ module.exports = {
 
       child.on('close', (code) => {
         if (code === 0) {
-          interaction.editReply(`Update successful. Restarting bot...\n\\${output}\\`);
+          interaction.reply(`Update successful. Restarting bot...\n\\${output}\\`);
           const flagPath = path.join(process.cwd(), 'restart.flag');
           fs.writeFileSync(flagPath, new Date().toISOString());
         } else {
