@@ -11,6 +11,13 @@ if errorlevel 1 (
   goto :end
 )
 
+echo [update-bot] Removing any local file changes...  
+git reset --hard
+if errorlevel 1 (
+  echo [update-bot] git reset failed. Check your network or git remotes.
+  goto :end
+)
+
 echo [update-bot] Pulling latest changes...
 git pull --ff-only
 if errorlevel 1 (
