@@ -2,6 +2,7 @@
 const { PermissionFlagsBits } = require('discord.js');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 module.exports = {
   data: {
@@ -26,26 +27,40 @@ module.exports = {
         }
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: false });
 
       const scriptPath = path.join(process.cwd(), 'update-bot.bat');
       const child = spawn('cmd.exe', ['/c', scriptPath], {
         cwd: process.cwd(),
         windowsHide: true,
         env: { ...process.env },
-        detached: true,
-        stdio: 'ignore'
       });
 
-      child.unref();
+      let output = '';
+      child.stdout.on('data', (data) => {
+        output += data.toString();
+      });
 
-      await interaction.editReply('Update process started. I will not report the result of the script.');
+      child.stderr.on('data', (data) => {
+        output += data.toString();
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          interaction.editReply(`Update successful. Restarting bot...\n\\${output}\\`);
+          const flagPath = path.join(process.cwd(), 'restart.flag');
+          fs.writeFileSync(flagPath, new Date().toISOString());
+        } else {
+          interaction.editReply(`Update process exited with code ${code}. \n\\${output}\\`);
+        }
+      });
+
     } catch (e) {
       try {
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply('There was an error executing this command.');
         } else {
-          await interaction.reply({ content: 'There was an error executing this command.', ephemeral: true });
+          await interaction.reply({ content: 'There was an an error executing this command.', ephemeral: true });
         }
       } catch (_) {}
     }
