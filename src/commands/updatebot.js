@@ -48,16 +48,16 @@ module.exports = {
       child.on('close', (code) => {
         if (code === 0) {
           if (output.includes('Already up to date.')) { 
-            interaction.reply('```\n' + output + '```\nAlready up to date. No restart needed');
+            interaction.editReply('```\n' + output + '```\nAlready up to date. No restart needed');
           } else {
-            interaction.reply('```\n' + output + '```\nUpdate successful. Restarting bot...');
+            interaction.editReply('```\n' + output + '```\nUpdate successful. Restarting bot...');
             const flagPath = path.join(process.cwd(), 'restart.flag');
             setTimeout(() => {
               fs.writeFileSync(flagPath, new Date().toISOString());
             }, 5000);
           }
         } else {
-          interaction.reply('```\n' + output + '```\nUpdate process exited with code ' + code);
+          interaction.editReply('```\n' + output + '```\nUpdate process exited with code ' + code);
         }
       });
 
@@ -66,7 +66,7 @@ module.exports = {
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply('There was an error executing this command.');
         } else {
-          await interaction.reply({ content: 'There was an an error executing this command.', ephemeral: true });
+          await interaction.editReply({ content: 'There was an an error executing this command.', ephemeral: true });
         }
       } catch (_) {}
     }
