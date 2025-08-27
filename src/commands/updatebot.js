@@ -51,8 +51,8 @@ module.exports = {
             interaction.editReply('```\n' + output + '```\nAlready up to date. No restart needed');
           } else {
             interaction.editReply('```\n' + output + '```\nUpdate successful. Restarting bot...');
-            const flagPath = path.join(process.cwd(), 'restart.flag');
             setTimeout(() => {
+              const flagPath = path.join(process.cwd(), 'restart.flag');
               fs.writeFileSync(flagPath, new Date().toISOString());
             }, 5000);
           }
