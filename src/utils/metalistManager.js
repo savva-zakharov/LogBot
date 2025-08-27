@@ -72,17 +72,28 @@ class MetalistManager {
   /**
    * Parse the CSV file and update the in-memory data
    */
-  async parseMetalist() {
+  async parseMetalist(filePath = null) {
     try {
-      const files = fs.readdirSync(this.metalistDir);
-      const csvFile = files.find(file => file.toLowerCase().endsWith('.csv'));
+      let fileToParse = filePath;
 
-      if (!csvFile) {
-        dlog('No CSV file found in the metalist directory');
-        return false;
+      if (!fileToParse) {
+        const files = fs.readdirSync(this.metalistDir)
+          .filter(file => file.toLowerCase().endsWith('.csv'))
+          .map(file => ({
+            name: file,
+            time: fs.statSync(path.join(this.metalistDir, file)).mtime.getTime(),
+          }))
+          .sort((a, b) => b.time - a.time);
+
+        if (files.length === 0) {
+          dlog('No CSV file found in the metalist directory');
+          return false;
+        }
+
+        fileToParse = path.join(this.metalistDir, files[0].name);
       }
 
-      this.metalistFile = path.join(this.metalistDir, csvFile);
+      this.metalistFile = fileToParse;
       dlog(`Found metalist file: ${this.metalistFile}`);
       const fileContent = fs.readFileSync(this.metalistFile, 'utf8');
       const rows = parse(fileContent, {
@@ -166,6 +177,35 @@ class MetalistManager {
     }
   }
 
+  async loadFromNewFile(filePath) {
+    try {
+      // 1. Validate the file by parsing it
+      const tempManager = new MetalistManager();
+      const parseSuccess = await tempManager.parseMetalist(filePath);
+
+      if (!parseSuccess) {
+        return { success: false, message: 'The provided CSV file is not formatted correctly.' };
+      }
+
+      // 2. Copy the file to the .metalist directory with a timestamp
+      if (!fs.existsSync(this.metalistDir)) {
+        fs.mkdirSync(this.metalistDir, { recursive: true });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const newFileName = `${timestamp}_metalist.csv`;
+      const newFilePath = path.join(this.metalistDir, newFileName);
+      fs.copyFileSync(filePath, newFilePath);
+
+      // 3. Force a reload
+      await this.loadMetalist(true);
+
+      return { success: true, message: 'Successfully loaded new metalist file.' };
+    } catch (error) {
+      console.error('Error loading new metalist file:', error);
+      return { success: false, message: 'An error occurred while loading the new metalist file.' };
+    }
+  }
+
   /**
    * Get metalist data for a specific battle rating
    * @param {string} br - The battle rating to get data for (e.g., '13.0')
@@ -195,7 +235,7 @@ class MetalistManager {
   /**
    * Load and parse the metalist CSV file
    */
-  async loadMetalist() {
+  async loadMetalist(forceRefresh = false) {
     try {
       // Ensure the directory exists
       if (!fs.existsSync(this.metalistDir)) {
@@ -205,10 +245,11 @@ class MetalistManager {
       // Try to load from cache first
       const cacheLoaded = await this.loadFromCache();
       
-      // Check if we need to refresh the data (cache is more than 24 hours old)
+      // Check if we need to refresh the data
       const shouldRefresh = !cacheLoaded || 
                           (this.lastUpdated && 
-                           (Date.now() - this.lastUpdated.getTime() > 24 * 60 * 60 * 1000));
+                           (Date.now() - this.lastUpdated.getTime() > 24 * 60 * 60 * 1000)) ||
+                           forceRefresh;
       
       if (cacheLoaded && !shouldRefresh) {
         dlog('Using cached metalist data');
@@ -244,7 +285,7 @@ class MetalistManager {
 const metalistManager = new MetalistManager();
 
 // Auto-load data on startup
-metalistManager.loadMetalist().then(success => {
+metalistManager.loadMetalist(true).then(success => {
   if (success) {
     dlog('Metalist data loaded successfully');
   } else {

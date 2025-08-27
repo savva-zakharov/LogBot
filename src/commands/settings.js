@@ -40,6 +40,7 @@ async function buildPanel() {
       { name: 'squadronPageUrl', value: String(cfg.squadronPageUrl || ''), inline: false },
       { name: 'discordLogsChannel (player logs)', value: String(cfg.discordLogsChannel || ''), inline: false },
       { name: 'discordWinLossChannell (win/loss logs)', value: String(cfg.discordWinLossChannell || ''), inline: false },
+      { name: 'metalistManager (allowed roles)', value: String(cfg.metalistManager?.roles?.join(', ') || '@everyone'), inline: false },
     );
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_dc').setLabel('Set discordChannel').setStyle(ButtonStyle.Primary),
@@ -53,7 +54,10 @@ async function buildPanel() {
     new ButtonBuilder().setCustomId('cfg_set_logs').setLabel('Set discordLogsChannel').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('cfg_set_wl').setLabel('Set discordWinLossChannell').setStyle(ButtonStyle.Secondary),
   );
-  return { embeds: [em], components: [row1, row2, row3] };
+  const row4 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('cfg_set_mr').setLabel('Set Metalist Roles').setStyle(ButtonStyle.Primary),
+  );
+  return { embeds: [em], components: [row1, row2, row3, row4] };
 }
 
 module.exports = {
@@ -184,6 +188,27 @@ module.exports = {
       if (interaction.isButton() && id === 'cfg_refresh') {
         const payload = await buildPanel();
         await interaction.update({ ...payload, content: 'Refreshed.' });
+        return true;
+      }
+
+      if (interaction.isButton() && id === 'cfg_set_mr') {
+        const modal = new ModalBuilder().setCustomId('cfg_modal_mr').setTitle('Set Metalist Roles');
+        const input = new TextInputBuilder()
+          .setCustomId('cfg_mr_value')
+          .setLabel('Role IDs or names, comma-separated')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false); // Allow empty to clear
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'cfg_modal_mr') {
+        const raw = (interaction.fields.getTextInputValue('cfg_mr_value') || '').trim();
+        const roles = raw.split(',').map(r => r.trim()).filter(Boolean);
+        writeJsonSettings({ metalistManager: { roles } });
+        const payload = await buildPanel();
+        await interaction.reply({ ...payload, content: 'Metalist roles updated.', flags: MessageFlags.Ephemeral });
         return true;
       }
     } catch (e) {

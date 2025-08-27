@@ -2,7 +2,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { getTodaysBr } = require('../brHelper');
+const { getTodaysBr } = require('../utils/brHelper');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,6 +11,8 @@ module.exports = {
 
   async execute(interaction) {
     try {
+      
+      await interaction.deferReply({ ephemeral: false });
       // Resolve today's BR via helper shared across features
       const todaysBr = getTodaysBr();
 
