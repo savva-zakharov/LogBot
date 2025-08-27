@@ -47,9 +47,15 @@ module.exports = {
 
       child.on('close', (code) => {
         if (code === 0) {
-          interaction.reply('```\n' + output + '```\nUpdate successful. Restarting bot...');
-          const flagPath = path.join(process.cwd(), 'restart.flag');
-          fs.writeFileSync(flagPath, new Date().toISOString());
+          if (output.includes('Already up to date.')) { 
+            interaction.reply('```\n' + output + '```\nAlready up to date. No restart needed');
+          } else {
+            interaction.reply('```\n' + output + '```\nUpdate successful. Restarting bot...');
+            const flagPath = path.join(process.cwd(), 'restart.flag');
+            setTimeout(() => {
+              fs.writeFileSync(flagPath, new Date().toISOString());
+            }, 5000);
+          }
         } else {
           interaction.reply('```\n' + output + '```\nUpdate process exited with code ' + code);
         }
