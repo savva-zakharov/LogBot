@@ -1,4 +1,4 @@
-// src/commands/uploadmetalist.js
+// src/commands/metamanage.js
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -64,7 +64,7 @@ module.exports = {
       });
 
     } catch (e) {
-      console.error('Error executing uploadmetalist command:', e);
+      console.error('Error executing metamanage command:', e);
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply({ content: 'An error occurred while executing the command.', ephemeral: true });
       } else {

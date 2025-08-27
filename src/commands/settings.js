@@ -41,6 +41,7 @@ async function buildPanel() {
       { name: 'discordLogsChannel (player logs)', value: String(cfg.discordLogsChannel || ''), inline: false },
       { name: 'discordWinLossChannell (win/loss logs)', value: String(cfg.discordWinLossChannell || ''), inline: false },
       { name: 'metalistManager (allowed roles)', value: String(cfg.metalistManager?.roles?.join(', ') || '@everyone'), inline: false },
+      { name: 'BOT_OWNER_ID', value: String(cfg.BOT_OWNER_ID || ''), inline: false },
     );
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_dc').setLabel('Set discordChannel').setStyle(ButtonStyle.Primary),
@@ -57,7 +58,10 @@ async function buildPanel() {
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_mr').setLabel('Set Metalist Roles').setStyle(ButtonStyle.Primary),
   );
-  return { embeds: [em], components: [row1, row2, row3, row4] };
+  const row5 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('cfg_set_owner').setLabel('Set Bot Owner ID').setStyle(ButtonStyle.Primary),
+  );
+  return { embeds: [em], components: [row1, row2, row3, row4, row5] };
 }
 
 module.exports = {
@@ -209,6 +213,26 @@ module.exports = {
         writeJsonSettings({ metalistManager: { roles } });
         const payload = await buildPanel();
         await interaction.reply({ ...payload, content: 'Metalist roles updated.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'cfg_set_owner') {
+        const modal = new ModalBuilder().setCustomId('cfg_modal_owner').setTitle('Set BOT_OWNER_ID');
+        const input = new TextInputBuilder()
+          .setCustomId('cfg_owner_value')
+          .setLabel('User ID of the bot owner')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'cfg_modal_owner') {
+        const raw = (interaction.fields.getTextInputValue('cfg_owner_value') || '').trim();
+        const val = cleanChannelInput(raw);
+        writeJsonSettings({ BOT_OWNER_ID: val });
+        const payload = await buildPanel();
+        await interaction.reply({ ...payload, content: 'BOT_OWNER_ID updated.', flags: MessageFlags.Ephemeral });
         return true;
       }
     } catch (e) {
