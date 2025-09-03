@@ -29,7 +29,7 @@ body {
 
 /* Navigation / links */
 .topnav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 16px 0; }
-.topnav a { color: var(--accent-color); text-decoration: none; margin-left: 10px; }
+.topnav a { color: var(--accent-color); text-decoration: none; margin-left: 2px; }
 a { color: var(--accent-color); }
 
 /* Panels and sections */
@@ -100,7 +100,7 @@ tbody td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; }
 .status-destroyed { color: var(--status-destroyed); }
 .mono-table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .mono-table td { white-space: pre; }
-.scrollable-table { max-height: 400px; overflow-y: auto; display: block; margin-bottom: 12px; }
+.scrollable-table { overflow-y: auto; display: block; margin-bottom: 12px; }
 .scrollable-table table { margin-bottom: 0; }
 
 /* Map-specific layout */
@@ -163,6 +163,7 @@ button.secondary { background: #2e7d32; }
 .section-bar {
     display: flex;
     flex-direction: column;
+    justify-content: space-between;
     gap: 10px;
 }
 .top-bar {

@@ -8,8 +8,33 @@
 </head>
 <body>
   <div class="container">
-    <h1>L0gB1rd Settings</h1>
-    <div><a href="/">← Back to Dashboard</a></div>
+    <div class="topnav">
+      <div class="top-bar">
+        <div class="left-section">
+          <a href="/">Home</a>
+          <span>/</span>
+          <a href="/map">Map</a>
+          <span>/</span>
+          <a href="/side">Side by Side</a>
+          <span>/</span>
+          <strong>Settings</strong>
+        </div>
+
+        <div class="center-section">
+          <h1>LogBird Settings</h1>
+        </div>
+
+        <div class="right-section">
+            <!-- <button id="btnWin" class="btn btn-win">Record Win</button>
+            <button id="btnLoss" class="btn btn-loss">Record Loss</button>
+            <button id="btnPostLogs" class="btn">Post Logs</button>
+            <button id="btnSubmitJson" class="btn">Submit JSON</button>
+            <button id="btnReset" class="btn">Reset</button> -->
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
 
     <div class="hint">Editing values updates <code>settings.env</code>. You may need to restart the app for changes to take effect.</div>
 
@@ -68,6 +93,7 @@
       <button id="restartBtn" class="secondary" type="button">Restart</button>
     </div>
     <div class="msg" id="restartMsg"></div>
+  </div>
   </div>
 
   <script>

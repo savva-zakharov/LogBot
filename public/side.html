@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>LogBird Side by Side Panel</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="stylesheet" href="/public/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="topnav">
+
+
+        <div class="top-bar">
+            <div class="left-section">
+              <a href="/">Home</a>
+              <span>/</span>
+              <a href="/map">Map</a>
+              <span>/</span>
+              <strong>Side by Side</strong>
+              <span>/</span>
+              <a href="/settings">Settings</a>
+            </div>
+            <div class="center-section">
+              <h1>LogBird Map Viewer</h1>
+            </div>
+            <div class="right-section">
+                <button id="btnWin" class="btn btn-win">Record Win</button>
+                <button id="btnLoss" class="btn btn-loss">Record Loss</button>
+                <button id="btnPostLogs" class="btn">Post Logs</button>
+                <button id="btnSubmitJson" class="btn">Submit JSON</button>
+                <button id="btnReset" class="btn">Reset</button>
+            </div>
+          </div>
+
+    <div class="main-content">
+        <div class="sidebar"  style="width: 50%">
+          <div class="panel">
+
+            <label>Squad No: <input id="inpSquadNo" class="meta-input" type="text" placeholder="e.g. 123" /></label>
+            <label>GC: <input id="inpGC" class="meta-input" type="text" placeholder="e.g. GC" /></label>
+            <label>AC: <input id="inpAC" class="meta-input" type="text" placeholder="e.g. AC" /></label>
+            <button id="btnSaveMeta" class="btn">Save</button>  
+            
+          </div> 
+          <div class="panel">
+            <div class="section-bar" style="display: flex; justify-content: space-between;">
+                <div class="left-section">
+                <h2 class="no-top">Current Game</h2>
+                </div>
+                <div class="right-section">
+                    <div class="game-switcher">
+                        <button id="btnPrevGameR" class="btn-stealth" title="Previous game" type="button">◀</button>
+                        <select id="filterGameR"></select>
+                        <button id="btnNextGameR" class="btn-stealth" title="Next game" type="button">▶</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="scrollable-table bordered">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="sticky-th compact-head">
+                      <select id="filterSquadronR" class="compact-select">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th class="sticky-th compact-head">
+                      <select id="filterPlayerR" class="compact-select">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th class="sticky-th compact-head">
+                      <select id="filterVehicleR" class="compact-select">
+                        <option value="all">All</option>
+                      </select>
+                    </th>
+                    <th class="sticky-th compact-head">
+                      <div class="btn-row-compact">
+                        <button id="btnStatusAliveR" class="btn btn-alive btn-compact" type="button" title="Show Active (click again to clear filter)">A</button>
+                        <button id="btnStatusDestroyedR" class="btn btn-destroyed btn-compact" type="button" title="Show Destroyed (click again to clear filter)">D</button>
+                      </div>
+                    </th>
+                    <th class="sticky-th">Kills</th>
+                  </tr>
+                </thead>
+                <tbody id="curGameTableBody"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+          <div class="panel" style="width: 50%">
+            <h2 cclass="no-top">Game Logs</h2>
+            <div class="scrollable-table bordered">
+              <table class="mono-table">
+                <tbody id="rightAllGamesSummaryBody"><tr><td style="color:#888;">Loading...</td></tr></tbody>
+              </table>
+            </div>
+        </div>
+    </div>
+    
+  </div>
+  <script>
+    (function(){
+      'use strict';
+      
+      // Main application code
+      let autoRefreshInterval;
+      
+      // Global variables
+      let rowsR = [];
+      let highlights = { players: {}, squadrons: {} };
+      
+      // Initialize the application
+      function initApplication() {
+        // Initialize right column controls first
+        initRightControls();
+        
+        // Set up event listeners
+        const btnRefresh = document.getElementById('btnRefresh');
+        if (btnRefresh) {
+          btnRefresh.addEventListener('click', () => { 
+            refreshRightAllGamesSummary();
+            const sel = document.getElementById('filterGameR');
+            if (sel && sel.value) {
+              fetchRowsForGameR(sel.value);
+            }
+          });
+        }
+        
+        const chkAuto = document.getElementById('chkAuto');
+        if (chkAuto) {
+          chkAuto.addEventListener('change', () => {
+            if (chkAuto.checked) startAuto(); 
+            else stopAuto();
+          });
+        }
+        
+        // Set up button event listeners
+        const postBtn = document.getElementById('btnPostLogs');
+        if (postBtn) postBtn.addEventListener('click', postLogs);
+        
+        const submitBtn = document.getElementById('btnSubmitJson');
+        if (submitBtn) submitBtn.addEventListener('click', submitJson);
+        
+        const resetBtn = document.getElementById('btnReset');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', function() {
+            const ok = window.confirm('Are you sure you want to reset? This will clear entries and reset the game counter.');
+            if (ok) resetState();
+          });
+        }
+        
+        // Win/Loss buttons
+        document.getElementById('btnWin').addEventListener('click', () => recordResult('win'));
+        document.getElementById('btnLoss').addEventListener('click', () => recordResult('loss'));
+        
+        // Initial data load
+        refreshRightAllGamesSummary();
+        
+        // Set up auto-refresh
+        startAuto();
+      }
+      
+      function startAuto() {
+        stopAuto(); // Clear any existing interval
+        autoRefreshInterval = setInterval(() => {
+          const gameSelect = document.getElementById('filterGameR');
+          if (gameSelect?.value) {
+            fetchRowsForGameR(gameSelect.value).then(data => {
+              if (Array.isArray(data)) {
+                applyFiltersAndRenderR();
+              }
+            });
+          }
+        }, 5000); // Refresh every 5 seconds
+      }
+      
+      function stopAuto() {
+        if (autoRefreshInterval) {
+          clearInterval(autoRefreshInterval);
+          autoRefreshInterval = null;
+        }
+      }
+      
+      // Save on unload using sendBeacon
+      window.addEventListener('beforeunload', () => {
+        try {
+          const arr = serializeTracks();
+          if (!arr.length) return;
+          const blob = new Blob([JSON.stringify({ tracks: arr })], { type: 'application/json' });
+          navigator.sendBeacon('/api/map-tracks', blob);
+        } catch (_) { /* ignore */ }
+      });
+      
+      // Initialize when DOM is loaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApplication);
+      } else {
+        initApplication();
+      }
+      // Function to get color pair for highlighting
+      function getColorPair(entry) {
+        // Accept either string (treated as background) or object { bg, fg }
+        if (!entry) return { bg: '', fg: '' };
+        if (typeof entry === 'string') return { bg: entry, fg: '' };
+        return { bg: entry.bg || '', fg: entry.fg || '' };
+      }
+      
+      // Load highlight colors for players and squadrons
+      async function fetchHighlights() {
+        try {
+          const resp = await fetch('/api/highlights');
+          const data = await resp.json();
+          if (data && typeof data === 'object') {
+            highlights = {
+              players: data.players || {},
+              squadrons: data.squadrons || {}
+            };
+          }
+        } catch (_) { /* keep defaults */ }
+      }
+
+
+      async function fetchJson(url) {
+        try {
+          const r = await fetch(url, { 
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+          return await r.json();
+        } catch (e) { 
+          console.error('Fetch error:', e);
+          return null; 
+        }
+      }
+
+      function normalizeTypeR(cls) {
+        // Map stored classification (Title Case, e.g. "Light Tank", "Tank destroyer")
+        // to filter option value (lowercase: 'light tank', 'spg', etc.)
+        if (!cls) return '';
+        const s = String(cls).toLowerCase().trim();
+        if (s.includes('light') || s.includes('scout')) return 'light tank';
+        if (s.includes('medium')) return 'medium tank';
+        if (s.includes('heavy')) return 'heavy tank';
+        if (s.includes('tank destroyer') || s.includes('tank_destroyer')) return 'tank destroyer';
+        if (s === 'td') return 'tank destroyer';
+        if (s.includes('spg') || s.includes('self-propelled')) return 'spg';
+        if (s.includes('fighter')) return 'fighter';
+        if (s.includes('attacker')) return 'attacker';
+        if (s.includes('bomber')) return 'bomber';
+        if (s.includes('helicopter') || s.includes('heli')) return 'helicopter';
+        return s;
+      }
+
+      function populateFilterR(selectId, values, placeholder) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '';
+        if (placeholder) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = placeholder;
+          sel.appendChild(opt);
+        }
+        (Array.isArray(values) ? values : []).forEach(v => {
+          if (v === null || v === undefined) return;
+          const opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          sel.appendChild(opt);
+        });
+        if (current && Array.isArray(values) && values.includes(current)) {
+          sel.value = current;
+        } else if (values.length > 0) {
+          sel.selectedIndex = 0;
+        }
+      }
+
+      function renderCurrentGameTableR(list) {
+        const tbody = document.getElementById('curGameTableBody');
+        if (!tbody) return;
+        
+        try {
+          if (!Array.isArray(list) || list.length === 0) { 
+            tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">No data</td></tr>'; 
+            return; 
+          }
+          
+          const html = list.map(r => {
+            const statusClass = (r.status === 'destroyed') ? 'status-destroyed' : 'status-active';
+            const statusText = (r.status === 'destroyed') ? 'dead' : 'alive';
+            
+            // Get highlight colors - player highlight overrides squadron highlight
+            let hl = getColorPair(highlights.players[r.player]);
+            if (!hl.bg && !hl.fg) {
+              hl = getColorPair(highlights.squadrons[r.squadron]);
+            }
+            
+            // Build style string
+            const styles = [];
+            if (hl.bg) styles.push(`background-color: ${hl.bg}`);
+            if (hl.fg) styles.push(`color: ${hl.fg}`);
+            const styleAttr = styles.length ? ` style="${styles.join('; ')};"` : '';
+            
+            return '<tr' + styleAttr + '>' +
+              '<td>' + (r.squadron ?? '') + '</td>' +
+              '<td>' + (r.player ?? '') + '</td>' +
+              '<td>' + (r.vehicle ?? '') + '</td>' +
+              '<td class="' + statusClass + '">' + statusText + '</td>' +
+              '<td>' + (r.kills ?? 0) + '</td>' +
+            '</tr>';
+          }).join('');
+          
+          tbody.innerHTML = html;
+        } catch (e) {
+          console.error('Error rendering game table:', e);
+          tbody.innerHTML = '<tr><td colspan="5" style="color:red;">Error loading data</td></tr>';
+        }
+      }
+      
+      async function applyFiltersAndRenderR() {
+        try {
+          const teamFilter = document.getElementById('filterTeamR')?.value?.toLowerCase() || '';
+          const typeFilter = document.getElementById('filterTypeR')?.value?.toLowerCase() || '';
+          const searchTerm = document.getElementById('searchR')?.value?.toLowerCase() || '';
+          
+          // Get current game selection
+          const gameSelect = document.getElementById('filterGameR');
+          const currentGame = gameSelect?.value;
+          
+          if (!currentGame) {
+            renderCurrentGameTableR([]);
+            return;
+          }
+          
+          // Fetch fresh data for the selected game
+          const data = await fetchRowsForGameR(currentGame);
+          if (!Array.isArray(data)) {
+            throw new Error('Invalid data format received');
+          }
+          
+          // Apply filters
+          const filtered = data.filter(item => {
+            if (!item) return false;
+            
+            const team = (item.team || '').toLowerCase();
+            const type = normalizeTypeR(item.type || item.vehicle_type || '');
+            const name = (item.name || '').toLowerCase();
+            const vehicle = (item.vehicle || '').toLowerCase();
+            
+            const teamMatch = !teamFilter || team === teamFilter;
+            const typeMatch = !typeFilter || type === typeFilter;
+            const searchMatch = !searchTerm || 
+              name.includes(searchTerm) ||
+              vehicle.includes(searchTerm) ||
+              (item.vehicle_name && item.vehicle_name.toLowerCase().includes(searchTerm));
+              
+            return teamMatch && typeMatch && searchMatch;
+          });
+          
+          renderCurrentGameTableR(filtered);
+          
+          // Update filter options based on available data
+          updateFilterOptions(data);
+          
+        } catch (e) {
+          console.error('Error applying filters:', e);
+          const tbody = document.getElementById('currentGameBodyR');
+          if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center error">Error loading data. Please try refreshing.</td></tr>';
+          }
+        }
+      }
+      
+      function updateFilterOptions(data) {
+        if (!Array.isArray(data)) return;
+        
+        // Get unique teams and types
+        const teams = new Set();
+        const types = new Set();
+        
+        data.forEach(item => {
+          if (item?.team) teams.add(item.team);
+          const type = normalizeTypeR(item?.type || item?.vehicle_type || '');
+          if (type) types.add(type);
+        });
+        
+        // Update team filter
+        const teamFilter = document.getElementById('filterTeamR');
+        if (teamFilter) {
+          const current = teamFilter.value;
+          const teamOptions = Array.from(teams).sort();
+          populateFilterR('filterTeamR', teamOptions, 'All Teams');
+          if (teamOptions.includes(current)) {
+            teamFilter.value = current;
+          }
+        }
+        
+        // Update type filter
+        const typeFilter = document.getElementById('filterTypeR');
+        if (typeFilter) {
+          const current = typeFilter.value;
+          const typeOptions = Array.from(types).sort();
+          populateFilterR('filterTypeR', typeOptions, 'All Types');
+          if (typeOptions.includes(current)) {
+            typeFilter.value = current;
+          }
+        }
+      }
+      async function fetchGamesR() {
+        try {
+          const [gamesResp, currentResp] = await Promise.all([
+            fetchJson('/api/games-list'),
+            fetchJson('/api/current-game')
+          ]);
+          const games = Array.isArray(gamesResp) ? gamesResp : [];
+          const current = currentResp?.currentGame || null;
+          return { games, current };
+        } catch (e) {
+          console.error('Error fetching games:', e);
+          return { games: [], current: null };
+        }
+      }
+
+      async function fetchRowsForGameR(game) {
+        if (game === 'all') {
+          const gl = await (await fetch('/api/games-list')).json();
+          const results = await Promise.all(gl.map(g => 
+            fetch('/api/active-vehicles?game=' + encodeURIComponent(g))
+              .then(r => r.json())
+              .then(list => list.map(it => { 
+                if (it && (it.game == null)) it.game = g; 
+                return it; 
+              }))
+          ));
+          rowsR = [].concat.apply([], results);
+        } else {
+          if (game === 'current') {
+            try { 
+              const j = await (await fetch('/api/current-game')).json(); 
+              game = String(j.currentGame); 
+            } catch (_) {}
+          }
+          const resp = await fetch('/api/active-vehicles?game=' + encodeURIComponent(game));
+          rowsR = await resp.json();
+          rowsR = rowsR.map(it => { 
+            if (it && (it.game == null)) it.game = game; 
+            return it; 
+          });
+        }
+        return rowsR;
+      }
+
+      async function initRightControls() {
+        try {
+          // Initialize UI elements
+          const gameSelect = document.getElementById('filterGameR');
+          const prevBtn = document.getElementById('btnPrevGameR');
+          const nextBtn = document.getElementById('btnNextGameR');
+          const refreshBtn = document.getElementById('btnRefresh');
+          const autoRefresh = document.getElementById('chkAuto');
+          
+          // Load games and highlights
+          const { games, current } = await fetchGamesR();
+          await fetchHighlights();
+          
+          // Populate game selector with "Current Game" and "All Games" options
+          if (gameSelect) {
+            const saved = localStorage.getItem('selectedGameR');
+            const initial = (saved === 'all' || saved === 'current') ? saved : 
+                          (saved && games.includes(parseInt(saved, 10)) ? saved : 'current');
+            
+            gameSelect.innerHTML = 
+              '<option value="current">Current Game</option>' +
+              '<option value="all">All Games</option>' + 
+              games.map(g => `<option value="${g}">Game ${g}</option>`).join('');
+            
+            gameSelect.value = initial;
+            localStorage.setItem('selectedGameR', gameSelect.value);
+            
+            // Load initial game data
+            await fetchRowsForGameR(gameSelect.value);
+            applyFiltersAndRenderR();
+            
+            // Set up change event
+            gameSelect.addEventListener('change', async (e) => {
+              localStorage.setItem('selectedGameR', e.target.value);
+              await fetchRowsForGameR(e.target.value);
+              applyFiltersAndRenderR();
+            });
+          }
+          
+          // Set up prev/next buttons
+          if (prevBtn) {
+            prevBtn.addEventListener('click', async () => {
+              const sorted = games.slice().sort((a, b) => a - b);
+              let curVal = gameSelect.value === 'current' ? String(current) : 
+                         (gameSelect.value === 'all' ? String(current) : gameSelect.value);
+              let idx = sorted.findIndex(g => String(g) === String(curVal));
+              if (idx < 0) idx = 0;
+              const nextIdx = Math.max(0, idx - 1);
+              
+              gameSelect.value = String(sorted[nextIdx]);
+              localStorage.setItem('selectedGameR', gameSelect.value);
+              await fetchRowsForGameR(gameSelect.value);
+              applyFiltersAndRenderR();
+            });
+          }
+          
+          if (nextBtn) {
+            nextBtn.addEventListener('click', async () => {
+              const sorted = games.slice().sort((a, b) => a - b);
+              let curVal = gameSelect.value === 'current' ? String(current) : 
+                         (gameSelect.value === 'all' ? String(current) : gameSelect.value);
+              let idx = sorted.findIndex(g => String(g) === String(curVal));
+              if (idx < 0) idx = 0;
+              const nextIdx = Math.min(sorted.length - 1, idx + 1);
+              
+              gameSelect.value = String(sorted[nextIdx]);
+              localStorage.setItem('selectedGameR', gameSelect.value);
+              await fetchRowsForGameR(gameSelect.value);
+              applyFiltersAndRenderR();
+            });
+          }
+          
+          if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+              await refreshRightAllGamesSummary();
+              if (gameSelect && gameSelect.value) {
+                await fetchRowsForGameR(gameSelect.value);
+              }
+            });
+          }
+          
+          // Initialize filters
+          const filterTeam = document.getElementById('filterTeamR');
+          const filterType = document.getElementById('filterTypeR');
+          const searchInput = document.getElementById('searchR');
+          
+          if (filterTeam) filterTeam.addEventListener('change', applyFiltersAndRenderR);
+          if (filterType) filterType.addEventListener('change', applyFiltersAndRenderR);
+          if (searchInput) {
+            // Add debounce to search input
+            let searchTimeout;
+            searchInput.addEventListener('input', () => {
+              clearTimeout(searchTimeout);
+              searchTimeout = setTimeout(applyFiltersAndRenderR, 300);
+            });
+          }
+          
+          // Load initial data
+          if (gameSelect && gameSelect.value) {
+            await fetchRowsForGameR(gameSelect.value);
+            applyFiltersAndRenderR();
+          }
+          
+        } catch (e) {
+          console.error('Error initializing right controls:', e);
+        }
+      }
+
+      // Meta data functions
+      async function fetchMetaForSelectedGame() {
+        const gameSel = document.getElementById('filterGameR');
+        let game = gameSel ? gameSel.value : 'current';
+        if (game === 'current') {
+          try { 
+            const current = (await (await fetch('/api/current-game')).json()).currentGame;
+            game = String(current); 
+          } catch (_) {}
+        }
+        try {
+          const res = await fetch('/api/meta' + (game && game !== 'all' ? ('?game=' + encodeURIComponent(game)) : ''));
+          const j = await res.json();
+          const meta = { squadNo: '', gc: '', ac: '', ...(j.meta || {}) };
+          // Update input fields
+          const iSquad = document.getElementById('inpSquadNo');
+          const iGc = document.getElementById('inpGC');
+          const iAc = document.getElementById('inpAC');
+          if (iSquad) iSquad.value = meta.squadNo || '';
+          if (iGc) iGc.value = meta.gc || '';
+          if (iAc) iAc.value = meta.ac || '';
+        } catch (_) {
+          // Keep current values on error
+        }
+      }
+
+      // Save meta for the selected game
+      async function saveMetaForSelectedGame() {
+        const gameSel = document.getElementById('filterGameR');
+        let game = gameSel ? gameSel.value : 'current';
+        if (game === 'current' || game === 'all') {
+          try { 
+            const current = (await (await fetch('/api/current-game')).json()).currentGame;
+            game = String(current); 
+          } catch (_) {}
+        }
+        const payload = {
+          squadNo: document.getElementById('inpSquadNo')?.value || '',
+          gc: document.getElementById('inpGC')?.value || '',
+          ac: document.getElementById('inpAC')?.value || ''
+        };
+        try {
+          await fetch('/api/meta?game=' + encodeURIComponent(game), { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload) 
+          });
+          await fetchMetaForSelectedGame();
+          // Refresh the data after saving
+          const rows = await fetchRowsForGameR(gameSel.value);
+          renderCurrentGameTableR(rows);
+          applyFiltersAndRenderR();
+        } catch (_) {}
+      }
+
+      // Initialize the application when the DOM is fully loaded
+      document.addEventListener('DOMContentLoaded', () => {
+        initApplication();
+        
+        // Wire up save button
+        const btnSave = document.getElementById('btnSaveMeta');
+        if (btnSave) {
+          btnSave.addEventListener('click', saveMetaForSelectedGame);
+        }
+        
+        // Also load meta when game selection changes
+        const gameSel = document.getElementById('filterGameR');
+        if (gameSel) {
+          gameSel.addEventListener('change', fetchMetaForSelectedGame);
+        }
+        
+        // Initial load
+        fetchMetaForSelectedGame();
+      });
+    })();
+
+    async function refreshRightAllGamesSummary() {
+  const tgt = document.getElementById('rightAllGamesSummaryBody');
+  if (!tgt) return;
+  try {
+    const resp = await fetch('/api/merged-summary');
+    const j = await resp.json();
+    const lines = (j && Array.isArray(j.lines)) ? j.lines : [];
+    tgt.innerHTML = (lines && lines.length) ? lines.map(l => '<tr><td>' + l + '</td></tr>').join('') : '<tr><td>No data</td></tr>';
+  } catch (_) {
+    tgt.innerHTML = '<tr><td>No data</td></tr>';
+  }
+}
+
+
+    // Helper functions for button actions
+async function recordResult(kind) {
+  try {
+    const response = await fetch(`/api/record-${kind}`, { method: 'POST' });
+    const result = await response.json();
+    if (!result.success) {
+      console.error(`Failed to record ${kind}:`, result.message || 'Unknown error');
+    }
+    // Refresh both the main info and the summary table
+    await Promise.all([
+      refreshInfo(),
+      refreshRightAllGamesSummary()
+    ]);
+  } catch (e) {
+    console.error(`Error recording ${kind}:`, e);
+  }
+}
+
+async function postLogs() {
+  try {
+    const response = await fetch('/api/post-logs', { method: 'POST' });
+    const result = await response.json();
+    if (result.success) {
+      alert('Logs posted successfully!');
+    } else {
+      alert(`Failed to post logs: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error posting logs:', e);
+    alert(`Error posting logs: ${e.message}`);
+  }
+}
+
+async function submitJson() {
+  try {
+    const ok = window.confirm('Submit current parsed JSON to backend?');
+    if (!ok) return;
+    
+    const response = await fetch('/api/submit-json', { method: 'POST' });
+    const result = await response.json();
+    
+    if (result.success) {
+      alert('JSON submitted successfully!');
+    } else {
+      alert(`Failed to submit JSON: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error submitting JSON:', e);
+    alert(`Error submitting JSON: ${e.message}`);
+  }
+}
+
+async function resetState() {
+  try {
+    const response = await fetch('/api/reset', { method: 'POST' });
+    const result = await response.json();
+    
+    if (result.success) {
+      alert('State reset successfully!');
+      refreshInfo();
+    } else {
+      alert(`Failed to reset state: ${result.message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    console.error('Error resetting state:', e);
+    alert(`Error resetting state: ${e.message}`);
+  }
+}
+
+
+      </script>
+</body>
+</html>

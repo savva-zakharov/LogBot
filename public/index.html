@@ -652,19 +652,36 @@
 </head>
 <body>
   <div class="container">
-    <h1>War Thunder LogBot Game Log Assistant</h1>
+    <div class="topnav">
+      <div class="top-bar">
+        <div class="left-section">
+          <strong>Home</strong>
+          <span>/</span>
+          <a href="/map">Map</a>
+          <span>/</span>
+          <a href="/side">Side by Side</a>
+          <span>/</span>
+          <a href="/settings">Settings</a>
+        </div>
+        <div class="center-section">
+          <h1>War Thunder LogBot Game Log Assistant</h1>
+        </div>
+        <div class="right-section">
+            <button id="btnWin" class="btn btn-win">Record Win</button>
+            <button id="btnLoss" class="btn btn-loss">Record Loss</button>
+            <button id="btnPostLogs" class="btn">Post Logs</button>
+            <button id="btnSubmitJson" class="btn">Submit JSON</button>
+            <button id="btnReset" class="btn">Reset</button>
+        </div>
+      </div>
+    </div>
+
+
     <div class="topnav">
       <label>Squad No: <input id="inpSquadNo" class="meta-input" type="text" placeholder="e.g. 123" /></label>
       <label>GC: <input id="inpGC" class="meta-input" type="text" placeholder="e.g. GC" /></label>
       <label>AC: <input id="inpAC" class="meta-input" type="text" placeholder="e.g. AC" /></label>
-      <button id="btnSaveMeta" class="btn">Save</button>
-      <a href="/settings">Settings</a>
-      <a href="/public/map.html">Map</a>      
-      <button id="btnWin" class="btn btn-win">Record Win</button>
-      <button id="btnLoss" class="btn btn-loss">Record Loss</button>
-      <button id="btnPostLogs">Post Logs</button>
-      <button id="btnSubmitJson" class="btn">Submit JSON</button>
-      <button id="btnReset" class="btn">Reset</button>
+      <button id="btnSaveMeta" class="btn">Save</button>     
     </div>
     <h2 class="section-title">Current Game</h2>
     <div class="filters">

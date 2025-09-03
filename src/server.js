@@ -421,6 +421,13 @@ function startServer() {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(data);
             });
+        } else if (pathname === '/side') {
+            const filePath = path.join(__dirname, '../public/side.html');
+            fs.readFile(filePath, (err, data) => {
+                if (err) { res.writeHead(404); return res.end('Not Found'); }
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(data);
+            });
         } else if (pathname.startsWith('/public/')) {
             const filePath = path.join(__dirname, '..', pathname);
             fs.readFile(filePath, (err, data) => {
