@@ -104,6 +104,7 @@ function parseLogLine(line) {
   for (const seg of segments) {
     const parsed = tryParse(seg.text);
     if (parsed) {
+        if (parsed.vehicle.toUpperCase() === 'TEL') continue;
         // Determine status with positional hint first, then fallback to original-line heuristics
         let isDestroyed = false;
         if (seg.isAfter === true && ['destroyed', 'shot down', 'has been wrecked', 'has crashed'].includes(earliest.kw)) {
