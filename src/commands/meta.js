@@ -20,21 +20,40 @@ module.exports = {
     await interaction.deferReply();
 
     try {
-      // Get the requested BR or use the latest available
       const requestedBR = interaction.options.getString('battle_rating');
-      const br = requestedBR || getTodaysBr() || metalistManager.getLatestBR();
-      
-      if (!br) {
-        return interaction.editReply('❌ No metalist data available. Please check if the metalist file exists and is properly formatted.');
+      const availableBRs = metalistManager.getAvailableBRs();
+      let br = requestedBR;
+      let metaData;
+
+      if (br) {
+        // Try to find a matching BR, converting formats if necessary
+        if (availableBRs.includes(br)) {
+          metaData = metalistManager.getMetalist(br);
+        } else {
+          const alternativeBr = br.endsWith('.0')
+            ? br.slice(0, -2)
+            : (Number.isInteger(Number(br)) ? `${br}.0` : null);
+          
+          if (alternativeBr && availableBRs.includes(alternativeBr)) {
+            br = alternativeBr;
+            metaData = metalistManager.getMetalist(br);
+          }
+        }
       }
 
-      const metaData = metalistManager.getMetalist(br);
-      
+      // If no BR was requested, or if the requested one was not found, use the latest.
       if (!metaData) {
-        const availableBRs = metalistManager.getAvailableBRs().join(', ');
+        const latestBr = getTodaysBr() || metalistManager.getLatestBR();
+        if (latestBr) {
+            br = latestBr;
+            metaData = metalistManager.getMetalist(br);
+        }
+      }
+
+      if (!metaData) {
         return interaction.editReply(
-          `❌ No metalist data found for BR ${br}. ` +
-          `Available BRs: ${availableBRs || 'None'}`
+          `❌ No metalist data found for BR ${requestedBR || 'any'}. ` +
+          `Available BRs: ${availableBRs.join(', ') || 'None'}`
         );
       }
 
@@ -76,7 +95,6 @@ ${category}`,
 
       // Add a note if no specific BR was requested
       if (!requestedBR) {
-        const availableBRs = metalistManager.getAvailableBRs();
         if (availableBRs.length > 1) {
           embed.setFooter({
             text: `${embed.data.footer?.text || ''} • Use /meta battle_rating:X.X to see other BRs`,
