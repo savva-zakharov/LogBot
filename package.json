@@ -2,9 +2,10 @@
   "name": "logbot",
   "version": "0.4.1",
   "description": "Logger for WT telemtery",
-  "main": "index.js --client",
+  "main": "electron.js",
   "scripts": {
     "start": "node index.js",
+    "start:electron": "electron electron.js",
     "dev": "nodemon index.js",
     "test:webhook": "node test-webhook-server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
