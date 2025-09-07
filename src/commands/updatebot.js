@@ -1,32 +1,19 @@
 // src/commands/updatebot.js
-const { PermissionFlagsBits } = require('discord.js');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { isAuthorized } = require('../utils/permissions');
 
 module.exports = {
   data: {
     name: 'updatebot',
-    description: 'Runs update scripts to fetch git refs and update npm packages (owner/admin only)'
+    description: 'Runs update scripts to fetch git refs and update npm packages (admins or owner only)'
   },
   async execute(interaction) {
+    if (!isAuthorized(interaction)) {
+      return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+    }
     try {
-      // Security: allow only owner if configured, otherwise require Administrator
-      const OWNER_ID = process.env.BOT_OWNER_ID || process.env.OWNER_ID || '';
-
-      // If in a guild, we can check admin perms; in DMs this will be undefined
-      const isAdmin = interaction.memberPermissions && interaction.memberPermissions.has(PermissionFlagsBits.Administrator);
-
-      if (OWNER_ID) {
-        if (interaction.user.id !== OWNER_ID) {
-          return interaction.reply({ content: 'You are not allowed to run this command.', ephemeral: true });
-        }
-      } else {
-        if (!isAdmin) {
-          return interaction.reply({ content: 'Administrator permission required to run this command.', ephemeral: true });
-        }
-      }
-
       await interaction.deferReply({ ephemeral: false });
 
       const isWindows = process.platform === 'win32';
