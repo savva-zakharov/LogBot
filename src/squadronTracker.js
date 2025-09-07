@@ -1601,210 +1601,7 @@ async function startSquadronTracker() {
 
         // Squadron ponts change (site-reported and calculated)
         const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
-        //if (pointsDelta != null && pointsDelta !== 0) {
-          //msgLines.push(`• Squadron ponts: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
-          // Defer emitting event until after W/L inference so we can unify into one event
-        //}
-
-        // Prepare interval stats for persistence
-        let gainedPoints = 0;
-        let lostPoints = 0;
-        let matchesWon = 0;
-        let matchesLost = 0;
-
-        // Row-level changes: added/removed players and W/L inference
-        if (snapshot.membersCaptured && prev) {
-          const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
-          const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
-          const keyName = (r) => String(r['Player'] || r['player'] || '').trim();
-          const mkIndex = (rows) => {
-            const m = new Map();
-            rows.forEach(r => { const k = keyName(r); if (k) m.set(k, r); });
-            return m;
-          };
-          const prevMap = mkIndex(prevRows);
-          const currMap = mkIndex(currRows);
-          const removed = [];
-          const added = [];
-          prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
-          currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
-
-          // Compute gained/lost counts across common members by comparing Personal clan rating
-          try {
-            // Track detailed per-player rating changes
-            const increasedMembers = [];
-            const decreasedMembers = [];
-            prevMap.forEach((prevMember, name) => {
-              const currMember = currMap.get(name);
-              if (!currMember) return;
-              const prevRatingRaw = (prevMember['Personal clan rating'] || prevMember['rating'] || prevMember['Points'] || '').toString();
-              const currRatingRaw = (currMember['Personal clan rating'] || currMember['rating'] || currMember['Points'] || '').toString();
-              const prevRating = toNum(prevRatingRaw);
-              const currRating = toNum(currRatingRaw);
-              if (Number.isFinite(prevRating) && Number.isFinite(currRating)) {
-                const delta = currRating - prevRating;
-                if (delta > 0) {
-                  gainedPoints += 1;
-                  increasedMembers.push({
-                    player: name,
-                    from: prevRating,
-                    to: currRating,
-                    delta,
-                  });
-                } else if (delta < 0) {
-                  lostPoints += 1;
-                  decreasedMembers.push({
-                    player: name,
-                    from: prevRating,
-                    to: currRating,
-                    delta,
-                  });
-                }
-              }
-            });
-            // Expose in outer scope for later event logging
-            captureOnce.__lastIncreasedMembers = increasedMembers;
-            captureOnce.__lastDecreasedMembers = decreasedMembers;
-          } catch (_) {}
-
-          // Win/loss derivation depends on source of total points
-          // API: derive purely by squadron points delta sign
-          // Web: use player points-based inference (existing thresholds)
-          matchesWon = 0;
-          matchesLost = 0;
-          const useApiWl = (chosenSource === 'api') || (chosenSource === 'agree' && apiFinite);
-          if (useApiWl) {
-            if (typeof pointsDelta === 'number') {
-              if (pointsDelta > 0) { matchesWon = 1; matchesLost = 0; }
-              else if (pointsDelta < 0) { matchesWon = 0; matchesLost = 1; }
-            }
-          } else {
-            if (gainedPoints > 2 && gainedPoints < 9) matchesWon = 1;
-            else if (gainedPoints > 10 && gainedPoints < 17) matchesWon = 2;
-            else if (gainedPoints > 18) matchesWon = 3;
-
-            if (lostPoints > 2 && lostPoints < 9) matchesLost = 1;
-            else if (lostPoints > 10 && lostPoints < 17) matchesLost = 2;
-            else if (lostPoints > 18) matchesLost = 3;
-          }
-
-          // Initialize/advance session state with window awareness
-          const now = new Date();
-          const y = now.getUTCFullYear();
-          const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-          const d = String(now.getUTCDate()).padStart(2, '0');
-          const todayKey = `${y}-${m}-${d}`;
-          const activeWindow = getCurrentWindow(now);
-          // Handle window end (we had a windowKey but are now outside any window)
-          if (!activeWindow && __session.windowKey) {
-            try {
-              const { clearByKey } = getDiscordWinLossUpdater();
-              if (typeof clearByKey === 'function') clearByKey(__session.windowKey);
-            } catch (_) {}
-            try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: __session.windowKey, dateKey: __session.dateKey }); } catch (_) {}
-            __session.startedAt = null;
-            __session.dateKey = todayKey;
-            __session.startingPoints = null;
-            __session.wins = 0;
-            __session.losses = 0;
-            __session.windowKey = null;
-          }
-          // Handle new window start or first init inside a window
-          if (activeWindow && __session.windowKey !== activeWindow.key) {
-            __session.startedAt = now;
-            __session.dateKey = todayKey;
-            __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
-            __session.wins = 0;
-            __session.losses = 0;
-            __session.windowKey = activeWindow.key;
-            // Persist and post initial summary for this window
-            try {
-              if (__session.startingPoints != null) {
-                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey, windowKey: __session.windowKey });
-              }
-            } catch (_) {}
-            try {
-              const { updateByKey } = getDiscordWinLossUpdater();
-              let posted = null;
-              if (typeof updateByKey === 'function') {
-                try { posted = await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow)); } catch (_) { posted = null; }
-              }
-              if (!posted) {
-                const content = buildWindowSummaryContent(activeWindow);
-                const sendWL = getDiscordWinLossSend();
-                if (typeof sendWL === 'function') {
-                  try { await sendWL(content); posted = true; } catch (_) { posted = null; }
-                }
-                if (!posted) {
-                  const send = getDiscordSend();
-                  if (typeof send === 'function') {
-                    try { await send(content); } catch (_) {}
-                  }
-                }
-              }
-            } catch (_) {}
-          }
-          // If in a window but session fields missing, ensure they are initialized
-          if (activeWindow && (__session.startingPoints == null || __session.startedAt == null)) {
-            __session.startedAt = now;
-            __session.dateKey = todayKey;
-            __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
-            __session.wins = __session.wins | 0;
-            __session.losses = __session.losses | 0;
-          }
-          __session.wins += matchesWon;
-          __session.losses += matchesLost;
-
-          // Emit a single unified points_change event enriched with W/L and interval info
-          try {
-            if (pointsDelta != null && pointsDelta !== 0) {
-              // Cap per-player arrays to avoid oversized entries
-              const inc = Array.isArray(captureOnce.__lastIncreasedMembers) ? captureOnce.__lastIncreasedMembers.slice(0, 50) : [];
-              const dec = Array.isArray(captureOnce.__lastDecreasedMembers) ? captureOnce.__lastDecreasedMembers.slice(0, 50) : [];
-              appendEvent({
-                type: 'points_change',
-                delta: pointsDelta,
-                from: prevTotal,
-                  to: newTotal,
-                place: squadronPlace ?? null,
-                totalPointsAbove: totalPointsAbove ?? null,
-                totalPointsBelow: totalPointsBelow ?? null,
-                matchesWon,
-                matchesLost,
-                gainedPlayers: gainedPoints,
-                lostPlayers: lostPoints,
-                membersIncreased: inc,
-                membersDecreased: dec,
-                dateKey: __session.dateKey,
-                windowKey: __session.windowKey || null,
-                pointsSource: chosenSource,
-              });
-              // Live-update the session summary message for the active window
-              try {
-                if (activeWindow && __session.windowKey === activeWindow.key) {
-                  const { updateByKey } = getDiscordWinLossUpdater();
-                  if (typeof updateByKey === 'function') await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow));
-                }
-              } catch (_) {}
-            }
-          } catch (_) {}
-          
-          // Compose a session summary line akin to Python's tracker output
-          const hh = String(now.getUTCHours()).padStart(2, '0');
-          const mm = String(now.getUTCMinutes()).padStart(2, '0');
-          const timeSummary = `${hh}:${mm}`.padEnd(5, ' ');
-          const deltaFromStart = (newTotal != null && __session.startingPoints != null) ? (Number(newTotal) - Number(__session.startingPoints)) : null;
-          const wlSummary = `${__session.wins}/${__session.losses}`;
-          const intervalSummary = matchesWon === 0 && matchesLost === 0
-            ? 'no matches'
-            : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
-          // Add human-readable points/session lines
-          const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
-          const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
-          if (typeof pointsDelta === 'number' && pointsDelta !== 0) {
-            msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
-          }
-          msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
+        msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
           const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
 
           const buildLines = (list, symbol) => {
@@ -1857,17 +1654,30 @@ async function startSquadronTracker() {
           }
         }
 
-        const composed = msgLines.join('\n');
-        console.log(composed);
-        // Prefer dedicated win/loss channel if configured; fallback to default channel
-        const sendWL = getDiscordWinLossSend();
-        if (sendWL) {
-          try { await sendWL(composed); } catch (_) { /* ignore */ }
+        if (typeof pointsDelta === 'number' && pointsDelta !== 0) {
+          const intervalSummary = matchesWon === 0 && matchesLost === 0
+            ? 'no matches'
+            : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
+          msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
+        }
+
+        const hasMeaningfulChange = (pointsDelta != null && pointsDelta !== 0) || added.length > 0 || removed.length > 0;
+
+        if (hasMeaningfulChange) {
+            const composed = msgLines.join('\n');
+            console.log(composed);
+            // Prefer dedicated win/loss channel if configured; fallback to default channel
+            const sendWL = getDiscordWinLossSend();
+            if (sendWL) {
+              try { await sendWL(composed); } catch (_) { /* ignore */ }
+            } else {
+              const send = getDiscordSend();
+              if (send) {
+                try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
+              }
+            }
         } else {
-          const send = getDiscordSend();
-          if (send) {
-            try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
-          }
+            console.log('ℹ️ Squadron tracker: insignificant change detected, skipping notification.');
         }
       } catch (e) {
         console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);
