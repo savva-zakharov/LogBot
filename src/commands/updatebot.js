@@ -7,7 +7,7 @@ const fs = require('fs');
 module.exports = {
   data: {
     name: 'updatebot',
-    description: 'Runs update-bot.bat to fetch git refs and update npm packages (owner/admin only)'
+    description: 'Runs update scripts to fetch git refs and update npm packages (owner/admin only)'
   },
   async execute(interaction) {
     try {
@@ -29,12 +29,23 @@ module.exports = {
 
       await interaction.deferReply({ ephemeral: false });
 
-      const scriptPath = path.join(process.cwd(), 'update-bot.bat');
-      const child = spawn('cmd.exe', ['/c', scriptPath], {
-        cwd: process.cwd(),
-        windowsHide: true,
-        env: { ...process.env },
-      });
+      const isWindows = process.platform === 'win32';
+      const scriptName = isWindows ? 'update-bot.bat' : 'update-bot.sh';
+      const scriptPath = path.join(process.cwd(), scriptName);
+      
+      let child;
+      if (isWindows) {
+        child = spawn('cmd.exe', ['/c', scriptPath], {
+          cwd: process.cwd(),
+          windowsHide: true,
+          env: { ...process.env },
+        });
+      } else {
+        child = spawn('bash', [scriptPath], {
+          cwd: process.cwd(),
+          env: { ...process.env },
+        });
+      }
 
       let output = '';
       child.stdout.on('data', (data) => {
