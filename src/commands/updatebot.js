@@ -57,18 +57,17 @@ module.exports = {
       });
 
       child.on('close', (code) => {
+        interaction.editReply('```\n' + output + '```');
         if (code === 0) {
-          if (output.includes('Already up to date.')) { 
-            interaction.editReply('```\n' + output + '```\nAlready up to date. No restart needed');
-          } else {
-            interaction.editReply('```\n' + output + '```\nUpdate successful. Restarting bot...');
+          if (!output.includes('Already up to date.')) {
+            interaction.followUp('Update successful. Restarting bot...');
             setTimeout(() => {
               const flagPath = path.join(process.cwd(), 'restart.flag');
               fs.writeFileSync(flagPath, new Date().toISOString());
             }, 5000);
           }
         } else {
-          interaction.editReply('```\n' + output + '```\nUpdate process exited with code ' + code);
+          interaction.followUp('Update process exited with code ' + code);
         }
       });
 
