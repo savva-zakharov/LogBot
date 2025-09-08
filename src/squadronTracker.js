@@ -1423,9 +1423,9 @@ async function startSquadronTracker() {
   let lastSnapshot = null;
   let didInitialMembersFetch = false;
   // Track last-seen values to determine which source (API vs Web) changed first
-  let __lastApiVal = null;
-  let __lastWebVal = null;
-  let __lastDiffKey = null;
+  let __lastApiData = { points: null, ts: null };
+  let __lastWebData = { points: null, ts: null };
+  let __lastReportedPoints = null;
 
   async function captureOnce() {
     // Determine primary squadron tag (from settings or fallback parsing if needed)
@@ -1498,54 +1498,57 @@ async function startSquadronTracker() {
     } catch (_) {}
 
     // Decide which source to trust for totalPoints
+    const now = Date.now();
+    if (Number.isFinite(apiTotal)) {
+      if (__lastApiData.points !== apiTotal) {
+        __lastApiData.points = apiTotal;
+        __lastApiData.ts = now;
+      }
+    }
+    if (Number.isFinite(webTotal)) {
+      if (__lastWebData.points !== webTotal) {
+        __lastWebData.points = webTotal;
+        __lastWebData.ts = now;
+      }
+    }
+
+    // Decide which source is authoritative based on the latest timestamp
     let chosenTotal = null;
     let chosenSource = null;
-    const apiFinite = Number.isFinite(apiTotal);
-    const webFinite = Number.isFinite(webTotal);
-    if (apiFinite && webFinite) {
-      const apiChanged = (__lastApiVal !== null && apiTotal !== __lastApiVal);
-      const webChanged = (__lastWebVal !== null && webTotal !== __lastWebVal);
-      if (apiTotal !== webTotal) {
-        if (apiChanged && !webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
-        else if (!apiChanged && webChanged) { chosenSource = 'web'; chosenTotal = webTotal; }
-        else if (apiChanged && webChanged) { chosenSource = 'api'; chosenTotal = apiTotal; }
-        else { chosenSource = 'api'; chosenTotal = apiTotal; }
-        // Only compare/log when at least one side changed since last value
-        if (apiChanged || webChanged) {
-          const diffKey = `${apiTotal}|${webTotal}`;
-          if (diffKey !== __lastDiffKey) {
-            console.log(`ℹ️ Source diff: api=${apiTotal} vs web=${webTotal} (chosen=${chosenSource}; changed=${apiChanged&&webChanged?'both':apiChanged?'api':webChanged?'web':'none'})`);
-            try {
-              appendEvent({
-                type: 'source_diff',
-                dr_era5_hist: apiTotal,
-                squadron_rating: webTotal,
-                chosen: chosenSource,
-                changed: (apiChanged && webChanged) ? 'both' : (apiChanged ? 'api' : 'web'),
-                apiPrev: (__lastApiVal !== null ? __lastApiVal : null),
-                webPrev: (__lastWebVal !== null ? __lastWebVal : null),
-              });
-            } catch (_) {}
-            __lastDiffKey = diffKey;
-          }
-        }
-      } else {
-        chosenSource = 'agree';
-        chosenTotal = apiTotal; // both equal
-      }
-    } else if (apiFinite) {
+    const apiTs = __lastApiData.ts || 0;
+    const webTs = __lastWebData.ts || 0;
+
+    if (apiTs > 0 && apiTs >= webTs) {
       chosenSource = 'api';
-      chosenTotal = apiTotal;
-    } else if (webFinite) {
+      chosenTotal = __lastApiData.points;
+    } else if (webTs > 0) {
       chosenSource = 'web';
-      chosenTotal = webTotal;
-    } else {
-      chosenSource = null;
-      chosenTotal = null;
+      chosenTotal = __lastWebData.points;
     }
-    if (Number.isFinite(chosenTotal)) snapshot.totalPoints = chosenTotal;
-    if (apiFinite) __lastApiVal = apiTotal;
-    if (webFinite) __lastWebVal = webTotal;
+
+    // If the chosen value is different from the last reported value, then we have a change.
+    if (Number.isFinite(chosenTotal) && chosenTotal !== __lastReportedPoints) {
+      snapshot.totalPoints = chosenTotal;
+      // Log the source difference if they don't agree
+      if (__lastApiData.points !== __lastWebData.points) {
+        console.log(`ℹ️ Source diff: api=${__lastApiData.points} vs web=${__lastWebData.points} (chosen=${chosenSource})`);
+        try {
+          appendEvent({
+            type: 'source_diff',
+            dr_era5_hist: __lastApiData.points,
+            squadron_rating: __lastWebData.points,
+            chosen: chosenSource,
+          });
+        } catch (_) {}
+      }
+    } else {
+      // No change, or invalid data. Use the last known good value for the snapshot.
+      chosenTotal = __lastReportedPoints;
+    }
+
+    if (Number.isFinite(chosenTotal)) {
+      snapshot.totalPoints = chosenTotal;
+    }
 
     const key = simplifyForComparison(snapshot);
     if (lastKey === null) {
@@ -1554,6 +1557,11 @@ async function startSquadronTracker() {
       if (last) {
         lastKey = simplifyForComparison(last);
         lastSnapshot = last;
+        if (typeof last.totalPoints === 'number') {
+          __lastReportedPoints = last.totalPoints;
+          __lastApiData.points = last.totalPoints;
+          __lastWebData.points = last.totalPoints;
+        }
       }
     }
     if (key !== lastKey) {
@@ -1779,6 +1787,9 @@ async function startSquadronTracker() {
                 windowKey: __session.windowKey || null,
                 pointsSource: chosenSource,
               });
+              if (Number.isFinite(newTotal)) {
+                __lastReportedPoints = newTotal;
+              }
               // Live-update the session summary message for the active window
               try {
                 if (activeWindow && __session.windowKey === activeWindow.key) {
