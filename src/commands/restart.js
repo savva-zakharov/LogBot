@@ -2,6 +2,7 @@
 const { PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require("child_process");
 
 module.exports = {
   data: {
@@ -30,6 +31,17 @@ module.exports = {
 
       const flagPath = path.join(process.cwd(), 'restart.flag');
       fs.writeFileSync(flagPath, new Date().toISOString());
+
+      exec("pm2 restart LogBotDev", (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          interaction.followUp({ content: `stderr: ${error}`, ephemeral: true });
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+        console.error(`stderr: ${stderr}`);
+        interaction.followUp({ content: `stderr: ${stderr}`, ephemeral: true });
+      });
 
     } catch (e) {
       try {
