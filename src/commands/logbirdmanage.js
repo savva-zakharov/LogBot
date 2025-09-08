@@ -1,8 +1,9 @@
 // src/commands/logbirdmanage.js
 const fs = require('fs');
 const path = require('path');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ChannelType, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const webhookManager = require('../webhookManager');
+const { isAuthorized } = require('../utils/permissions');
 
 function loadRawSettings() {
   try {
@@ -22,16 +23,7 @@ function saveRawSettings(obj) {
   } catch (_) { return false; }
 }
 
-function hasAllowedRole(interaction, settings) {
-  if (!interaction.guild) return false;
-  if (interaction.memberPermissions && interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) return true;
-  const roleIds = Array.isArray(settings.logbirdRoleIds) ? settings.logbirdRoleIds.map(String) : [];
-  const roleNames = Array.isArray(settings.logbirdRoles) ? settings.logbirdRoles.map(s => String(s).toLowerCase()) : [];
-  const cache = interaction.member && interaction.member.roles && interaction.member.roles.cache ? interaction.member.roles.cache : new Map();
-  for (const rid of roleIds) { if (cache.has(rid)) return true; }
-  for (const [, role] of cache) { if (role && role.name && roleNames.includes(role.name.toLowerCase())) return true; }
-  return false;
-}
+
 
 function fmtId(id) { return id ? (String(id).slice(0, 6) + '...' + String(id).slice(-4)) : ''; }
 function fmtCh(id) { return id ? ('#' + String(id).slice(-4)) : ''; }
@@ -143,17 +135,24 @@ function notYourPanel(interaction) {
 module.exports = {
   data: {
     name: 'logbirdmanage',
-    description: 'Manage Logbird webhooks (list/delete)',
+    description: 'Manage Logbird webhooks (admins or owner only)',
   },
   async execute(interaction) {
-    const settings = loadRawSettings();
-    if (!hasAllowedRole(interaction, settings)) {
+    if (!isAuthorized(interaction)) {
       return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
     }
     const panel = buildPanel(interaction.user.id);
     return interaction.reply({ ...panel, ephemeral: true });
   },
   async handleComponent(interaction) {
+    if (!isAuthorized(interaction)) {
+      try {
+        await interaction.reply({ content: 'You do not have permission to use this component.', ephemeral: true });
+      } catch (e) {
+        // ignore if we cannot reply
+      }
+      return;
+    }
     try {
       if (!interaction || !interaction.customId || notYourPanel(interaction)) return false;
       const [key, ownerId] = interaction.customId.split(':');

@@ -4,6 +4,7 @@ const path = require('path');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
 const { loadSettings } = require('../config');
 const { setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel } = require('../discordBot');
+const { isAuthorized } = require('../utils/permissions');
 
 function readJsonSettings() {
   const file = path.join(process.cwd(), 'settings.json');
@@ -67,12 +68,15 @@ async function buildPanel() {
 module.exports = {
   data: {
     name: 'settings',
-    description: 'View and edit core settings (channel, waiting voice, squadron URL)',
+    description: 'View and edit core settings (admins or owner only)',
     options: [
       { type: 1, name: 'panel', description: 'Show Settings control panel with interactive buttons' },
     ],
   },
   async execute(interaction) {
+    if (!isAuthorized(interaction)) {
+      return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+    }
     const sub = interaction.options.getSubcommand();
     if (sub !== 'panel') {
       await interaction.reply({ content: 'Use /settings panel', flags: MessageFlags.Ephemeral });
@@ -82,6 +86,14 @@ module.exports = {
     await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
   },
   async handleComponent(interaction) {
+    if (!isAuthorized(interaction)) {
+      try {
+        await interaction.reply({ content: 'You do not have permission to use this component.', ephemeral: true });
+      } catch (e) {
+        // ignore if we cannot reply
+      }
+      return;
+    }
     if (!(interaction.isButton() || interaction.isModalSubmit())) return false;
     const id = interaction.customId || '';
     if (!(id.startsWith('cfg_') || id === 'cfg_modal_dc' || id === 'cfg_modal_wvc' || id === 'cfg_modal_url')) return false;
