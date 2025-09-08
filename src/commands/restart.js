@@ -1,6 +1,7 @@
 // src/commands/restart.js
 
 const { PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require("child_process");

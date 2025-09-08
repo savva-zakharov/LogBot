@@ -923,6 +923,12 @@ async function initSeasonSchedule() {
       const brMatch = text.match(/\b(?:BR|БР)\s*([0-9]+(?:\.[0-9]+)?)/i);
       const rangeMatch = text.match(/\((\d{2})\.(\d{2})\s*[—-]\s*(\d{2})\.(\d{2})\)/);
       let br = brMatch ? brMatch[1] : null;
+      if (!br) {
+        const fallbackMatch = text.match(/([0-9]+\.[0-9]+)\s*\(/);
+        if (fallbackMatch) {
+          br = fallbackMatch[1];
+        }
+      }
       let startDate = null, endDate = null;
       if (rangeMatch) {
         const [_, d1, m1, d2, m2] = rangeMatch;

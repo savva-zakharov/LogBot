@@ -43,9 +43,9 @@ module.exports = {
 
       // If no BR was requested, or if the requested one was not found, use the latest.
       if (!metaData) {
-        const latestBr = getTodaysBr() || metalistManager.getLatestBR();
-        if (latestBr) {
-            br = latestBr;
+        const requestedBR = getTodaysBr() || metalistManager.getLatestBR();
+        if (requestedBR) {
+            br = requestedBR;
             metaData = metalistManager.getMetalist(br);
         }
       }

@@ -25,7 +25,7 @@ module.exports = {
           interaction.reply({ content: 'Error getting version information.', ephemeral: true });
           return;
         }
-        interaction.reply({ content: `Version: ${version}\nCommit: ${stdout.trim()}`, ephemeral: true });
+        interaction.reply({ content: `\`\`\`Version: ${version}\nCommit: ${stdout.trim()}\`\`\``, ephemeral: true });
       });
     });
   }

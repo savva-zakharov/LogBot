@@ -38,6 +38,7 @@ settings.env.bak
 .env
 .env.*
 .DS_Store
+restart.flag
 
 .puppeteer_profile/
 logbird_webhooks.json
