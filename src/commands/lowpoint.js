@@ -70,6 +70,8 @@ module.exports = {
       : '(none)';
     const roleDisp = cfg.roleId || cfg.roleName || '(not set)';
     const limiterDisp = cfg.memberRoleId || cfg.memberRoleName || '(none)';
+    const messageDisp = (cfg.hasCustomLowPointsMessage ? cfg.lowPointsMessage : `${cfg.lowPointsMessage} (default)`).slice(0, 1024);
+    const channelDisp = cfg.lowPointsChannel || '(not set)';
     const eligible = guild ? await issuer.computeEligibleCount(guild) : 0;
     const assigned = guild ? await issuer.countAssigned(guild) : 0;
     const em = new EmbedBuilder()
@@ -84,6 +86,8 @@ module.exports = {
         { name: 'Eligible Now', value: String(eligible), inline: true },
         { name: 'Assigned Now', value: String(assigned), inline: true },
         { name: 'Grace Days', value: String(cfg.graceDays ?? 30), inline: true },
+        { name: 'Low Points Message', value: messageDisp, inline: false },
+        { name: 'Feedback Channel', value: channelDisp, inline: true },
         { name: 'Excluded Roles', value: exclDisp, inline: false },
       );
     const row1 = new ActionRowBuilder().addComponents(
@@ -103,7 +107,12 @@ module.exports = {
       new ButtonBuilder().setCustomId('lp_refresh').setLabel('Refresh ui').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary),
     );
-    return { embeds: [em], components: [row1, row2, row3] };
+    const row4 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_set_message').setLabel('Set LP Message').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_send_message').setLabel('Send LP Message').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('lp_set_channel').setLabel('Set LP Channel').setStyle(ButtonStyle.Primary),
+    );
+    return { embeds: [em], components: [row1, row2, row3, row4] };
   },
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
@@ -399,6 +408,63 @@ module.exports = {
         const payload = isId ? { memberRoleId: cleaned, memberRoleName: null } : { memberRoleName: raw, memberRoleId: null };
         issuer.saveConfig(payload);
         await interaction.reply({ content: `Limiter role set to ${isId ? `ID ${payload.memberRoleId}` : `name "${payload.memberRoleName}"`}. Use Issue Sync to apply, then Refresh.`, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_set_message') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder().setCustomId('lp_message_modal').setTitle('Set Low Points Message');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_message_value')
+          .setLabel('Message (leave blank for default)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setValue(cfg.hasCustomLowPointsMessage ? cfg.lowPointsMessage : '');
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_message_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_message_value') || '').trim();
+        if (raw.length) issuer.saveConfig({ lowPointsMessage: raw });
+        else issuer.saveConfig({ lowPointsMessage: null });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.reply({ ...payload, content: raw.length ? 'Low points message updated.' : 'Low points message reset to default.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_send_message') {
+        const res = await issuer.sendLowPointsDirectMessages(interaction.guild);
+        const payload = await this.buildPanel(interaction.guild);
+        const failures = res.failures && res.failures.length ? ` Failures: ${res.failures.length}.` : '';
+        await interaction.update({ ...payload, content: `Sent low points message to ${res.sent}/${res.attempted} members.${failures}` });
+        return true;
+      }
+      if (interaction.isButton() && id === 'lp_set_channel') {
+        const cfg = issuer.getConfig();
+        const modal = new ModalBuilder().setCustomId('lp_channel_modal').setTitle('Set Feedback Channel');
+        const input = new TextInputBuilder()
+          .setCustomId('lp_channel_value')
+          .setLabel('Channel ID or mention (blank to clear)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setValue(cfg.lowPointsChannel || '');
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'lp_channel_modal') {
+        const raw = (interaction.fields.getTextInputValue('lp_channel_value') || '').trim();
+        if (!raw) {
+          issuer.saveConfig({ lowPointsChannel: null });
+          const payload = await this.buildPanel(interaction.guild);
+          await interaction.reply({ ...payload, content: 'Low points feedback channel cleared.', flags: MessageFlags.Ephemeral });
+          return true;
+        }
+        const cleaned = raw.replace(/^<#(\d+)>$/, '$1');
+        issuer.saveConfig({ lowPointsChannel: cleaned });
+        const payload = await this.buildPanel(interaction.guild);
+        await interaction.reply({ ...payload, content: `Low points feedback channel set to ${cleaned}.`, flags: MessageFlags.Ephemeral });
         return true;
       }
       if (id === 'lp_issue') {

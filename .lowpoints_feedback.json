@@ -1,0 +1,43 @@
+{
+  "entries": [
+    {
+      "userId": "223113224470528000",
+      "channelId": "1406101712002875504",
+      "dateKey": "2025-10-13",
+      "ign": "Mindbird",
+      "points": 1546,
+      "discordName": "mindbird",
+      "firstTimestamp": "2025-10-13T22:19:55.216Z",
+      "records": [
+        {
+          "timestamp": "2025-10-13T22:19:55.216Z",
+          "content": "test",
+          "attachments": []
+        },
+        {
+          "timestamp": "2025-10-13T22:20:29.311Z",
+          "content": "test",
+          "attachments": []
+        }
+      ],
+      "messageId": "1427420616704786542"
+    }
+  ],
+  "profiles": {
+    "225062307108093953": {
+      "ign": "MrJ3lly",
+      "rating": 1544,
+      "discordName": "mrj3lly"
+    },
+    "223113224470528000": {
+      "ign": "Mindbird",
+      "rating": 1546,
+      "discordName": "mindbird"
+    },
+    "476399186628313090": {
+      "ign": "8beasty",
+      "rating": 1562,
+      "discordName": "8beasty"
+    }
+  }
+}

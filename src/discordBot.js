@@ -345,18 +345,31 @@ async function init(settings) {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.GuildVoiceStates,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent
     ],
-    partials: [Partials.Channel]
+    partials: [
+      Partials.Channel,
+      Partials.Message
+    ]
   });
 
   // Track webhook usage to refresh inactivity timer
   try {
-    client.on('messageCreate', (message) => {
+    client.on('messageCreate', async (message) => {
       try {
         if (message && message.webhookId) {
           webhookManager.markUsed(message.webhookId);
           // Also forward to collector to process any JSON attachments
           try { if (collectWatcher && typeof collectWatcher.processMessage === 'function') collectWatcher.processMessage(message); } catch (_) {}
+        }
+      } catch (_) {}
+      try {
+        if (message && !message.guild && !message.author?.bot) {
+          const lowPointsIssuer = require('./lowPointsIssuer');
+          if (lowPointsIssuer && typeof lowPointsIssuer.handleLowPointsReplyMessage === 'function') {
+            await lowPointsIssuer.handleLowPointsReplyMessage(message);
+          }
         }
       } catch (_) {}
     });
