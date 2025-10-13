@@ -428,6 +428,13 @@ function startServer() {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(data);
             });
+        } else if (pathname === '/graph.html' || pathname === '/graph') {
+            const filePath = path.join(__dirname, '../public/graph.html');
+            fs.readFile(filePath, (err, data) => {
+                if (err) { res.writeHead(404); return res.end('Not Found'); }
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(data);
+            });
         } else if (pathname.startsWith('/public/')) {
             const filePath = path.join(__dirname, '..', pathname);
             fs.readFile(filePath, (err, data) => {
@@ -569,6 +576,42 @@ function startServer() {
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Failed to write restart flag: ' + (e && e.message ? e.message : e) }));
             }
+        } else if (pathname === '/api/squadron-history') {
+            const oldLogsDir = path.join(process.cwd(), 'old_logs');
+            fs.readdir(oldLogsDir, (err, files) => {
+                if (err) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'Failed to read old_logs directory' }));
+                }
+
+                const squadronDataFiles = files.filter(f => f.startsWith('squadron_data-') && f.endsWith('.json'));
+                let allPoints = [];
+
+                squadronDataFiles.forEach(file => {
+                    const filePath = path.join(oldLogsDir, file);
+                    try {
+                        const content = fs.readFileSync(filePath, 'utf8');
+                        const json = JSON.parse(content);
+                        if (json && Array.isArray(json.squadronSnapshots)) {
+                            json.squadronSnapshots.forEach(item => {
+                                if (item.totalPoints && item.ts) {
+                                    allPoints.push({
+                                        ts: item.ts,
+                                        totalPoints: item.totalPoints
+                                    });
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        // Ignore errors for individual files
+                    }
+                });
+
+                allPoints.sort((a, b) => a.ts - b.ts);
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(allPoints));
+            });
         }
         else {
             res.writeHead(404);

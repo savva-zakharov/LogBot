@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Squadron Points Graph - LogBot</title>
+  <link rel="stylesheet" href="/public/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="topnav">
+      <a href="/">Home</a>
+      <a href="/map">Map</a>
+      <a href="/graph">Graphs</a>
+      <a href="/settings">Settings</a>
+    </div>
+    <h1 class="no-top">Squadron Points Over Time</h1>
+    <div class="panel">
+      <canvas id="squadronChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    async function fetchSquadronData() {
+      const response = await fetch('/api/squadron-history');
+      const data = await response.json();
+      return data;
+    }
+
+    function createChart(data) {
+      const ctx = document.getElementById('squadronChart').getContext('2d');
+
+      const chartData = data.map(item => ({
+        x: new Date(item.ts),
+        y: item.totalPoints
+      }));
+
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Total Squadron Points',
+            data: chartData,
+            borderColor: 'var(--accent-color)',
+            backgroundColor: 'rgba(144, 202, 249, 0.1)',
+            borderWidth: 2,
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                unit: 'day',
+                tooltipFormat: 'MMM d, yyyy HH:mm'
+              },
+              title: {
+                display: true,
+                text: 'Date'
+              },
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Squadron Points'
+              },
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)'
+              }
+            }
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          }
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const data = await fetchSquadronData();
+        if (data && data.length > 0) {
+          createChart(data);
+        } else {
+          console.error("No data available to display.");
+          const canvas = document.getElementById('squadronChart');
+          const ctx = canvas.getContext('2d');
+          ctx.font = "16px Arial";
+          ctx.fillStyle = "var(--text-color)";
+          ctx.textAlign = "center";
+          ctx.fillText("No squadron history data found.", canvas.width / 2, canvas.height / 2);
+        }
+      } catch (error) {
+        console.error("Failed to load chart data:", error);
+      }
+    });
+  </script>
+</body>
+</html>

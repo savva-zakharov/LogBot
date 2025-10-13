@@ -1,6 +1,20 @@
-// --- Events logging (mirror all Discord posts) ---
 const fs = require('fs');
 const path = require('path');
+
+// --- Global Error Handlers ---
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Application specific logging, throwing an error, or other logic here
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Application specific logging, throwing an error, or other logic here
+  // It's often recommended to exit the process after an uncaught exception
+  // process.exit(1);
+});
+
+// --- Events logging (mirror all Discord posts) ---
 function ensureEventsFile() {
   const file = path.join(process.cwd(), 'squadron_events.json');
   if (!fs.existsSync(file)) {
@@ -225,7 +239,7 @@ async function resolveVoiceChannelId(raw) {
   return null;
 }
 
-function loadCommands() {
+async function loadCommands() {
   commands.clear();
   try {
     const dir = path.join(__dirname, 'commands');
@@ -233,7 +247,16 @@ function loadCommands() {
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
     for (const file of files) {
       try {
-        const mod = require(path.join(dir, file));
+        const filePath = path.join(dir, file);
+        let mod;
+        if (file === 'meme.js') {
+          // Special handling for meme.js to build dynamic subcommands
+          const { buildMemeCommand, execute } = require(filePath);
+          const builtCommand = await buildMemeCommand();
+          mod = { data: builtCommand, execute };
+        } else {
+          mod = require(filePath);
+        }
         if (!mod || !mod.data || !mod.data.name || typeof mod.execute !== 'function') {
           console.warn(`⚠️ Skipping command '${file}': missing data.name or execute()`);
           continue;
@@ -254,6 +277,7 @@ function loadCommands() {
     }
     if (commands.size) {
       console.log(`✅ Loaded ${commands.size} command(s): ${[...commands.keys()].join(', ')}`);
+      
     } else {
       console.log('ℹ️ No commands found in src/commands');
     }
@@ -379,7 +403,7 @@ async function init(settings) {
   } catch (_) {}
 
   // Load command modules from src/commands
-  loadCommands();
+  await loadCommands();
 
   // Generic command dispatcher
   client.on('interactionCreate', async (interaction) => {
@@ -454,11 +478,7 @@ async function init(settings) {
     } catch (e) { console.warn('⚠️ WaitingTracker init failed:', e && e.message ? e.message : e); }
     // Register loaded slash commands; scope to desired guild if provided
     try {
-      const commandDefs = [...commands.values()].map(c => ({
-        name: c.data.name,
-        description: c.data.description || 'No description',
-        options: Array.isArray(c.data.options) ? c.data.options : undefined,
-      }));
+      const commandDefs = [...commands.values()].map(c => c.data.toJSON());
       if (desiredGuildId && isSnowflake(desiredGuildId)) {
         try {
           const guild = await client.guilds.fetch(desiredGuildId);

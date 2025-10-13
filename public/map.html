@@ -17,6 +17,8 @@
               <span>/</span>
               <strong>Map</strong>
               <span>/</span>
+              <a href="/graph">Graphs</a>
+              <span>/</span>
               <a href="/side">Side by Side</a>
               <span>/</span>
               <a href="/settings">Settings</a>
@@ -55,6 +57,7 @@
               <button id="btnZoomIn" class="btn">+</button>
               <button id="btnZoomOut" class="btn">-</button>
               <button id="btnReset" class="btn">Reset</button>
+              <button id="btnMeasure" class="btn">Measure Distance</button>
             </div>
           </div>
         </div>
@@ -1342,6 +1345,7 @@
 
       // Interaction: drag to pan (mouse)
 canvas.addEventListener('mousedown', (e) => {
+  if (measuring) return;
   dragging = true;
   const rect = canvas.getBoundingClientRect();
   dragStart.x = e.clientX - rect.left;
@@ -1400,7 +1404,7 @@ function startAuto() {
 }
 function stopAuto() {
   if (timer) { clearInterval(timer); timer = null; }
-  if (objTimer) { clearInterval(objTimer); objTimer = null; }
+  if (!objTimer) { clearInterval(objTimer); objTimer = null; }
 }
 
 // Periodically persist tracks (every 15s)
@@ -1664,6 +1668,88 @@ async function resetState() {
 }
 
     })();
+
+      </script>
+      <script>
+        const measureButton = document.getElementById('btnMeasure');
+        let measuring = false;
+        let points = [];
+
+        measureButton.addEventListener('click', () => {
+          measuring = !measuring;
+          if (measuring) {
+            measureButton.classList.add('selected');
+            canvas.style.cursor = 'crosshair';
+          } else {
+            measureButton.classList.remove('selected');
+            canvas.style.cursor = 'default';
+            points = [];
+            render();
+          }
+        });
+
+        canvas.addEventListener('click', (e) => {
+          if (!measuring) return;
+
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          points.push({ x, y });
+
+          if (points.length === 1) {
+            render();
+            drawMarker(points[0]);
+          } else if (points.length === 2) {
+            render();
+            drawLine(points[0], points[1]);
+            calculateAndDisplayDistance(points[0], points[1]);
+            measuring = false;
+            measureButton.classList.remove('selected');
+            canvas.style.cursor = 'default';
+            points = [];
+          }
+        });
+
+        function drawMarker(point) {
+          ctx.save();
+          ctx.fillStyle = 'red';
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        function drawLine(p1, p2) {
+          ctx.save();
+          ctx.strokeStyle = 'red';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function calculateAndDisplayDistance(p1, p2) {
+          if (!mapInfo) return;
+
+          const pixelDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          
+          const mapWidth = mapInfo.maxX - mapInfo.minX;
+          const mapHeight = mapInfo.maxY - mapInfo.minY;
+
+          const realDistX = (pixelDist / canvas.width) * mapWidth;
+          const realDistY = (pixelDist / canvas.height) * mapHeight;
+
+          const ingameDist = Math.hypot(realDistX, realDistY) / 1000; // Assuming grid scale is in meters
+
+          ctx.save();
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillText(`${ingameDist.toFixed(2)} km`, p2.x + 10, p2.y - 10);
+          ctx.restore();
+        }
 
       </script>
 </body>
