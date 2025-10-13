@@ -1,6 +1,6 @@
 {
   "name": "logbot",
-  "version": "0.5.1rc",
+  "version": "0.5.1",
   "description": "",
   "main": "index.js",
   "scripts": {

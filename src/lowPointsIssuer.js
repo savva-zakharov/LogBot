@@ -480,15 +480,16 @@ async function autoIssueAfterSnapshot() {
 function loadFeedbackState() {
   try {
     if (!fs.existsSync(FEEDBACK_STATE_FILE)) {
-      return { entries: [], profiles: {} };
+      return { entries: [], profiles: {}, summary: null };
     }
     const raw = fs.readFileSync(FEEDBACK_STATE_FILE, 'utf8');
     const parsed = JSON.parse(raw || '{}');
     const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
     const profiles = parsed.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {};
-    return { entries, profiles };
+    const summary = parsed.summary && typeof parsed.summary === 'object' ? parsed.summary : null;
+    return { entries, profiles, summary };
   } catch (_) {
-    return { entries: [], profiles: {} };
+    return { entries: [], profiles: {}, summary: null };
   }
 }
 
@@ -497,6 +498,7 @@ function saveFeedbackState(state) {
     const payload = {
       entries: Array.isArray(state.entries) ? state.entries : [],
       profiles: state.profiles && typeof state.profiles === 'object' ? state.profiles : {},
+      summary: state.summary && typeof state.summary === 'object' ? state.summary : null,
     };
     fs.writeFileSync(FEEDBACK_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
   } catch (_) {}
@@ -547,6 +549,66 @@ async function resolveLowPointsChannel(client) {
   return null;
 }
 
+async function resetFeedbackRecords(state, targets, client) {
+  if (!state || !Array.isArray(state.entries)) return;
+  const ids = new Set();
+  for (const target of targets || []) {
+    if (target && target.memberId) ids.add(target.memberId);
+  }
+  const channelCache = new Map();
+  const fetchChannel = async (channelId) => {
+    if (!client || !channelId) return null;
+    if (channelCache.has(channelId)) return channelCache.get(channelId);
+    let channel = null;
+    try {
+      channel = await client.channels.fetch(channelId);
+    } catch (_) {
+      channel = null;
+    }
+    channelCache.set(channelId, channel);
+    return channel;
+  };
+
+  if (state.summary && state.summary.channelId && state.summary.messageId) {
+    try {
+      const channel = await fetchChannel(state.summary.channelId);
+      if (channel && channel.messages && typeof channel.messages.fetch === 'function') {
+        try {
+          const msg = await channel.messages.fetch(state.summary.messageId);
+          if (msg && typeof msg.delete === 'function') await msg.delete().catch(() => {});
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  state.summary = null;
+
+  if (!ids.size) {
+    state.entries = Array.isArray(state.entries) ? state.entries : [];
+    return;
+  }
+
+  state.entries = Array.isArray(state.entries) ? state.entries : [];
+  const kept = [];
+  for (const entry of state.entries) {
+    if (!entry || !entry.userId || !ids.has(entry.userId)) {
+      kept.push(entry);
+      continue;
+    }
+    if (entry.channelId && entry.messageId && client) {
+      try {
+        const channel = await fetchChannel(entry.channelId);
+        if (channel && channel.messages && typeof channel.messages.fetch === 'function') {
+          try {
+            const msg = await channel.messages.fetch(entry.messageId);
+            if (msg && typeof msg.delete === 'function') await msg.delete().catch(() => {});
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  }
+  state.entries = kept;
+}
+
 function formatUtc(ts) {
   try {
     const d = new Date(ts);
@@ -554,6 +616,90 @@ function formatUtc(ts) {
     return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
   } catch (_) {
     return '';
+  }
+}
+
+function renderSummaryContent(summaryData, state) {
+  if (!summaryData) return null;
+  const targets = Array.isArray(summaryData.targets) ? summaryData.targets : [];
+  const entries = state && Array.isArray(state.entries) ? state.entries : [];
+  const replyCounts = new Map();
+  for (const entry of entries) {
+    if (!entry || !entry.userId) continue;
+    const recordsCount = Array.isArray(entry.records) ? entry.records.length : 0;
+    if (!recordsCount) continue;
+    replyCounts.set(entry.userId, (replyCounts.get(entry.userId) || 0) + recordsCount);
+  }
+
+  const sentAt = summaryData.sentAt || new Date().toISOString();
+  const header = `Low points DM summary (${formatUtc(sentAt)})`;
+
+  if (!targets.length) {
+    const lines = [header, 'Messaged: 0 member(s)'];
+    const sanitized = lines.map(line => line.replace(/@/g, '@\u200B')).join('\n');
+    const safe = sanitized.replace(/```/g, '\\`\\`\\`');
+    return { text: sanitized, codeBlock: '```\n' + safe + '\n```' };
+  }
+
+  const namePad = Math.max(6, ...targets.map(t => String(t.ign || '(unknown IGN)').length));
+  const discordPad = Math.max(7, ...targets.map(t => String(t.discordName || '(unknown discord)').length));
+  const ratingPad = Math.max(6, ...targets.map(t => {
+    const rating = Number.isFinite(t.rating) ? Number(t.rating) : null;
+    return rating != null ? String(rating).length : 4;
+  }));
+
+  const bodyLines = targets.map(t => {
+    const ign = String(t.ign || '(unknown IGN)').padEnd(namePad, ' ');
+    const discordName = String(t.discordName || '(unknown discord)').padEnd(discordPad, ' ');
+    const rating = Number.isFinite(t.rating)
+      ? String(Number(t.rating)).padEnd(ratingPad, ' ')
+      : '(n/a)'.padEnd(ratingPad, ' ');
+    const replies = replyCounts.get(t.memberId) || 0;
+    const repliesLabel = replies ? `Responses: ${replies}` : 'Responses: NONE';
+    return `- ${ign} | Discord: ${discordName} | Rating: ${rating} | ${repliesLabel}`;
+  });
+
+  const failureLines = Array.isArray(summaryData.failures) && summaryData.failures.length
+    ? ['', 'Failures:', ...summaryData.failures]
+    : [];
+
+  const totalReplies = targets.reduce((acc, t) => acc + (replyCounts.get(t.memberId) || 0), 0);
+  const allLines = [
+    header,
+    `Messaged: ${targets.length} member(s)` + (totalReplies ? ` | Replies so far: ${totalReplies}` : ''),
+    ...bodyLines,
+    ...failureLines,
+  ];
+  const sanitized = allLines.map(line => line.replace(/@/g, '@\u200B')).join('\n');
+  const safe = sanitized.replace(/```/g, '\\`\\`\\`');
+  return { text: sanitized, codeBlock: '```\n' + safe + '\n```' };
+}
+
+async function updateSummaryMessage(state, client) {
+  if (!state || !state.summary || !client) return;
+  const { channelId, messageId } = state.summary;
+  if (!channelId) return;
+  const rendered = renderSummaryContent(state.summary, state);
+  if (!rendered) return;
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel || !channel.messages || typeof channel.messages.fetch !== 'function') return;
+    let summaryMessage = null;
+    if (messageId) {
+      try {
+        summaryMessage = await channel.messages.fetch(messageId);
+      } catch (_) {
+        summaryMessage = null;
+      }
+    }
+    if (summaryMessage) {
+      await summaryMessage.edit({ content: rendered.codeBlock, allowedMentions: { parse: [] } });
+    } else {
+      const newMessage = await channel.send({ content: rendered.codeBlock, allowedMentions: { parse: [] } });
+      state.summary.messageId = newMessage.id;
+    }
+  } catch (e) {
+    console.warn('[LowPoints][Summary] Failed to update summary message:', e && e.message ? e.message : e);
   }
 }
 
@@ -625,6 +771,7 @@ async function sendLowPointsDirectMessages(guild, options = {}) {
   console.log(`[LowPoints][DM] Preparing to send low-points message to ${targets.length} member(s) in guild "${guild.name}".`);
   const state = loadFeedbackState();
   pruneFeedbackEntries(state);
+  await resetFeedbackRecords(state, targets, guild?.client);
   const failures = [];
   const successes = [];
   let sent = 0;
@@ -658,57 +805,43 @@ async function sendLowPointsDirectMessages(guild, options = {}) {
     }
   }
   console.log(`[LowPoints][DM] Completed DM run: sent ${sent}/${targets.length}, failures ${failures.length}.`);
-  saveFeedbackState(state);
   try {
     if (successes.length && guild && guild.client) {
       const channel = await resolveLowPointsChannel(guild.client);
       if (channel) {
-        const header = `Low points DM summary (${formatUtc(new Date().toISOString())})`;
-        const namePad = Math.max(6, ...successes.map(s => (s.ign || '(unknown IGN)').length));
-        const discordPad = Math.max(7, ...successes.map(s => (s.discordName || s.display || '(unknown discord)').length));
-        const ratingPad = Math.max(6, ...successes.map(s => {
-          if (!Number.isFinite(s.rating)) return 4; // '(n/a)'
-          return String(s.rating).length;
-        }));
-        const replyCounts = new Map();
-        for (const entry of state.entries) {
-          if (!entry || !entry.userId) continue;
-          const recordsCount = Array.isArray(entry.records) ? entry.records.length : 0;
-          if (!recordsCount) continue;
-          const prev = replyCounts.get(entry.userId) || 0;
-          replyCounts.set(entry.userId, prev + recordsCount);
+        const summaryData = {
+          channelId: channel.id,
+          messageId: null,
+          sentAt: new Date().toISOString(),
+          targets: successes.map(s => ({
+            memberId: s.memberId,
+            ign: s.ign || s.display || '(unknown IGN)',
+            discordName: s.discordName || s.display || '(unknown discord)',
+            rating: Number.isFinite(s.rating) ? Number(s.rating) : (typeof s.rating === 'number' ? s.rating : null),
+          })),
+          failures: failures.slice(0, 25).map(f => `- ${f.display || f.memberId}: ${f.reason}`),
+        };
+        const rendered = renderSummaryContent(summaryData, state);
+        if (rendered) {
+          const summaryMessage = await channel.send({ content: rendered.codeBlock, allowedMentions: { parse: [] } });
+          summaryData.messageId = summaryMessage.id;
+          state.summary = summaryData;
+          console.log(`[LowPoints][DM] Posted summary to feedback channel "${channel.id}".`);
+        } else {
+          state.summary = null;
         }
-        const lines = successes.map(s => {
-          const ign = (s.ign || '(unknown IGN)').padEnd(namePad, ' ');
-          const discordName = (s.discordName || s.display || '(unknown discord)').padEnd(discordPad, ' ');
-          const rating = Number.isFinite(s.rating)
-            ? String(s.rating).padEnd(ratingPad, ' ')
-            : '(n/a)'.padEnd(ratingPad, ' ');
-          const replies = replyCounts.get(s.memberId) || 0;
-          const repliesLabel = replies ? `Responses: ${replies}` : 'Responses: NONE';
-          return `- ${ign} | Discord: ${discordName} | Rating: ${rating} | ${repliesLabel}`;
-        });
-        const failureLines = failures.length
-          ? ['', 'Failures:', ...failures.slice(0, 25).map(f => `- ${f.display || f.memberId}: ${f.reason}`)]
-          : [];
-        const totalReplies = successes.reduce((acc, s) => acc + (replyCounts.get(s.memberId) || 0), 0);
-        const summaryText = [
-          header,
-          `Messaged: ${successes.length} member(s)` + (totalReplies ? ` | Replies so far: ${totalReplies}` : ''),
-          ...lines,
-          ...failureLines
-        ]
-          .map(line => line.replace(/@/g, '@\u200B'))
-          .join('\n');
-        await channel.send({ content: '```\n' + summaryText + '\n```', allowedMentions: { parse: [] } });
-        console.log(`[LowPoints][DM] Posted summary to feedback channel "${channel.id}".`);
       } else {
+        state.summary = null;
         console.warn('[LowPoints][DM] Feedback channel not configured or could not be resolved; summary not posted.');
       }
+    } else {
+      state.summary = null;
     }
   } catch (e) {
+    state.summary = null;
     console.warn('[LowPoints][DM] Failed to post DM summary to feedback channel:', e && e.message ? e.message : e);
   }
+  saveFeedbackState(state);
   return { attempted: targets.length, sent, failures, successes };
 }
 
@@ -813,6 +946,9 @@ async function handleLowPointsReplyMessage(message) {
   }
 
   saveFeedbackState(state);
+  try {
+    await updateSummaryMessage(state, message.client);
+  } catch (_) {}
   console.log(`[LowPoints][Reply] Stored DM from ${profile.discordName || message.author.tag} (${userId}). Total records today: ${entry.records.length}.`);
   return true;
 }

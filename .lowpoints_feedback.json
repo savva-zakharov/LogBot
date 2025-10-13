@@ -7,20 +7,15 @@
       "ign": "Mindbird",
       "points": 1546,
       "discordName": "mindbird",
-      "firstTimestamp": "2025-10-13T22:19:55.216Z",
+      "firstTimestamp": "2025-10-13T22:27:22.473Z",
       "records": [
         {
-          "timestamp": "2025-10-13T22:19:55.216Z",
-          "content": "test",
-          "attachments": []
-        },
-        {
-          "timestamp": "2025-10-13T22:20:29.311Z",
+          "timestamp": "2025-10-13T22:27:22.473Z",
           "content": "test",
           "attachments": []
         }
       ],
-      "messageId": "1427420616704786542"
+      "messageId": "1427422492238020738"
     }
   ],
   "profiles": {
@@ -39,5 +34,31 @@
       "rating": 1562,
       "discordName": "8beasty"
     }
+  },
+  "summary": {
+    "channelId": "1406101712002875504",
+    "messageId": "1427422472512471060",
+    "sentAt": "2025-10-13T22:27:17.766Z",
+    "targets": [
+      {
+        "memberId": "225062307108093953",
+        "ign": "MrJ3lly",
+        "discordName": "mrj3lly",
+        "rating": 1544
+      },
+      {
+        "memberId": "223113224470528000",
+        "ign": "Mindbird",
+        "discordName": "mindbird",
+        "rating": 1546
+      },
+      {
+        "memberId": "476399186628313090",
+        "ign": "8beasty",
+        "discordName": "8beasty",
+        "rating": 1562
+      }
+    ],
+    "failures": []
   }
 }
