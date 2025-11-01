@@ -28,7 +28,7 @@ module.exports = {
           env: { ...process.env },
         });
       } else {
-        child = spawn('bash', [scriptPath], {
+        child = spawn('sh', [scriptPath], {
           cwd: process.cwd(),
           env: { ...process.env },
         });
