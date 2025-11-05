@@ -25,6 +25,8 @@ function toNumber(val) {
   return cleaned ? parseInt(cleaned, 10) : 0;
 }
 
+const { sanitizeName } = require('../utils/nameSanitizer');
+
 module.exports = {
   data: {
     name: 'top20',
@@ -42,7 +44,7 @@ module.exports = {
 
     // Sort rows by Personal clan rating desc
     const top = [...rows]
-      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
+      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: sanitizeName(r.Player || r.player || 'Unknown') }))
       .sort((a, b) => b.rating - a.rating)
       .slice(0, 20);
 

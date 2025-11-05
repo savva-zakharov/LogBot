@@ -1,0 +1,7 @@
+{
+  "watch": [
+    "restart.flag"
+  ],
+  "ext": "js json env flag",
+  "exec": "node index.js --server"
+}

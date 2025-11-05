@@ -989,6 +989,45 @@ async function initSeasonSchedule() {
   }
 }
 
+async function fetchAllSquadronsFromLeaderboard(tag) {
+  try {
+    const needle = String(tag || '').trim().toLowerCase();
+    if (!needle) return null;
+    const makeUrl = (page) => `mp`;
+    let page = 1;
+    const MAX_PAGES = 100; // sensible cap
+    const leaderboard = [];
+    let foundTrackedSquadron = false;
+
+    while (page <= MAX_PAGES) {
+      const json = await fetchJson(makeUrl(page));
+      if (!json || json.status !== 'ok') break;
+      const arr = Array.isArray(json.data) ? json.data : [];
+      if (!arr.length) break;
+
+      for (const item of arr) {
+        leaderboard.push({
+          tag: item.tag,
+          name: item.title,
+          points: toNum(item?.astat?.dr_era5_hist),
+        });
+        if (String(item.tagl || '').toLowerCase() === needle) {
+          foundTrackedSquadron = true;
+        }
+      }
+
+      if (foundTrackedSquadron && leaderboard.length >= 20) {
+        break;
+      }
+
+      page++;
+    }
+    return leaderboard;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function findOnLeaderboardViaApi(tag) {
   try {
     const needle = String(tag || '').trim().toLowerCase();
@@ -1398,15 +1437,15 @@ async function scrapeTable(page) {
 }
 
 function simplifyForComparison(snapshot) {
-  // Consider headers, rows, and totalPoints for change detection
-  const { headers, rows } = snapshot.data || {};
+  // Consider headers, rows, totalPoints, and leaderboard for change detection
+  const { headers, rows, leaderboard } = snapshot.data || {};
   const norm = (rows || []).map(r => {
     const obj = {};
     for (const k of Object.keys(r)) obj[k] = r[k];
     return obj;
   });
   const totalPoints = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
-  return JSON.stringify({ headers, rows: norm, totalPoints });
+  return JSON.stringify({ headers, rows: norm, totalPoints, leaderboard });
 }
 
 async function startSquadronTracker() {
@@ -1450,7 +1489,7 @@ async function startSquadronTracker() {
     // Prepare snapshot; we'll fetch HTML and API concurrently and reconcile
     let snapshot = {
       ts: Date.now(),
-      data: { headers: [], rows: [] },
+      data: { headers: [], rows: [], leaderboard: [] },
       totalPoints: null,
       squadronPlace: null,
       totalPointsAbove: null,
@@ -1462,7 +1501,7 @@ async function startSquadronTracker() {
     let apiCtx = null;
     try {
       const htmlPromise = (async () => { try { return await fetchText(squadronPageUrl); } catch (_) { return null; } })();
-      const apiPromise = (async () => { try { return primaryTag ? await findOnLeaderboardViaApi(primaryTag) : null; } catch (_) { return null; } })();
+      const apiPromise = (async () => { try { return primaryTag ? await fetchAllSquadronsFromLeaderboard(primaryTag) : null; } catch (_) { return null; } })();
       const [htmlRes, apiRes] = await Promise.all([htmlPromise, apiPromise]);
       rawHtml = htmlRes;
       apiCtx = apiRes;
@@ -1494,17 +1533,21 @@ async function startSquadronTracker() {
     let apiTotal = null;
     try {
       if (apiCtx) {
-        const apiPlaceRaw = apiCtx.squadronPlace;
-        // Adjust API place: API is 0-indexed; UI is 1-indexed
-        const adjustedPlace = (Number.isFinite(apiPlaceRaw) ? (apiPlaceRaw + 1) : null);
-        squadronPlace = adjustedPlace;
-        totalPointsAbove = apiCtx.totalPointsAbove;
-        totalPointsBelow = apiCtx.totalPointsBelow;
-        // Always populate squadronPlace from API when available (override HTML)
-        if (Number.isFinite(squadronPlace)) snapshot.squadronPlace = squadronPlace;
-        snapshot.totalPointsAbove = totalPointsAbove;
-        snapshot.totalPointsBelow = totalPointsBelow;
-        apiTotal = (apiCtx.found && typeof apiCtx.found.points === 'number') ? apiCtx.found.points : null;
+        snapshot.data.leaderboard = apiCtx;
+        const needle = String(primaryTag || '').trim().toLowerCase();
+        const idx = apiCtx.findIndex(e => String(e.tag || '').toLowerCase() === needle);
+
+        if (idx !== -1) {
+          const trackedSquadron = apiCtx[idx];
+          apiTotal = trackedSquadron.points;
+          squadronPlace = idx + 1;
+          totalPointsAbove = idx > 0 ? apiCtx[idx - 1].points : null;
+          totalPointsBelow = idx + 1 < apiCtx.length ? apiCtx[idx + 1].points : null;
+
+          snapshot.squadronPlace = squadronPlace;
+          snapshot.totalPointsAbove = totalPointsAbove;
+          snapshot.totalPointsBelow = totalPointsBelow;
+        }
       }
     } catch (_) {}
 
