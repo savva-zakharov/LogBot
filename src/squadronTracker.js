@@ -1468,6 +1468,11 @@ async function startSquadronTracker() {
       apiCtx = apiRes;
     } catch (_) {}
 
+    if (!rawHtml && !apiCtx) {
+      console.warn('⚠️ Squadron tracker: failed to fetch data from both web and API. Skipping update and using cached data.');
+      return;
+    }
+
     // Parse HTML members + web total
     let webTotal = null;
     try {
