@@ -3,9 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
+ 
 const { loadSettings } = require('./config');
 const { autoIssueAfterSnapshot } = require('./lowPointsIssuer');
 
@@ -420,9 +418,11 @@ function getDiscordWinLossUpdater() {
 
 // --- JSON API based leaderboard fetching (faster and more robust than HTML scraping) ---
 function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  console.log(`ℹ️ fetchJson: fetching ${url}`);
   return new Promise((resolve, reject) => {
     const req = https.get(url, res => {
       if (res.statusCode !== 200) {
+        console.warn(`⚠️ fetchJson: non-200 status code (${res.statusCode}) for ${url}`);
         // Notify Discord default channel about non-200 responses
         try {
           const send = getDiscordSend();
@@ -435,11 +435,24 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       res.setEncoding('utf8');
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          console.error(`⚠️ fetchJson: JSON parse failed for ${url}. Error: ${e.message}.`);
+          console.error(`Raw data received: ${data.slice(0, 500)}...`);
+          resolve(null);
+        }
       });
     });
-    req.on('error', () => resolve(null));
-    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
+    req.on('error', (e) => {
+      console.error(`⚠️ fetchJson: request error for ${url}:`, e);
+      resolve(null);
+    });
+    req.setTimeout(timeoutMs, () => {
+      console.warn(`⚠️ fetchJson: request timed out after ${timeoutMs}ms for ${url}`);
+      try { req.destroy(); } catch (_) {}
+      resolve(null);
+    });
   });
 }
 
@@ -993,7 +1006,7 @@ async function fetchAllSquadronsFromLeaderboard(tag) {
   try {
     const needle = String(tag || '').trim().toLowerCase();
     if (!needle) return null;
-    const makeUrl = (page) => `mp`;
+    const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
     let page = 1;
     const MAX_PAGES = 100; // sensible cap
     const leaderboard = [];
@@ -1008,7 +1021,7 @@ async function fetchAllSquadronsFromLeaderboard(tag) {
       for (const item of arr) {
         leaderboard.push({
           tag: item.tag,
-          name: item.title,
+          name: item.name,
           points: toNum(item?.astat?.dr_era5_hist),
         });
         if (String(item.tagl || '').toLowerCase() === needle) {
@@ -1486,14 +1499,16 @@ async function startSquadronTracker() {
     let totalPointsAbove = null;
     let totalPointsBelow = null;
 
-    // Prepare snapshot; we'll fetch HTML and API concurrently and reconcile
+    const lastSnapshotForInit = readLastSnapshot(dataFile);
+    // Prepare snapshot, starting with previous values to avoid nulling them out on partial failures.
     let snapshot = {
       ts: Date.now(),
-      data: { headers: [], rows: [], leaderboard: [] },
-      totalPoints: null,
-      squadronPlace: null,
-      totalPointsAbove: null,
-      totalPointsBelow: null,
+      data: lastSnapshotForInit?.data ? JSON.parse(JSON.stringify(lastSnapshotForInit.data)) : { headers: [], rows: [], leaderboard: [] },
+      totalPoints: lastSnapshotForInit?.totalPoints ?? null,
+      squadronPlace: lastSnapshotForInit?.squadronPlace ?? null,
+      totalPointsAbove: lastSnapshotForInit?.totalPointsAbove ?? null,
+      totalPointsBelow: lastSnapshotForInit?.totalPointsBelow ?? null,
+      membersCaptured: lastSnapshotForInit?.membersCaptured ?? false,
     };
 
     // Concurrently fetch HTML and API
@@ -1507,7 +1522,7 @@ async function startSquadronTracker() {
       apiCtx = apiRes;
     } catch (_) {}
 
-    if (!rawHtml && !apiCtx) {
+    if (!rawHtml && (!apiCtx || apiCtx.length === 0)) {
       console.warn('⚠️ Squadron tracker: failed to fetch data from both web and API. Skipping update and using cached data.');
       return;
     }
@@ -1515,10 +1530,16 @@ async function startSquadronTracker() {
     // Parse HTML members + web total
     let webTotal = null;
     try {
-      if (rawHtml) {
+      const htmlErrorRe = /(cloudflare|just a moment|error code|404 not found|checking your browser)/i;
+      const htmlLooksLikeError = rawHtml ? htmlErrorRe.test(rawHtml) : false;
+
+      if (rawHtml && !htmlLooksLikeError) {
         const parsed = parseSquadronWithCheerio(rawHtml);
         if (parsed && Array.isArray(parsed.rows)) {
+          // Preserve leaderboard data if it exists from the last snapshot
+          const existingLeaderboard = snapshot.data?.leaderboard;
           snapshot.data = parsed;
+          if (existingLeaderboard) snapshot.data.leaderboard = existingLeaderboard;
           snapshot.membersCaptured = true;
         }
         try {
@@ -1526,6 +1547,9 @@ async function startSquadronTracker() {
           if (Number.isFinite(totalPoints)) webTotal = totalPoints;
           if (Number.isFinite(place)) snapshot.squadronPlace = place;
         } catch (_) {}
+      } else if (htmlLooksLikeError) {
+        console.warn('⚠️ HTML content looks like an error page, skipping member parse.');
+        snapshot.membersCaptured = false; // Explicitly mark as not captured
       }
     } catch (_) {}
 
@@ -1602,6 +1626,22 @@ async function startSquadronTracker() {
 
     if (Number.isFinite(chosenTotal)) {
       snapshot.totalPoints = chosenTotal;
+    }
+
+    const last = readLastSnapshot(dataFile);
+    if (!snapshot.membersCaptured && last && last.data) {
+        if (last.data.rows) snapshot.data.rows = last.data.rows;
+        if (last.data.headers) snapshot.data.headers = last.data.headers;
+        if (last.membersCaptured) snapshot.membersCaptured = last.membersCaptured;
+    }
+    if (snapshot.squadronPlace === null && last && last.squadronPlace !== null) {
+        snapshot.squadronPlace = last.squadronPlace;
+    }
+    if (snapshot.totalPointsAbove === null && last && last.totalPointsAbove !== null) {
+        snapshot.totalPointsAbove = last.totalPointsAbove;
+    }
+    if (snapshot.totalPointsBelow === null && last && last.totalPointsBelow !== null) {
+        snapshot.totalPointsBelow = last.totalPointsBelow;
     }
 
     const key = simplifyForComparison(snapshot);
