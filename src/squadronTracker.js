@@ -228,6 +228,12 @@ function ensureLogsDir() {
   return dir;
 }
 
+function ensureTmpDir() {
+  const dir = path.join(process.cwd(), '.tmp');
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  return dir;
+}
+
 function archiveSquadronData(dateKeyOverride = null) {
   try {
     const src = path.join(process.cwd(), 'squadron_data.json');
@@ -436,6 +442,18 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         try {
+          // Save raw JSON to .tmp for debugging
+          try {
+            const tmpDir = ensureTmpDir();
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const urlPart = url.split('/').slice(-4).join('_').replace(/[^a-zA-Z0-9_]/g, '');
+            const filename = `${timestamp}_${urlPart}.json`;
+            const filepath = path.join(tmpDir, filename);
+            fs.writeFileSync(filepath, data, 'utf8');
+            console.log(`ℹ️ fetchJson: saved response to .tmp/${filename}`);
+          } catch (e) {
+            console.warn(`⚠️ fetchJson: failed to save tmp file for ${url}: ${e.message}`);
+          }
           resolve(JSON.parse(data));
         } catch (e) {
           console.error(`⚠️ fetchJson: JSON parse failed for ${url}. Error: ${e.message}.`);
@@ -456,268 +474,8 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   });
 }
 
-// Stealth Puppeteer fallback for HTML fetching
-async function fetchViaStealth(url) {
-  let browser = null;
-  try {
-    const send = getDiscordSend();
-    if (typeof send === 'function') { try { await send(`Using stealth fetch for: ${url}`); } catch (_) {} }
-    // Read optional debug wait configuration
-    const __cfg = (() => { try { return loadSettings() || {}; } catch (_) { return {}; } })();
-    const extraWaitMs = (() => {
-      const v = Number(process.env.CF_DEBUG_WAIT_MS || (__cfg && __cfg.stealthDebugWaitMs));
-      if (!Number.isFinite(v) || v <= 0) return 0;
-      return Math.min(300000, Math.max(0, v)); // cap 5 minutes
-    })();
-    const manualPauseSec = (() => {
-      const v = Number(process.env.STEALTH_PAUSE_SECS || (__cfg && __cfg.stealthManualPauseSeconds));
-      if (!Number.isFinite(v) || v <= 0) return 0;
-      return Math.min(600, Math.max(0, v)); // cap 10 minutes
-    })();
-    const profileDir = path.join(__dirname, '..', '.puppeteer_profile');
-    const launchArgs = [
-      '--no-sandbox',
-      '--lang=en-US,en;q=0.9',
-      '--window-size=1280,800',
-    ];
-    const proxy = process.env.HTTP_PROXY || process.env.http_proxy || process.env.HTTPS_PROXY || process.env.https_proxy;
-    if (proxy) launchArgs.push(`--proxy-server=${proxy}`);
-    browser = await puppeteer.launch({
-      headless: false,
-      userDataDir: profileDir,
-      args: launchArgs,
-    });
-    const page = await browser.newPage();
-    try {
-      page.setDefaultNavigationTimeout(90_000);
-      await page.setJavaScriptEnabled(true);
-      try { await page.setBypassCSP(true); } catch (_) {}
-      // Subtle client hints and language/platform spoofing (stealth covers most, but add a bit more)
-      try {
-        await page.evaluateOnNewDocument(() => {
-          try { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); } catch {}
-          try { Object.defineProperty(navigator, 'platform', { get: () => 'Win32' }); } catch {}
-          try { Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 }); } catch {}
-          try { Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 }); } catch {}
-        });
-      } catch (_) {}
-      // Randomize UA and viewport slightly per attempt
-      const uas = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      ];
-      const ua = uas[Math.floor(Math.random() * uas.length)];
-      await page.setUserAgent(ua);
-      const vp = { width: Math.floor(1200 + Math.random() * 240), height: Math.floor(720 + Math.random() * 180), deviceScaleFactor: 1 };
-      await page.setViewport(vp);
-      await page.setExtraHTTPHeaders({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-User': '?1',
-        'Sec-Fetch-Dest': 'document',
-        'sec-ch-ua': '"Chromium";v="124", "Not-A.Brand";v="24", "Google Chrome";v="124"',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-ch-ua-mobile': '?0',
-        'Referer': (() => { try { const u = new URL(url); return `${u.origin}/`; } catch { return undefined; } })(),
-      });
-      try { await page.emulateTimezone('Europe/London'); } catch (_) {}
-
-      // Capture page events for diagnostics
-      const diag = { console: [], pageerrors: [], failed: [] };
-      try {
-        page.on('console', msg => { try { diag.console.push(`[${msg.type()}] ${msg.text()}`); } catch {} });
-        page.on('pageerror', err => { try { diag.pageerrors.push(String(err && err.message || err)); } catch {} });
-        page.on('requestfailed', req => { try { diag.failed.push(`${req.method()} ${req.url()} -> ${req.failure() && req.failure().errorText}`); } catch {} });
-      } catch (_) {}
-
-      // Warm up origin first to establish cookies/session before hitting deep path
-      let origin;
-      try { const u = new URL(url); origin = `${u.protocol}//${u.hostname}/`; } catch (_) { origin = null; }
-      if (origin) {
-        try {
-          await page.goto(origin, { waitUntil: 'networkidle2', timeout: 60000 });
-          await page.waitForTimeout(5000);
-        } catch (_) {}
-      }
-
-      // Navigate to target and wait longer for network to settle
-      let lastStatus = null;
-      try {
-        page.on('response', res => { try { if (res.url() === url) lastStatus = res.status(); } catch (_) {} });
-      } catch (_) {}
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-      // If target responded with 403 once, try a single soft reload after a short wait
-      if (lastStatus === 403) {
-        await page.waitForTimeout(7000);
-        try { await page.reload({ waitUntil: 'networkidle2', timeout: 60000 }); } catch (_) {}
-      }
-
-      // Add a delay after navigation to reduce detection/fingerprinting and allow CF to settle
-      const baseWait = 15000 + (extraWaitMs || 0);
-      try { console.log(`ℹ️ Stealth: post-nav wait ${baseWait} ms (extra=${extraWaitMs})`); } catch (_) {}
-      await page.waitForTimeout(baseWait);
-
-      // Optional manual pause to examine the page/challenge
-      if (manualPauseSec > 0) {
-        try {
-          await page.bringToFront();
-          if (typeof send === 'function') { try { await send(`Stealth manual pause: waiting ${manualPauseSec}s to examine page...`); } catch (_) {} }
-        } catch (_) {}
-        await page.waitForTimeout(manualPauseSec * 1000);
-      }
-
-      // Try to accept cookie/consent banners automatically
-      try {
-        await page.evaluate(() => {
-          const texts = ['accept all', 'agree', 'consent', 'allow all', 'accept'];
-          const buttons = Array.from(document.querySelectorAll('button, input[type=button], input[type=submit]'));
-          for (const b of buttons) {
-            const t = (b.innerText || b.value || '').trim().toLowerCase();
-            if (!t) continue;
-            if (texts.some(x => t.includes(x))) { try { b.click(); } catch (_) {} }
-          }
-        });
-      } catch (_) {}
-
-      // Human-like interactions to help some anti-bot systems
-      try {
-        const w = (await page.viewport()).width;
-        const h = (await page.viewport()).height;
-        await page.mouse.move(Math.floor(w * 0.3), Math.floor(h * 0.3), { steps: 15 });
-        await page.waitForTimeout(400);
-        await page.mouse.move(Math.floor(w * 0.7), Math.floor(h * 0.6), { steps: 20 });
-        await page.waitForTimeout(400);
-        await page.mouse.move(Math.floor(w * 0.5), Math.floor(h * 0.2), { steps: 12 });
-        await page.waitForTimeout(400);
-        await page.mouse.wheel({ deltaY: 400 });
-        await page.waitForTimeout(600);
-        await page.mouse.wheel({ deltaY: -200 });
-      } catch (_) {}
-
-      // Cloudflare/Challenge detection loop with extended waits
-      const maxWaitMs = 60000;
-      const start = Date.now();
-      let content = await page.content();
-      const challengeRe = /(challenge-platform|__cf_chl|Just a moment|cf-please-wait|turnstile|cf-challenge)/i;
-      let reloads = 0;
-      while (challengeRe.test(content) && (Date.now() - start) < maxWaitMs) {
-        if (typeof send === 'function') { try { await send('Challenge detected. Waiting to clear...'); } catch (_) {} }
-        await page.waitForTimeout(5000);
-        if (++reloads % 3 === 0) {
-          // Periodically try a soft reload
-          try { await page.reload({ waitUntil: 'networkidle2', timeout: 60000 }); } catch (_) {}
-          await page.waitForTimeout(5000);
-        }
-        content = await page.content();
-      }
-      if (challengeRe.test(content)) {
-        if (typeof send === 'function') { try { await send('Challenge appears unresolved after extended wait. Capturing debug snapshot.'); } catch (_) {} }
-        // Save debug artifacts to help diagnose
-        try {
-          const ts = new Date().toISOString().replace(/[:.]/g, '-');
-          const base = path.join(__dirname, '..');
-          const shot = path.join(base, `cf_debug_${ts}.png`);
-          const htmlPath = path.join(base, `cf_debug_${ts}.html`);
-          const logPath = path.join(base, `cf_debug_${ts}.log`);
-          await page.screenshot({ path: shot, fullPage: true });
-          fs.writeFileSync(htmlPath, content || '');
-          const logBody = [
-            '--- Console ---',
-            ...diag.console.slice(-50),
-            '--- PageErrors ---',
-            ...diag.pageerrors.slice(-50),
-            '--- RequestFailed ---',
-            ...diag.failed.slice(-100),
-          ].join('\n');
-          fs.writeFileSync(logPath, logBody);
-        } catch (_) {}
-        // One retry with a slightly different UA
-        try {
-          await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36');
-          await page.reload({ waitUntil: 'networkidle2', timeout: 60000 });
-          await page.waitForTimeout(8000);
-          content = await page.content();
-        } catch (_) {}
-        // If still challenged, request manual solve from user and wait up to 3 minutes
-        if (challengeRe.test(content)) {
-          try {
-            if (typeof send === 'function') { await send('Manual intervention requested: bring the opened window to front and solve the challenge within 3 minutes.'); }
-          } catch (_) {}
-          try { await page.bringToFront(); } catch (_) {}
-          const manualStart = Date.now();
-          while (challengeRe.test(content) && (Date.now() - manualStart) < 180_000) {
-            await page.waitForTimeout(5000);
-            content = await page.content();
-          }
-          // If still challenged, try a mobile UA fallback in a fresh page within the same browser
-          if (challengeRe.test(content)) {
-            try { if (typeof send === 'function') await send('Trying mobile UA fallback...'); } catch (_) {}
-            let mPage = null;
-            try {
-              mPage = await browser.newPage();
-              await mPage.setJavaScriptEnabled(true);
-              await mPage.setBypassCSP(true).catch(() => {});
-              const mUA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
-              await mPage.setUserAgent(mUA);
-              await mPage.setViewport({ width: 412, height: 892, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-              await mPage.setExtraHTTPHeaders({
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-User': '?1',
-                'Sec-Fetch-Dest': 'document',
-                'sec-ch-ua': '"Chromium";v="124", "Not.A/Brand";v="24", "Google Chrome";v="124"',
-                'sec-ch-ua-platform': '"Android"',
-                'sec-ch-ua-mobile': '?1',
-                'Referer': (() => { try { const u = new URL(url); return `${u.origin}/`; } catch { return undefined; } })(),
-              });
-              let origin;
-              try { const u = new URL(url); origin = `${u.protocol}//${u.hostname}/`; } catch (_) { origin = null; }
-              if (origin) {
-                try { await mPage.goto(origin, { waitUntil: 'networkidle2', timeout: 60000 }); await mPage.waitForTimeout(4000); } catch (_) {}
-              }
-              await mPage.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-              await mPage.waitForTimeout(8000);
-              let mContent = await mPage.content();
-              // quick cookie accept attempt
-              try { await mPage.evaluate(() => { const b = Array.from(document.querySelectorAll('button')).find(x => /accept|agree|consent/i.test(x.innerText||'')); if (b) b.click(); }); } catch (_) {}
-              await mPage.waitForTimeout(4000);
-              mContent = await mPage.content();
-              if (!/(challenge-platform|__cf_chl|Just a moment|cf-please-wait|turnstile|cf-challenge)/i.test(mContent)) {
-                try { if (typeof send === 'function') await send('Mobile UA fallback succeeded.'); } catch (_) {}
-                try { await mPage.close(); } catch (_) {}
-                return mContent;
-              }
-            } catch (_) {}
-            try { if (mPage) await mPage.close(); } catch (_) {}
-          }
-        }
-      }
-      return content || null;
-    } finally {
-      try { await page.close(); } catch (_) {}
-      try { await browser.close(); } catch (_) {}
-    }
-  } catch (e) {
-    try { if (browser) await browser.close(); } catch (_) {}
-    const send = getDiscordSend();
-    if (typeof send === 'function') { try { await send(`Stealth fetch failed for: ${url}`); } catch (_) {} }
-    return null;
-  }
-}
-
 async function fetchTextWithFallback(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const html = await fetchText(url, timeoutMs);
-  if (html) return html;
-  // Fallback to stealth browser
-  return await fetchViaStealth(url);
+  return await fetchText(url, timeoutMs);
 }
 
 // Simple text fetcher (for HTML)
@@ -1004,7 +762,7 @@ async function initSeasonSchedule() {
 
 async function fetchAllSquadronsFromLeaderboard(tag) {
   try {
-    const needle = String(tag || '').trim().toLowerCase();
+    const needle = (String(tag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
     if (!needle) return null;
     const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
     let page = 1;
@@ -1021,10 +779,11 @@ async function fetchAllSquadronsFromLeaderboard(tag) {
       for (const item of arr) {
         leaderboard.push({
           tag: item.tag,
+          tagl: item.tagl,
           name: item.name,
           points: toNum(item?.astat?.dr_era5_hist),
         });
-        if (String(item.tagl || '').toLowerCase() === needle) {
+        if (String(item.tagl || '') === needle) {
           foundTrackedSquadron = true;
         }
       }
@@ -1043,7 +802,7 @@ async function fetchAllSquadronsFromLeaderboard(tag) {
 
 async function findOnLeaderboardViaApi(tag) {
   try {
-    const needle = String(tag || '').trim().toLowerCase();
+    const needle = (String(tag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
     if (!needle) return null;
     const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
     let page = 1;
@@ -1053,7 +812,7 @@ async function findOnLeaderboardViaApi(tag) {
       if (!json || json.status !== 'ok') break;
       const arr = Array.isArray(json.data) ? json.data : [];
       if (!arr.length) break;
-      const idx = arr.findIndex(e => String(e.tagl || '').toLowerCase() === needle);
+      const idx = arr.findIndex(e => String(e.tagl || '') === needle);
       if (idx !== -1) {
         const cur = arr[idx];
         const found = {
@@ -1090,141 +849,7 @@ async function findOnLeaderboardViaApi(tag) {
   return null;
 }
 
-// Try to infer squadron tag from the current squadron page (from header/title)
-async function extractSquadronTagFromPage(page) {
-  try {
-    const raw = await page.evaluate(() => {
-      const pieces = [];
-      const sel = [
-        'h1',
-        '.squadrons__title',
-        '.squadrons-members__title',
-        '.squadrons__header',
-        'title'
-      ];
-      for (const s of sel) {
-        const el = document.querySelector(s);
-        if (el && el.textContent) pieces.push(el.textContent.trim());
-      }
-      return pieces.join(' | ');
-    });
-    const text = String(raw || '');
-    // Look for a tag-like token (letters/numbers) possibly wrapped by symbols
-    // Example: "╖xTHCx╖ Try Hard Coalition" -> xTHCx
-    const tokens = text.split(/\s+/);
-    for (const t of tokens) {
-      const mid = t.replace(/[^A-Za-z0-9]/g, '');
-      if (mid.length >= 2 && mid.length <= 8) {
-        return mid; // plausible tag
-      }
-    }
-  } catch (_) {}
-  return '';
-}
 
-// Read leaderboard rows from the canonical table if present
-async function parseLeaderboardPage(page) {
-  return await page.evaluate(() => {
-    const out = [];
-    const push = (rank, text, href) => out.push({ rank, text, href });
-    const table = document.querySelector('table.leaderboards');
-    if (table) {
-      const trs = Array.from(table.querySelectorAll('tbody tr'));
-      for (const tr of trs) {
-        const tds = Array.from(tr.querySelectorAll('td'));
-        if (tds.length >= 2) {
-          const rankStr = (tds[0].innerText || '').trim();
-          const nameCell = tds[1];
-          const tagText = (nameCell.innerText || '').trim();
-          const a = nameCell.querySelector('a[href]');
-          const href = a && a.getAttribute('href');
-          const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
-          if (Number.isFinite(r) && tagText) push(r, tagText, href || null);
-        }
-      }
-      return out;
-    }
-    // Minimal generic fallback: any table rows on the page
-    const trs = Array.from(document.querySelectorAll('tr'));
-    for (const tr of trs) {
-      const tds = Array.from(tr.querySelectorAll('td'));
-      if (tds.length >= 2) {
-        const rankStr = (tds[0].innerText || '').trim();
-        const nameCell = tds[1];
-        const tagText = (nameCell.innerText || '').trim();
-        const a = nameCell.querySelector('a[href]');
-        const href = a && a.getAttribute('href');
-        const r = parseInt(rankStr.replace(/[^0-9]/g, ''), 10);
-        if (Number.isFinite(r) && tagText) push(r, tagText, href || null);
-      }
-    }
-    return out;
-  });
-}
-
-// Try to locate our squadron in the War Thunder clans leaderboard and collect rank and neighbor links
-async function findOnLeaderboard(browser, tag) {
-  const base = 'https://warthunder.com/en/community/clansleaderboard';
-  // Try both normal and hist type, multiple pages
-  const maxPages = 25;
-  let lbPage = null;
-  try {
-    lbPage = await browser.newPage();
-    for (let p = 1; p <= maxPages; p++) {
-      // Build candidate URLs for this page index
-      const candidates = [];
-      if (p === 1) {
-        candidates.push(base, `${base}/?type=hist`);
-      } else {
-        candidates.push(`${base}/page/${p}/`, `${base}/page/${p}/?type=hist`);
-      }
-      for (const url of candidates) {
-        try {
-          await lbPage.goto(url, { waitUntil: 'networkidle0', timeout: 45000 });
-          // Prefer waiting for the specific leaderboard table if present
-          try { await lbPage.waitForSelector('table.leaderboards', { timeout: 3000 }); } catch (_) {}
-        } catch (_) { continue; }
-        // Extract rows: rank, tag text, optional href
-        try {
-          const rows = await parseLeaderboardPage(lbPage);
-          // Normalize and search for tag
-          const norm = (s) => String(s || '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
-          const needle = norm(tag);
-          if (!needle) continue;
-          rows.sort((a, b) => a.rank - b.rank);
-          const idx = rows.findIndex(r => norm(r.text).includes(needle));
-          if (idx !== -1) {
-            const found = rows[idx];
-            const above = idx > 0 ? rows[idx - 1] : null;
-            const below = idx + 1 < rows.length ? rows[idx + 1] : null;
-            return { page: p, url, found, above, below };
-          }
-        } catch (_) {}
-      }
-    }
-  } catch (_) {
-    // ignore
-  } finally {
-    try { if (lbPage) await lbPage.close(); } catch (_) {}
-  }
-  return null;
-}
-
-async function extractPointsFromSquadLink(browser, href) {
-  if (!href) return null;
-  try {
-    const abs = href.startsWith('http') ? href : ('https://warthunder.com' + (href.startsWith('/') ? '' : '/') + href);
-    const p = await browser.newPage();
-    try {
-      await p.goto(abs, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      // Use the same extractor as for the main squad page
-      const total = await extractTotalPoints(p);
-      return (typeof total === 'number' && Number.isFinite(total)) ? total : null;
-    } finally {
-      try { await p.close(); } catch (_) {}
-    }
-  } catch (_) { return null; }
-}
 
 // --- Events logging (mirror Discord messages) ---
 function ensureEventsFile() {
@@ -1485,7 +1110,7 @@ async function startSquadronTracker() {
   let __lastWebData = { points: null, ts: null };
   let __lastReportedPoints = null;
 
-  async function captureOnce() {
+  async function captureOnce(forceSave = false) {
     // Determine primary squadron tag (from settings or fallback parsing if needed)
     let primaryTag = '';
     try {
@@ -1539,7 +1164,7 @@ async function startSquadronTracker() {
           // Preserve leaderboard data if it exists from the last snapshot
           const existingLeaderboard = snapshot.data?.leaderboard;
           snapshot.data = parsed;
-          if (existingLeaderboard) snapshot.data.leaderboard = existingLeaderboard;
+          if (existingLeaderboard !== undefined) snapshot.data.leaderboard = existingLeaderboard;
           snapshot.membersCaptured = true;
         }
         try {
@@ -1558,8 +1183,8 @@ async function startSquadronTracker() {
     try {
       if (apiCtx) {
         snapshot.data.leaderboard = apiCtx;
-        const needle = String(primaryTag || '').trim().toLowerCase();
-        const idx = apiCtx.findIndex(e => String(e.tag || '').toLowerCase() === needle);
+        const needle = (String(primaryTag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
+        const idx = apiCtx.findIndex(e => String(e.tagl || '') === needle);
 
         if (idx !== -1) {
           const trackedSquadron = apiCtx[idx];
@@ -1571,6 +1196,10 @@ async function startSquadronTracker() {
           snapshot.squadronPlace = squadronPlace;
           snapshot.totalPointsAbove = totalPointsAbove;
           snapshot.totalPointsBelow = totalPointsBelow;
+        } else {
+          snapshot.squadronPlace = null;
+          snapshot.totalPointsAbove = null;
+          snapshot.totalPointsBelow = null;
         }
       }
     } catch (_) {}
@@ -1634,16 +1263,6 @@ async function startSquadronTracker() {
         if (last.data.headers) snapshot.data.headers = last.data.headers;
         if (last.membersCaptured) snapshot.membersCaptured = last.membersCaptured;
     }
-    if (snapshot.squadronPlace === null && last && last.squadronPlace !== null) {
-        snapshot.squadronPlace = last.squadronPlace;
-    }
-    if (snapshot.totalPointsAbove === null && last && last.totalPointsAbove !== null) {
-        snapshot.totalPointsAbove = last.totalPointsAbove;
-    }
-    if (snapshot.totalPointsBelow === null && last && last.totalPointsBelow !== null) {
-        snapshot.totalPointsBelow = last.totalPointsBelow;
-    }
-
     const key = simplifyForComparison(snapshot);
     if (lastKey === null) {
       // Initialize from existing file
@@ -1658,7 +1277,7 @@ async function startSquadronTracker() {
         }
       }
     }
-    if (key !== lastKey) {
+    if (key !== lastKey || forceSave) {
       // Compute diff versus previous snapshot, if available
       try {
         const prev = lastSnapshot || readLastSnapshot(dataFile);
@@ -2008,7 +1627,7 @@ async function startSquadronTracker() {
       appendSnapshot(dataFile, snapshot);
       lastKey = key;
       lastSnapshot = pruneSnapshot(snapshot);
-      console.log('📈 Squadron tracker: change detected and recorded.');
+      console.log('📈 Squadron tracker: snapshot recorded.');
     } else {
       // Even if no change, ensure one final snapshot at/after 23:30 UTC
       try {
@@ -2093,7 +1712,8 @@ async function startSquadronTracker() {
     try { __pollTimer = setTimeout(pollLoop, delay); } catch (_) {}
   }
   // Initial run and schedule next with jitter
-  try { await captureOnce(); } catch (_) {}
+  console.log('ℹ️ Performing forced leaderboard fetch at startup...');
+  try { await captureOnce(true); } catch (_) {}
   const firstDelay = nextDelayMs();
   try { __pollTimer = setTimeout(pollLoop, firstDelay); } catch (_) {}
 

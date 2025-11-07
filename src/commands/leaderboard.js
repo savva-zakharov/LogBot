@@ -1,7 +1,7 @@
 // src/commands/leaderboard.js
 const fs = require('fs');
 const path = require('path');
-const { MessageFlags } = require('discord.js');
+const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 
 function readLatestSnapshot() {
@@ -34,10 +34,6 @@ module.exports = {
     const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
 
     const lines = [];
-    const header = 'Rank | Tag      | Points     | Name';
-    lines.push(header);
-    lines.push('-'.repeat(header.length + 5));
-
     for (let i = 0; i < snap.data.leaderboard.length; i++) {
       const squadron = snap.data.leaderboard[i];
       const rank = (i + 1).toString().padStart(4, ' ');
@@ -48,11 +44,22 @@ module.exports = {
       let line = `${rank} | ${tag} | ${points} | ${name}`;
       if (primaryTag && squadron.tag === primaryTag) {
         line = `\u001b[1;33m${line}\u001b[0m`;
+      } else if (rank < 6) {
+        line = `\u001b[1;31m${line}\u001b[0m`;
       }
       lines.push(line);
     }
 
-    const content = '```ansi\n' + lines.join('\n') + '\n```';
-    await interaction.reply({ content });
+    const header = 'Rank | Tag      | Points     | Name';
+    const separator = '-'.repeat(header.length + 5);
+    const body = [header, separator, ...lines].join('\n');
+
+    const embed = new EmbedBuilder()
+      .setTitle('Squadron Leaderboard')
+      .setDescription('```ansi\n' + body + '\n```')
+      .setColor(0x57F287)
+      .setTimestamp(new Date(snap.ts || Date.now()));
+
+    await interaction.reply({ embeds: [embed] });
   }
 };
