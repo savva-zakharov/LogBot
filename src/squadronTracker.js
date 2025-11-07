@@ -760,93 +760,87 @@ async function initSeasonSchedule() {
   }
 }
 
-async function fetchAllSquadronsFromLeaderboard(tag) {
+async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
   try {
     const needle = (String(tag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
-    if (!needle) return null;
+    if (!needle && !limit) return { leaderboard: [], squadronData: null };
+
     const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
     let page = 1;
-    const MAX_PAGES = 100; // sensible cap
-    const leaderboard = [];
-    let foundTrackedSquadron = false;
+    const MAX_PAGES = 100;
+    const topLeaderboard = [];
+    let squadronData = null;
+    let prevPageArr = [];
 
     while (page <= MAX_PAGES) {
       const json = await fetchJson(makeUrl(page));
       if (!json || json.status !== 'ok') break;
-      const arr = Array.isArray(json.data) ? json.data : [];
-      if (!arr.length) break;
+      const currentPageArr = Array.isArray(json.data) ? json.data : [];
+      if (!currentPageArr.length) break;
 
-      for (const item of arr) {
-        leaderboard.push({
-          tag: item.tag,
-          tagl: item.tagl,
-          name: item.name,
-          points: toNum(item?.astat?.dr_era5_hist),
-        });
-        if (String(item.tagl || '') === needle) {
-          foundTrackedSquadron = true;
+      // Collect top leaderboard
+      if (topLeaderboard.length < limit) {
+        for (const item of currentPageArr) {
+          if (topLeaderboard.length < limit) {
+            topLeaderboard.push({
+              tag: item.tag,
+              tagl: item.tagl,
+              name: item.name,
+              points: toNum(item?.astat?.dr_era5_hist),
+            });
+          } else {
+            break;
+          }
         }
       }
 
-      if (foundTrackedSquadron && leaderboard.length >= 20) {
+      // Find squadron
+      if (!squadronData && needle) {
+        const idx = currentPageArr.findIndex(e => String(e.tagl || '') === needle);
+        if (idx !== -1) {
+          const cur = currentPageArr[idx];
+          const found = {
+            rank: cur.pos || null,
+            points: toNum(cur?.astat?.dr_era5_hist),
+          };
+
+          const aboveEntry = idx > 0 ? currentPageArr[idx - 1] : (prevPageArr.length > 0 ? prevPageArr[prevPageArr.length - 1] : null);
+          let belowEntry = idx + 1 < currentPageArr.length ? currentPageArr[idx + 1] : null;
+          
+          let abovePoints = aboveEntry ? toNum(aboveEntry?.astat?.dr_era5_hist) : null;
+          let belowPoints = belowEntry ? toNum(belowEntry?.astat?.dr_era5_hist) : null;
+
+          if (!belowEntry) {
+            const nextJson = await fetchJson(makeUrl(page + 1));
+            if (nextJson && nextJson.status === 'ok' && Array.isArray(nextJson.data) && nextJson.data.length > 0) {
+              belowEntry = nextJson.data[0];
+              belowPoints = toNum(belowEntry?.astat?.dr_era5_hist);
+            }
+          }
+
+          squadronData = {
+            page,
+            found,
+            squadronPlace: found.rank || null,
+            totalPointsAbove: Number.isFinite(abovePoints) ? abovePoints : null,
+            totalPointsBelow: Number.isFinite(belowPoints) ? belowPoints : null,
+          };
+        }
+      }
+
+      if (topLeaderboard.length >= limit && (squadronData || !needle)) {
         break;
       }
 
+      prevPageArr = currentPageArr;
       page++;
     }
-    return leaderboard;
-  } catch (_) {
-    return null;
-  }
-}
 
-async function findOnLeaderboardViaApi(tag) {
-  try {
-    const needle = (String(tag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
-    if (!needle) return null;
-    const makeUrl = (page) => `https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/${page}/sort/dr_era5`;
-    let page = 1;
-    const MAX_PAGES = 100; // sensible cap
-    while (page <= MAX_PAGES) {
-      const json = await fetchJson(makeUrl(page));
-      if (!json || json.status !== 'ok') break;
-      const arr = Array.isArray(json.data) ? json.data : [];
-      if (!arr.length) break;
-      const idx = arr.findIndex(e => String(e.tagl || '') === needle);
-      if (idx !== -1) {
-        const cur = arr[idx];
-        const found = {
-          rank: cur.pos || null,
-          points: toNum(cur?.astat?.dr_era5_hist),
-        };
-        // neighbors on same page
-        const aboveEntry = idx > 0 ? arr[idx - 1] : null;
-        const belowEntry = idx + 1 < arr.length ? arr[idx + 1] : null;
-        let abovePoints = aboveEntry ? toNum(aboveEntry?.astat?.dr_era5_hist) : null;
-        let belowPoints = belowEntry ? toNum(belowEntry?.astat?.dr_era5_hist) : null;
-        // cross-page neighbors if needed
-        if (!aboveEntry && page > 1) {
-          const prev = await fetchJson(makeUrl(page - 1));
-          const prevArr = prev && prev.status === 'ok' && Array.isArray(prev.data) ? prev.data : [];
-          if (prevArr.length) abovePoints = toNum(prevArr[prevArr.length - 1]?.astat?.dr_era5_hist);
-        }
-        if (!belowEntry && arr.length > 0) {
-          const next = await fetchJson(makeUrl(page + 1));
-          const nextArr = next && next.status === 'ok' && Array.isArray(next.data) ? next.data : [];
-          if (nextArr.length) belowPoints = toNum(nextArr[0]?.astat?.dr_era5_hist);
-        }
-        return {
-          page,
-          found,
-          squadronPlace: found.rank || null,
-          totalPointsAbove: Number.isFinite(abovePoints) ? abovePoints : null,
-          totalPointsBelow: Number.isFinite(belowPoints) ? belowPoints : null,
-        };
-      }
-      page++;
-    }
-  } catch (_) {}
-  return null;
+    return { leaderboard: topLeaderboard, squadronData };
+  } catch (e) {
+    console.warn(`⚠️ fetchLeaderboardAndFindSquadron failed: ${e.message}`);
+    return { leaderboard: [], squadronData: null };
+  }
 }
 
 
@@ -1136,18 +1130,24 @@ async function startSquadronTracker() {
       membersCaptured: lastSnapshotForInit?.membersCaptured ?? false,
     };
 
-    // Concurrently fetch HTML and API
+    // Concurrently fetch HTML and API data
     let rawHtml = null;
-    let apiCtx = null;
+    let apiLeaderboard = null;
+    let apiSquadronData = null;
     try {
       const htmlPromise = (async () => { try { return await fetchText(squadronPageUrl); } catch (_) { return null; } })();
-      const apiPromise = (async () => { try { return primaryTag ? await fetchAllSquadronsFromLeaderboard(primaryTag) : null; } catch (_) { return null; } })();
+      const apiPromise = fetchLeaderboardAndFindSquadron(primaryTag, 20);
+      
       const [htmlRes, apiRes] = await Promise.all([htmlPromise, apiPromise]);
+      
       rawHtml = htmlRes;
-      apiCtx = apiRes;
+      if (apiRes) {
+        apiLeaderboard = apiRes.leaderboard;
+        apiSquadronData = apiRes.squadronData;
+      }
     } catch (_) {}
 
-    if (!rawHtml && (!apiCtx || apiCtx.length === 0)) {
+    if (!rawHtml && !apiLeaderboard && !apiSquadronData) {
       console.warn('⚠️ Squadron tracker: failed to fetch data from both web and API. Skipping update and using cached data.');
       return;
     }
@@ -1181,26 +1181,19 @@ async function startSquadronTracker() {
     // Extract API totals/context
     let apiTotal = null;
     try {
-      if (apiCtx) {
-        snapshot.data.leaderboard = apiCtx;
-        const needle = (String(primaryTag || '').trim().match(/[a-zA-Z0-9_]+/g) || []).join('').toLowerCase();
-        const idx = apiCtx.findIndex(e => String(e.tagl || '') === needle);
-
-        if (idx !== -1) {
-          const trackedSquadron = apiCtx[idx];
-          apiTotal = trackedSquadron.points;
-          squadronPlace = idx + 1;
-          totalPointsAbove = idx > 0 ? apiCtx[idx - 1].points : null;
-          totalPointsBelow = idx + 1 < apiCtx.length ? apiCtx[idx + 1].points : null;
-
-          snapshot.squadronPlace = squadronPlace;
-          snapshot.totalPointsAbove = totalPointsAbove;
-          snapshot.totalPointsBelow = totalPointsBelow;
-        } else {
-          snapshot.squadronPlace = null;
-          snapshot.totalPointsAbove = null;
-          snapshot.totalPointsBelow = null;
-        }
+      if (apiLeaderboard) {
+        snapshot.data.leaderboard = apiLeaderboard;
+      }
+      
+      if (apiSquadronData && apiSquadronData.found) {
+        apiTotal = apiSquadronData.found.points;
+        snapshot.squadronPlace = apiSquadronData.squadronPlace;
+        snapshot.totalPointsAbove = apiSquadronData.totalPointsAbove;
+        snapshot.totalPointsBelow = apiSquadronData.totalPointsBelow;
+      } else {
+        snapshot.squadronPlace = null;
+        snapshot.totalPointsAbove = null;
+        snapshot.totalPointsBelow = null;
       }
     } catch (_) {}
 
