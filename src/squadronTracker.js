@@ -26,6 +26,7 @@ let __discordWinLossFn = null;
 let __discordWLUpdateChecked = false;
 let __discordWLUpdateFn = null;
 let __discordWLClearFn = null;
+let __debugSaveJson = false;
 
 // --- Session state (W/L and starting points) ---
 // Resets at daily cutoff. In-memory only.
@@ -443,6 +444,7 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       res.on('end', () => {
         try {
           // Save raw JSON to .tmp for debugging
+          if (__debugSaveJson) {
           try {
             const tmpDir = ensureTmpDir();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -453,6 +455,7 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
             console.log(`ℹ️ fetchJson: saved response to .tmp/${filename}`);
           } catch (e) {
             console.warn(`⚠️ fetchJson: failed to save tmp file for ${url}: ${e.message}`);
+          }
           }
           resolve(JSON.parse(data));
         } catch (e) {
@@ -769,6 +772,7 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
     let page = 1;
     const MAX_PAGES = 100;
     const topLeaderboard = [];
+    const fullLeaderboard = [];
     let squadronData = null;
     let prevPageArr = [];
 
@@ -777,6 +781,15 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
       if (!json || json.status !== 'ok') break;
       const currentPageArr = Array.isArray(json.data) ? json.data : [];
       if (!currentPageArr.length) break;
+
+      for (const item of currentPageArr) {
+        fullLeaderboard.push({
+          pos: item.pos,
+          tag: item.tag,
+          name: item.name,
+          points: toNum(item?.astat?.dr_era5_hist),
+        });
+      }
 
       // Collect top leaderboard
       if (topLeaderboard.length < limit) {
@@ -834,6 +847,16 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
 
       prevPageArr = currentPageArr;
       page++;
+    }
+
+    if (fullLeaderboard.length > 0) {
+      try {
+        const leaderboardFile = path.join(process.cwd(), 'leaderboard_data.json');
+        fs.writeFileSync(leaderboardFile, JSON.stringify(fullLeaderboard, null, 2), 'utf8');
+        console.log(`[INFO] Leaderboard data from fetched pages saved to ${leaderboardFile}`);
+      } catch (e) {
+        console.warn(`[WARN] Failed to save leaderboard data: ${e.message}`);
+      }
     }
 
     return { leaderboard: topLeaderboard, squadronData };
