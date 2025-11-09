@@ -36,11 +36,32 @@ module.exports = {
         // trim residual newlines/whitespace
         body = body.replace(/^\n+|\n+$/g, '').trimEnd();
       }
+
+      let brFound = false;
+      let modifiedBody = body
+        .split("\n")
+        .map(line => {
+          if (line.includes(todaysBr)) {
+            brFound = true;
+            line = `\u001b[1;31m${line}\u001b[0m`;
+            return line;
+          } else if (!brFound) {
+            line = `\u001b[0;30m${line}\u001b[0m`;
+            return line;
+          } else {
+            return line;
+          }
+          return line;
+        })
+        .join("\n");
+
+
+
       const prefixLine = todaysBr ? `Today's BR is ${todaysBr}` : `Today's BR is unknown`;
       // Build a single embed with green border; include header + code-blocked body in description
       const embed = new EmbedBuilder()
         .setTitle(`${prefixLine} `)
-        .setDescription(`\u0060\u0060\u0060${body}\n\u0060\u0060\u0060`)
+        .setDescription(`\u0060\u0060\u0060ansi\n${modifiedBody}\n\u0060\u0060\u0060`)
         .setColor(0x57F287);
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ embeds: [embed], allowedMentions: { parse: [] } });
