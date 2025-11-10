@@ -5,8 +5,8 @@ const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle } = require('../utils/formatHelper');
 
-const useEmbed = false;
-const useTable = false;
+const useEmbed = true;
+const useTable = true;
 
 function readLeaderboardData() {
   try {
@@ -61,21 +61,31 @@ module.exports = {
       displayData = leaderboard.slice(0, topCount);
     }
 
+    //calculate the points change of each squadron
+    for (const squadron of displayData) {
+      squadron.change = squadron.points - squadron.pointsStart;
+    }
+   
+    const maxPoints = Math.max(...displayData.map(d => d.points.toString().length)) + 1;
+    const maxChange = Math.max(...displayData.map(d => d.change.toString().length)) + 1;
+    let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
+
+    if (useEmbed && (maxPoints + maxChange + maxName + 22 > 56)) {
+      maxName = 56 - maxPoints - maxChange - 22;
+    }
+
     for (const squadron of displayData) {
       if (squadron.separator) {
         lines.push('...');
         continue;
       }
 
-      let nameLength = 50;
-      if (useEmbed) {
-        nameLength = 24;
-      }
+
       const rank = (squadron.pos + 1).toString().padStart(3, ' ');
       const tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').padEnd(5, ' ');
-      const points = fmt(squadron.points).padEnd(6, ' ');
-      const name = squadron.name.slice(0, nameLength).padEnd(nameLength, ' ');
-      let change = fmt(squadron.points - squadron.pointsStart);
+      const points = fmt(squadron.points).padStart(maxPoints, ' ');
+      const name = squadron.name.slice(0, maxName).padEnd(maxName, ' ');
+      let change = squadron.change;
   
 
       // let line = `${rank} | ${tag} | ${points} | ${change} | ${name}`;
@@ -90,14 +100,13 @@ module.exports = {
         line = `│${rank} │ ${tag} │ ${points} │ `;
       }      
       if (change > 0) {
-        change = `+${change}`;
-        change = change.padStart(4, ' ');
+        change = `+${fmt(change)}`.padStart(maxChange, ' ');
         line += ansiColour(change, 32, false);
       } else if (change < 0) {
-        change = change.padStart(4, ' ');
+        change = fmt(change).padStart(maxChange, ' ');
         line += ansiColour(change, 31, false);
       } else {
-        change = change.padStart(4, ' ');
+        change = fmt(change).padStart(maxChange, ' ');
         line += change;
       }      
       if (primaryTag && squadron.tag.includes(primaryTag)) {
@@ -112,8 +121,8 @@ module.exports = {
 
       lines.push(line);
     }
+    let header =    '│ No.│ Tag   │ ' + 'Points'.padEnd(maxPoints, ' ') + ' │ ' + 'Δ'.padStart(maxChange, ' ') + ' │ ' + 'Name'.padEnd(maxName, ' ') + '│';
 
-    let header =    '│ No.│ Tag   │ Points │    Δ │ Name                    │';
     let title = makeTitle('Squadron Leaderboard', header);
     let separator = makeSeparator(header);
     let closer = makeCloser(header);
