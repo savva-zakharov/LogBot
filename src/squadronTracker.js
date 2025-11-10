@@ -852,7 +852,24 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
     if (fullLeaderboard.length > 0) {
       try {
         const leaderboardFile = path.join(process.cwd(), 'leaderboard_data.json');
-        fs.writeFileSync(leaderboardFile, JSON.stringify(fullLeaderboard, null, 2), 'utf8');
+        let oldLeaderboardData = [];
+        if (fs.existsSync(leaderboardFile)) {
+          oldLeaderboardData = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8'));
+        }
+        const oldPlayerData = oldLeaderboardData.reduce((acc, player) => {
+          acc[player.name] = player;
+          return acc;
+        }, {});
+
+        const newLeaderboardData = fullLeaderboard.map(player => {
+          const oldPlayer = oldPlayerData[player.name];
+          return {
+            ...player,
+            pointsStart: oldPlayer ? oldPlayer.pointsStart : player.points,
+          };
+        });
+
+        fs.writeFileSync(leaderboardFile, JSON.stringify(newLeaderboardData, null, 2), 'utf8');
         console.log(`[INFO] Leaderboard data from fetched pages saved to ${leaderboardFile}`);
       } catch (e) {
         console.warn(`[WARN] Failed to save leaderboard data: ${e.message}`);
@@ -863,6 +880,23 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
   } catch (e) {
     console.warn(`⚠️ fetchLeaderboardAndFindSquadron failed: ${e.message}`);
     return { leaderboard: [], squadronData: null };
+  }
+}
+async function resetLeaderboardPointsStart() {
+  const leaderboardFile = path.join(process.cwd(), 'leaderboard_data.json');
+  try {
+    if (fs.existsSync(leaderboardFile)) {
+      const leaderboardData = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8'));
+      if (Array.isArray(leaderboardData)) {
+        leaderboardData.forEach(player => {
+          player.pointsStart = player.points;
+        });
+        fs.writeFileSync(leaderboardFile, JSON.stringify(leaderboardData, null, 2), 'utf8');
+        console.log('[INFO] Leaderboard pointsStart has been reset.');
+      }
+    }
+  } catch (e) {
+    console.warn(`[WARN] Failed to reset leaderboard pointsStart: ${e.message}`);
   }
 }
 
@@ -1456,6 +1490,7 @@ async function startSquadronTracker() {
             try {
               if (__session.startingPoints != null) {
                 appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey, windowKey: __session.windowKey });
+                resetLeaderboardPointsStart();
               }
             } catch (_) {}
             try {
