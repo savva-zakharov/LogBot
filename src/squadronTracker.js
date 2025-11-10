@@ -1338,8 +1338,6 @@ async function startSquadronTracker() {
 
         // Squadron ponts change (site-reported and calculated)
         const pointsDelta = (prevTotal != null && newTotal != null) ? (newTotal - prevTotal) : null;
-                //if (pointsDelta != null && pointsDelta !== 0) {
-          //msgLines.push(`• Squadron ponts: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta})`);
           // Defer emitting event until after W/L inference so we can unify into one event
         //}
 
@@ -1529,20 +1527,7 @@ async function startSquadronTracker() {
             }
           } catch (_) {}
           
-          // Compose a session summary line akin to Python's tracker output
-          const hh = String(now.getUTCHours()).padStart(2, '0');
-          const mm = String(now.getUTCMinutes()).padStart(2, '0');
-          const timeSummary = `${hh}:${mm}`.padEnd(5, ' ');
-          const deltaFromStart = (newTotal != null && __session.startingPoints != null) ? (Number(newTotal) - Number(__session.startingPoints)) : null;
-          const wlSummary = `${__session.wins}/${__session.losses}`;
-          const intervalSummary = matchesWon === 0 && matchesLost === 0
-            ? 'no matches'
-            : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
-          // Add human-readable points/session lines
-          const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
-          const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
-          msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
-          const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
+
 
           const buildLines = (list, symbol) => {
             const shown = list.slice(0, 10);
@@ -1600,6 +1585,21 @@ async function startSquadronTracker() {
             : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
           msgLines.push(`• Points  change: ${prevTotal} → ${newTotal} (${pointsDelta >= 0 ? '+' : ''}${pointsDelta}); interval: ${intervalSummary}`);
         }
+
+        // Compose a session summary line akin to Python's tracker output
+        const hh = String(now.getUTCHours()).padStart(2, '0');
+        const mm = String(now.getUTCMinutes()).padStart(2, '0');
+        const timeSummary = `${hh}:${mm}`.padEnd(5, ' ');
+        const deltaFromStart = (newTotal != null && __session.startingPoints != null) ? (Number(newTotal) - Number(__session.startingPoints)) : null;
+        const wlSummary = `${__session.wins}/${__session.losses}`;
+        const intervalSummary = matchesWon === 0 && matchesLost === 0
+          ? 'no matches'
+          : (matchesWon && matchesLost ? `${matchesWon} won, ${matchesLost} lost` : (matchesWon ? `${matchesWon} match${matchesWon>1?'es':''} won` : `${matchesLost} match${matchesLost>1?'es':''} lost`));
+        // Add human-readable points/session lines
+        const startStr = (__session.startingPoints != null && newTotal != null) ? `${__session.startingPoints} → ${newTotal}` : 'n/a';
+        const sessionDeltaStr = (deltaFromStart != null) ? `${deltaFromStart >= 0 ? '+' : ''}${deltaFromStart}` : 'n/a';
+        msgLines.push(`• Session change: ${startStr} (Δ ${sessionDeltaStr}) W/L ${wlSummary}`);
+        const padLeft = (s, n) => s.length >= n ? s.slice(-n) : (' '.repeat(n - s.length) + s);
 
         const hasMeaningfulChange = (pointsDelta != null && pointsDelta !== 0) || added.length > 0 || removed.length > 0;
 

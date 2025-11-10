@@ -55,8 +55,6 @@ module.exports = {
         })
         .join("\n");
 
-
-
       const prefixLine = todaysBr ? `Today's BR is ${todaysBr}` : `Today's BR is unknown`;
       // Build a single embed with green border; include header + code-blocked body in description
       const embed = new EmbedBuilder()
