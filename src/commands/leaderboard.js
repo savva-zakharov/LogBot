@@ -5,7 +5,8 @@ const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle } = require('../utils/formatHelper');
 
-const useEmbed = false;
+const useEmbed = true;
+const useTable = false;
 
 function readLeaderboardData() {
   try {
@@ -66,12 +67,12 @@ module.exports = {
         continue;
       }
 
-      let nameLength = 24;
+      let nameLength = 50;
       if (useEmbed) {
-        nameLength = 30;
+        nameLength = 24;
       }
       const rank = (squadron.pos + 1).toString().padStart(3, ' ');
-      const tag = padCenter(squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ''), 5, ' ');
+      const tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').padEnd(5, ' ');
       const points = fmt(squadron.points).padEnd(6, ' ');
       const name = squadron.name.slice(0, nameLength).padEnd(nameLength, ' ');
       let change = fmt(squadron.points - squadron.pointsStart);
@@ -82,12 +83,12 @@ module.exports = {
       //highlight the change if it is positive or negative
       let line = '';
 
+
       if (primaryTag && squadron.tag.includes(primaryTag)) {
         line = `│${ansiColour(rank, 33, true)} │ ${ansiColour(tag, 33, true)} │ ${ansiColour(points, 33, true)} │ `;
       } else {
         line = `│${rank} │ ${tag} │ ${points} │ `;
-      }
-      
+      }      
       if (change > 0) {
         change = `+${change}`;
         change = change.padStart(4, ' ');
@@ -98,30 +99,42 @@ module.exports = {
       } else {
         change = change.padStart(4, ' ');
         line += change;
-      }
-      
+      }      
       if (primaryTag && squadron.tag.includes(primaryTag)) {
         line += ` │ ${ansiColour(name, 33, true)}│`;
       } else {
         line += ` │ ${name}│`;
       }
 
+      if (!useTable) {
+        line = line.replaceAll('│', ' ');
+      }
+
       lines.push(line);
     }
 
-    const header =    '│ No.│  Tag  │ Points │    Δ │ Name                    │';
+    let header =    '│ No.│ Tag   │ Points │    Δ │ Name                    │';
     let title = makeTitle('Squadron Leaderboard', header);
     let separator = makeSeparator(header);
     let closer = makeCloser(header);
+    if (!useTable) {
+      header = header.replaceAll('│', ' ');
+    }
 
-    const body = [title, header, separator, ...lines, closer].join('\n');
+    let body = '';
+
+    if (useTable) {     
+      body = [title, header, separator, ...lines, closer].join('\n');
+    } else {
+      body = [header, ...lines].join('\n');
+    }
 
 
     if (useEmbed) {
     const embed = new EmbedBuilder()
       .setTitle('Squadron Leaderboard')
       .setDescription('```ansi\n' + body + '\n```')
-      .setColor(0x57F287)
+      .setColor(0xd0463c)
       .setTimestamp(new Date());
 
     await interaction.reply({ embeds: [embed] });
