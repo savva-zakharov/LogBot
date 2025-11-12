@@ -786,6 +786,7 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
         fullLeaderboard.push({
           pos: item.pos,
           tag: item.tag,
+          tagl: item.tagl,
           name: item.name,
           points: toNum(item?.astat?.dr_era5_hist),
         });
@@ -851,21 +852,26 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
 
     if (fullLeaderboard.length > 0) {
       try {
+        //set leaderboard file path
         const leaderboardFile = path.join(process.cwd(), 'leaderboard_data.json');
+        //create old leaderboard data blank
         let oldLeaderboardData = [];
+        //parse the leaderboard file if it exists into the data variable
         if (fs.existsSync(leaderboardFile)) {
           oldLeaderboardData = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8'));
         }
-        const oldPlayerData = oldLeaderboardData.reduce((acc, player) => {
-          acc[player.name] = player;
+        //reduce the old leaderboard data into a map of squadron tags to squadron data
+        const oldSquadronData = oldLeaderboardData.reduce((acc, squadron) => {
+          acc[squadron.tag] = squadron;
           return acc;
         }, {});
 
-        const newLeaderboardData = fullLeaderboard.map(player => {
-          const oldPlayer = oldPlayerData[player.name];
+        const newLeaderboardData = fullLeaderboard.map(squadron => {
+          const oldSquadron = oldSquadronData[squadron.tag];
           return {
-            ...player,
-            pointsStart: oldPlayer ? oldPlayer.pointsStart : player.points,
+            ...squadron,
+            pointsStart:
+              oldSquadron?.pointsStart ?? squadron.points,
           };
         });
 
@@ -888,8 +894,8 @@ async function resetLeaderboardPointsStart() {
     if (fs.existsSync(leaderboardFile)) {
       const leaderboardData = JSON.parse(fs.readFileSync(leaderboardFile, 'utf8'));
       if (Array.isArray(leaderboardData)) {
-        leaderboardData.forEach(player => {
-          player.pointsStart = player.points;
+        leaderboardData.forEach(squadron => {
+          squadron.pointsStart = squadron.points;
         });
         fs.writeFileSync(leaderboardFile, JSON.stringify(leaderboardData, null, 2), 'utf8');
         console.log('[INFO] Leaderboard pointsStart has been reset.');

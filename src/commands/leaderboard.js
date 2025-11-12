@@ -64,92 +64,193 @@ module.exports = {
     //calculate the points change of each squadron
     for (const squadron of displayData) {
       squadron.change = squadron.points - squadron.pointsStart;
-    }
-   
-    const maxPoints = Math.max(...displayData.map(d => d.points.toString().length)) + 1;
-    const maxChange = Math.max(...displayData.map(d => d.change.toString().length)) + 1;
-    let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
 
-    if (useEmbed && (maxPoints + maxChange + maxName + 22 > 56)) {
-      maxName = 56 - maxPoints - maxChange - 22;
+      if (squadron.change > 0) {
+        squadron.change = ansiColour(`+${fmt(squadron.change)}`, 32);
+      } else if (squadron.change < 0) {
+        squadron.change = ansiColour(fmt(squadron.change), 31);
+      } else {
+        squadron.change = fmt(squadron.change);
+      }
     }
 
     for (const squadron of displayData) {
-      if (squadron.separator) {
-        lines.push('...');
-        continue;
+      squadron.tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+      squadron.points = fmt(squadron.points);
+      delete squadron.pointsStart;
+
+      if (squadron.tag.includes(primaryTag)) {
+        squadron.tag = ansiColour(squadron.tag, 33);
+        squadron.name = ansiColour(squadron.name, 33);
+        squadron.pos = ansiColour(squadron.pos, 33);
+        squadron.points = ansiColour(squadron.points, 33);
       }
+    }
+
+    const fieldOrder = ["pos", "tag", "points", "change", "name"];
+    const fieldHeaders = ["Pos", "Tag", "Points", "Δ", "Name"];
+    const table = formatTable(displayData, 'Leaderboard', fieldHeaders, fieldOrder);
+    
+
+    console.log(table);
+    await interaction.reply({ content: `\`\`\`ansi\n${table}\n\`\`\`` });
+    
 
 
-      const rank = (squadron.pos + 1).toString().padStart(3, ' ');
-      const tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').padEnd(5, ' ');
-      const points = fmt(squadron.points).padStart(maxPoints, ' ');
-      const name = squadron.name.slice(0, maxName).padEnd(maxName, ' ');
-      let change = squadron.change;
-  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // const maxPoints = Math.max(...displayData.map(d => d.points.length)) + 1;
+    // const maxChange = Math.max(...displayData.map(d => d.change.length)) + 1;
+    // let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
+
+    // if (useEmbed && (maxPoints + maxChange + maxName + 22 > 56)) {
+    //   maxName = 56 - maxPoints - maxChange - 22;
+    // }
+
+    // for (const squadron of displayData) {
+    //   if (squadron.separator) {
+    //     lines.push('...');
+    //     continue;
+    //   }
+
+
+    //   const rank = (squadron.pos + 1).toString().padStart(3, ' ');
+    //   const tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').padEnd(5, ' ');
+    //   const points = fmt(squadron.points).padStart(maxPoints, ' ');
+    //   const name = squadron.name.slice(0, maxName).padEnd(maxName, ' ');
+    //   let change = squadron.change;
+
 
       // let line = `${rank} | ${tag} | ${points} | ${change} | ${name}`;
 
       //highlight the change if it is positive or negative
-      let line = '';
+    //   let line = '';
 
 
-      if (primaryTag && squadron.tag.includes(primaryTag)) {
-        line = `│${ansiColour(rank, 33, true)} │ ${ansiColour(tag, 33, true)} │ ${ansiColour(points, 33, true)} │ `;
-      } else {
-        line = `│${rank} │ ${tag} │ ${points} │ `;
-      }      
-      if (change > 0) {
-        change = `+${fmt(change)}`.padStart(maxChange, ' ');
-        line += ansiColour(change, 32, false);
-      } else if (change < 0) {
-        change = fmt(change).padStart(maxChange, ' ');
-        line += ansiColour(change, 31, false);
-      } else {
-        change = fmt(change).padStart(maxChange, ' ');
-        line += change;
-      }      
-      if (primaryTag && squadron.tag.includes(primaryTag)) {
-        line += ` │ ${ansiColour(name, 33, true)}│`;
-      } else {
-        line += ` │ ${name}│`;
-      }
+    //   if (primaryTag && squadron.tag.includes(primaryTag)) {
+    //     line = `│${ansiColour(rank, 33, true)} │ ${ansiColour(tag, 33, true)} │ ${ansiColour(points, 33, true)} │ `;
+    //   } else {
+    //     line = `│${rank} │ ${tag} │ ${points} │ `;
+    //   }
 
-      if (!useTable) {
-        line = line.replaceAll('│', ' ');
-      }
+    //   change = change.padStart(maxChange, ' ');
+    //   line += change;
 
-      lines.push(line);
-    }
-    let header =    '│ No.│ Tag   │ ' + 'Points'.padEnd(maxPoints, ' ') + ' │ ' + 'Δ'.padStart(maxChange, ' ') + ' │ ' + 'Name'.padEnd(maxName, ' ') + '│';
+    //   if (primaryTag && squadron.tag.includes(primaryTag)) {
+    //     line += ` │ ${ansiColour(name, 33, true)}│`;
+    //   } else {
+    //     line += ` │ ${name}│`;
+    //   }
 
-    let title = makeTitle('Squadron Leaderboard', header);
-    let separator = makeSeparator(header);
-    let closer = makeCloser(header);
-    if (!useTable) {
-      header = header.replaceAll('│', ' ');
-    }
+    //   if (!useTable) {
+    //     line = line.replaceAll('│', ' ');
+    //   }
 
-    let body = '';
+    //   lines.push(line);
+    // }
+    // let header = '│ No.│ Tag   │ ' + 'Points'.padEnd(maxPoints, ' ') + ' │ ' + 'Δ'.padStart(maxChange, ' ') + ' │ ' + 'Name'.padEnd(maxName, ' ') + '│';
 
-    if (useTable) {     
-      body = [title, header, separator, ...lines, closer].join('\n');
-    } else {
-      body = [header, ...lines].join('\n');
-    }
+    // let title = makeTitle('Squadron Leaderboard', header);
+    // let separator = makeSeparator(header);
+    // let closer = makeCloser(header);
+    // if (!useTable) {
+    //   header = header.replaceAll('│', ' ');
+    // }
+
+    // let body = '';
+
+    // if (useTable) {
+    //   body = [title, header, separator, ...lines, closer].join('\n');
+    // } else {
+    //   body = [header, ...lines].join('\n');
+    // }
 
 
-    if (useEmbed) {
-    const embed = new EmbedBuilder()
-      .setTitle('Squadron Leaderboard')
-      .setDescription('```ansi\n' + body + '\n```')
-      .setColor(0xd0463c)
-      .setTimestamp(new Date());
+    // if (useEmbed) {
+    //   const embed = new EmbedBuilder()
+    //     .setTitle('Squadron Leaderboard')
+    //     .setDescription('```ansi\n' + body + '\n```')
+    //     .setColor(0xd0463c)
+    //     .setTimestamp(new Date());
 
-    await interaction.reply({ embeds: [embed] });
-    } else {
-      await interaction.reply({ content: `\`\`\`ansi\n${body}\n\`\`\`` });
-    }
+    //   await interaction.reply({ embeds: [embed] });
+    // } else {
+    //   await interaction.reply({ content: `\`\`\`ansi\n${body}\n\`\`\`` });
+    // }
   }
 };
 
+function formatTable(data, title = null, header = null, order = null) {
+  if (!header) {
+    header = Object.keys(data[0]);
+  }
+
+  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+
+  let colCount = matrix[0].length;
+  let colMaxLengths = Array(colCount).fill(0);
+
+  for (const row of matrix) {
+    row.forEach((cell, i) => {
+      if (visibleLength(cell) > colMaxLengths[i]) {
+        colMaxLengths[i] = visibleLength(cell);
+      }
+    });
+  }
+
+  let body = '';
+
+  for (let i = 0; i < matrix.length; i++) {
+    const row = matrix[i];
+    matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
+    body += '│ ' + matrix[i].join(' │ ') + ' │\n';
+  }
+
+  let starter = makeStarter(body.split("\n")[0]);
+  let separator = makeSeparator(body.split("\n")[0]);
+  let closer = makeCloser(body.split("\n")[0]);
+
+  body = starter + '\n' + body + closer;
+
+  return body;
+}
+
+const ansiRegex = /\x1b\[[0-9;]*m/g;
+
+function visibleLength(str) {
+  return str.replace(ansiRegex, "").length;
+}
+
+function isNumeric(str) {
+  // strip ANSI codes first if your string has colors
+  const clean = str.replace(/\x1b\[[0-9;]*m/g, "");
+  // allow negative numbers, decimals, commas
+  return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
+}
+
+function padCell(str, width) {
+  const align = isNumeric(str) ? "right" : "left";
+  const len = str.replace(/\x1b\[[0-9;]*m/g, "").length;
+
+  if (align === "right") return " ".repeat(width - len) + str;
+  return str + " ".repeat(width - len);
+}
