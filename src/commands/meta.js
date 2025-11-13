@@ -65,22 +65,39 @@ module.exports = {
 
       // Add fields for each category
       const ratingColors = {
-        'Meta': '34', // Blue
+        'Meta': '36', // Blue
         'Good': '32', // Green
         'Okay': '33', // Yellow
         'Acceptable': '33', // Yellow
-        'Situational': '31', // Red (for Orange)
+        'Skill Based': '31', // Red
         'Unrated': '37' // White
       };
 
       for (const [category, ratings] of Object.entries(metaData)) {
         let fieldValue = '';
+
+        //check for max rating name length
+        let maxRatingNameLength = 0;
+        for (const [rating, code] of Object.entries(ratingColors)) {
+          if (rating.length > maxRatingNameLength) {
+            maxRatingNameLength = rating.length;
+          }
+        }
         
         // Add each rating (Meta, Good, etc.) and its vehicles
         for (const [rating, vehicles] of Object.entries(ratings)) {
           if (vehicles) {
-            const colorCode = ratingColors[rating] || '37';
-            fieldValue += `\u001b[0;${colorCode}m${rating}: ${vehicles}\u001b[0m\n`;
+            let colorCode = '37';
+            let ratingName = rating;
+
+            for (const [colorKey, code] of Object.entries(ratingColors)) {
+              if (rating.toLowerCase().includes(colorKey.toLowerCase())) {
+                colorCode = code;
+                ratingName = colorKey;
+                break;
+              }
+            }
+            fieldValue += `\u001b[0;${colorCode}m${ratingName.padEnd(maxRatingNameLength, ' ')}: ${vehicles}\u001b[0m\n`;
           }
         }
 
