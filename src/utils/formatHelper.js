@@ -33,7 +33,7 @@ exports.ansiColour = ansiColour;
 function makeTitle(str, header) {
   let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐")+"\n";
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤")+"\n";
+  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
 
   return title;
 }

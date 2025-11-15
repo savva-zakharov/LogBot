@@ -39,6 +39,12 @@ const __session = {
   windowKey: null,           // e.g., 2025-08-17|EU or 2025-08-17|US
 };
 
+const __playerSession = {
+  windowKey: null,
+  dateKey: null,
+  startingPointsByPlayer: new Map(),
+};
+
 // --- Session window helpers (US: 02:00–10:00 UTC, EU: 14:00–22:00 UTC) ---
 function utcMinutes(date) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
@@ -1644,17 +1650,35 @@ async function startSquadronTracker() {
 
         const hasMeaningfulChange = (pointsDelta != null && pointsDelta !== 0) || added.length > 0 || removed.length > 0;
 
+        console.log(`[DEBUG] Points Delta: ${pointsDelta}`);
+        console.log(`[DEBUG] Has Meaningful Change: ${hasMeaningfulChange}`);
+
         if (hasMeaningfulChange) {
             const composed = msgLines.join('\n');
             console.log(composed);
+            console.log('[DEBUG] Preparing to send message...');
             // Prefer dedicated win/loss channel if configured; fallback to default channel
             const sendWL = getDiscordWinLossSend();
             if (sendWL) {
-              try { await sendWL(composed); } catch (_) { /* ignore */ }
+              try { 
+                console.log('[DEBUG] Sending with sendWL...');
+                await sendWL(composed); 
+                console.log('[DEBUG] Sent with sendWL.');
+              } catch (e) { 
+                console.error('[DEBUG] Error with sendWL:', e);
+                /* ignore */ 
+              }
             } else {
               const send = getDiscordSend();
               if (send) {
-                try { await send(composed); } catch (_) { /* do not mirror message to events log */ }
+                try { 
+                  console.log('[DEBUG] Sending with send...');
+                  await send(composed); 
+                  console.log('[DEBUG] Sent with send.');
+                } catch (e) { 
+                  console.error('[DEBUG] Error with send:', e);
+                  /* do not mirror message to events log */ 
+                }
               }
             }
         } else {
@@ -1662,6 +1686,7 @@ async function startSquadronTracker() {
         }
       } catch (e) {
         console.warn('⚠️ Squadron tracker: diff/notify failed:', e && e.message ? e.message : e);
+        console.error('[DEBUG] Error in diff/notify:', e);
       }
 
       // Persist session state with snapshot

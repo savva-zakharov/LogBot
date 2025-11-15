@@ -5,7 +5,7 @@ const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle } = require('../utils/formatHelper');
 
-const useEmbed = true;
+const useEmbed = false;
 const useTable = true;
 
 function readLatestSquadronSnapshot() {
