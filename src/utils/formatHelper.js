@@ -1,3 +1,24 @@
+// Text Colors
+
+//     30: Gray
+//     31: Red
+//     32: Green
+//     33: Yellow
+//     34: Blue
+//     35: Pink
+//     36: Cyan
+//     37: White
+
+// Background Colors
+
+//     40: Firefly dark blue
+//     41: Orange
+//     42: Marble blue
+//     43: Greyish turquoise
+//     44: Gray
+//     45: Indigo
+//     46: Light gray
+//     47: White
 
 function makeSeparator(str) {
   return str.replace(/[^│]/g, '═').replace(/│/g, '╪').replace(/^(.)(.*)(.)$/, "╞$2╡");

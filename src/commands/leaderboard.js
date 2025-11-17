@@ -7,6 +7,7 @@ const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle
 
 const useEmbed = true;
 const useTable = true;
+const embedColor = 0xd0463c;
 
 function readLeaderboardData() {
   try {
@@ -74,27 +75,60 @@ module.exports = {
       }
     }
 
+    const maxPoints = Math.max(...displayData.map(d => fmt(d.points).length)) + 1;
+    const maxChange = Math.max(...displayData.map(d => d.change.length)) + 1;
+    let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
+
+    const borders = 11 + maxPoints + maxChange;
+    if (useEmbed && (borders + maxName > 56)) {
+      maxName = 56 - borders;
+    }
+
+    let squadronPassed = false;
     for (const squadron of displayData) {
       squadron.tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
       squadron.points = fmt(squadron.points);
       delete squadron.pointsStart;
+      if (squadron.name.length > maxName) {
+        squadron.name = squadron.name.slice(0, maxName - 2);
+        squadron.name += '..';
+      }
+      squadron.name = squadron.name.padEnd(maxName, ' ');
 
       if (squadron.tag.includes(primaryTag)) {
-        squadron.tag = ansiColour(squadron.tag, 33);
-        squadron.name = ansiColour(squadron.name, 33);
-        squadron.pos = ansiColour(squadron.pos, 33);
-        squadron.points = ansiColour(squadron.points, 33);
+        squadronPassed = true;
+        squadron.tag = ansiColour(squadron.tag, 31);
+        squadron.name = ansiColour(squadron.name, 31);
+        squadron.pos = ansiColour(squadron.pos, 31);
+        squadron.points = ansiColour(squadron.points, 31);
+      } 
+      else if (squadronPassed) {
+        squadron.tag = ansiColour(squadron.tag, 30);
+        squadron.name = ansiColour(squadron.name, 30);
+        squadron.pos = ansiColour(squadron.pos, 30);
+        squadron.points = ansiColour(squadron.points, 30);
       }
     }
 
     const fieldOrder = ["pos", "tag", "points", "change", "name"];
     const fieldHeaders = ["Pos", "Tag", "Points", "Δ", "Name"];
     const table = formatTable(displayData, 'Leaderboard', fieldHeaders, fieldOrder);
-    
+
+
 
     console.log(table);
-    await interaction.reply({ content: `\`\`\`ansi\n${table}\n\`\`\`` });
     
+    if (useEmbed) {
+      const embed = new EmbedBuilder()
+        .setTitle('Squadron Leaderboard')
+        .setDescription('```ansi\n' + table + '\n```')
+        .setColor(embedColor)
+        .setTimestamp(new Date());
+
+      await interaction.reply({ embeds: [embed] });    
+    } else {
+    await interaction.reply({ content: `\`\`\`ansi\n${table}\n\`\`\`` });
+    }
 
 
 

@@ -1453,21 +1453,21 @@ async function startSquadronTracker() {
           // Web: use player points-based inference (existing thresholds)
           matchesWon = 0;
           matchesLost = 0;
-          const useApiWl = (chosenSource === 'api') || (chosenSource === 'agree' && apiFinite);
-          if (useApiWl) {
-            if (typeof pointsDelta === 'number') {
-              if (pointsDelta > 0) { matchesWon = 1; matchesLost = 0; }
-              else if (pointsDelta < 0) { matchesWon = 0; matchesLost = 1; }
-            }
-          } else {
-            if (gainedPoints > 2 && gainedPoints < 9) matchesWon = 1;
-            else if (gainedPoints > 10 && gainedPoints < 17) matchesWon = 2;
-            else if (gainedPoints > 18) matchesWon = 3;
-
-            if (lostPoints > 2 && lostPoints < 9) matchesLost = 1;
-            else if (lostPoints > 10 && lostPoints < 17) matchesLost = 2;
-            else if (lostPoints > 18) matchesLost = 3;
+          // const useApiWl = (chosenSource === 'api') || (chosenSource === 'agree' && apiFinite);
+          // if (useApiWl) {
+          if (typeof pointsDelta === 'number') {
+            if (pointsDelta > 0) { matchesWon = 1; matchesLost = 0; }
+            else if (pointsDelta < 0) { matchesWon = 0; matchesLost = 1; }
           }
+          // } else {
+          //   if (gainedPoints > 2 && gainedPoints < 9) matchesWon = 1;
+          //   else if (gainedPoints > 10 && gainedPoints < 17) matchesWon = 2;
+          //   else if (gainedPoints > 18) matchesWon = 3;
+
+          //   if (lostPoints > 2 && lostPoints < 9) matchesLost = 1;
+          //   else if (lostPoints > 10 && lostPoints < 17) matchesLost = 2;
+          //   else if (lostPoints > 18) matchesLost = 3;
+          // }
 
           // Initialize/advance session state with window awareness
           const now = new Date();
@@ -1536,6 +1536,8 @@ async function startSquadronTracker() {
           }
           __session.wins += matchesWon;
           __session.losses += matchesLost;
+
+          
 
           // Emit a single unified points_change event enriched with W/L and interval info
           try {
@@ -1634,6 +1636,7 @@ async function startSquadronTracker() {
         }
 
         // Compose a session summary line akin to Python's tracker output
+        const now = new Date();
         const hh = String(now.getUTCHours()).padStart(2, '0');
         const mm = String(now.getUTCMinutes()).padStart(2, '0');
         const timeSummary = `${hh}:${mm}`.padEnd(5, ' ');

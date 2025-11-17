@@ -2,6 +2,8 @@ const { EmbedBuilder } = require('discord.js');
 const metalistManager = require('../utils/metalistManager');
 const { getTodaysBr } = require('../utils/brHelper');
 
+const embedColor = 0xd0463c;
+
 module.exports = {
   data: {
     name: 'meta',
@@ -60,7 +62,7 @@ module.exports = {
       // Create the embed
       const embed = new EmbedBuilder()
         .setTitle(`War Thunder Meta - ${br} BR`)
-        .setColor(0x00AE86)
+        .setColor(embedColor)
         .setTimestamp()
 
       // Add fields for each category
@@ -103,8 +105,7 @@ module.exports = {
 
         if (fieldValue) {
           embed.addFields({
-            name: `
-${category}`,
+            name: `${category}`,
             value: '```ansi\n' + fieldValue + '```',
           });
         }
