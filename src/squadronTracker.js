@@ -174,14 +174,16 @@ function buildWindowSummaryLines(events, window) {
   for (const ev of events) {
     const d = new Date(ev.ts);
     const hhmm = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-    const delta = Number(ev.delta || 0);
+    let delta = Number(ev.delta || 0);
+    if (delta > 0) delta = `+${delta}`;
     sessionDelta += delta;
     cumWins += Number(ev.matchesWon || 0);
     cumLosses += Number(ev.matchesLost || 0);
     const ptsStr = (delta >= 0 ? `+ ${delta} points` : `- ${Math.abs(delta)} points`).padEnd(13, ' ');
     const wlStr = `${cumWins}/${cumLosses}`.padEnd(6, ' ');
     const timeStr = hhmm.padEnd(7, ' ');
-    const sessStr = String(sessionDelta).padEnd(9, ' ');
+    let sessStr = String(sessionDelta).padStart(9, ' ');
+    if (sessionDelta > 0) sessStr = `+${sessionDelta}`;
     let matchText = 'no matches';
     const won = Number(ev.matchesWon || 0);
     const lost = Number(ev.matchesLost || 0);

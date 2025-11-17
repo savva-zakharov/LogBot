@@ -89,6 +89,7 @@ module.exports = {
       squadron.tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
       squadron.points = fmt(squadron.points);
       delete squadron.pointsStart;
+      squadron.pos = squadron.pos + 1;
       if (squadron.name.length > maxName) {
         squadron.name = squadron.name.slice(0, maxName - 2);
         squadron.name += '..';
