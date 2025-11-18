@@ -214,58 +214,123 @@ async function computeEligibleCount(guild) {
     const cfg = getConfig();
     const allRows = getAllRows();
     if (!guild) return 0;
-    try { await guild.members.fetch(); } catch (_) {}
-    // Build excluded role ID set
-    let excludedRoleIds = new Set();
+
+    //
+    // 1. Build excluded role IDs
+    //
+    const excludedRoleIds = new Set();
     try {
-      await guild.roles.fetch();
-      const byName = new Map();
-      guild.roles.cache.forEach(r => { if (r?.name) byName.set(r.name.toLowerCase(), r.id); });
-      excludedRoleIds = new Set(
-        (cfg.excludeRoles || []).map(v => {
-          const s = String(v).trim();
-          if (/^\d{10,}$/.test(s)) return s; // looks like ID
-          const id = byName.get(s.toLowerCase());
-          return id || null;
-        }).filter(Boolean)
+      const roleNameMap = new Map(
+        guild.roles.cache.map(r => [r.name.toLowerCase(), r.id])
       );
-    } catch (_) {}
-    // Optional limiter pool
-    let baseRole = null;
-    if (cfg.memberRoleId || cfg.memberRoleName) {
-      try { baseRole = await resolveRole(guild, cfg.memberRoleId, cfg.memberRoleName); } catch (_) {}
-    }
-    const pool = baseRole ? guild.members.cache.filter(m => m.roles?.cache?.has(baseRole.id)) : guild.members.cache;
-    let count = 0;
-    for (const [, m] of pool) {
-      // Skip excluded members
-      try {
-        if (m.roles?.cache && excludedRoleIds.size) {
-          let skip = false;
-          for (const [rid] of m.roles.cache) { if (excludedRoleIds.has(rid)) { skip = true; break; } }
-          if (skip) continue;
+
+      for (const r of cfg.excludeRoles || []) {
+        const s = String(r).trim();
+        if (/^\d{10,}$/.test(s)) {
+          excludedRoleIds.add(s);
+        } else {
+          const found = roleNameMap.get(s.toLowerCase());
+          if (found) excludedRoleIds.add(found);
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+
+    //
+    // 2. Fetch ONLY the limiter role (if configured)
+    //
+    let limiterRole = null;
+
+    if (cfg.memberRoleId) {
+      try { limiterRole = await guild.roles.fetch(cfg.memberRoleId); } catch (_) {}
+    } else if (cfg.memberRoleName) {
+      const cached = guild.roles.cache.find(
+        r => r.name.toLowerCase() === cfg.memberRoleName.toLowerCase()
+      );
+      if (cached) {
+        try { limiterRole = await guild.roles.fetch(cached.id); } catch (_) {}
+      }
+    }
+
+    //
+    // 3. Build the pool of members
+    //
+    let poolMembers;
+
+    if (limiterRole) {
+      //
+      // BEST CASE: Discord gives us EXACTLY the members with the role,
+      // and this fetch is lightweight & safe.
+      //
+      poolMembers = limiterRole.members; // Collection<Snowflake, GuildMember>
+    } else {
+      //
+      // NO LIMITER ROLE → fallback to cached members only.
+      // (No full guild fetch!)
+      //
+      poolMembers = guild.members.cache;
+    }
+
+    //
+    // 4. Count eligible members
+    //
+    let count = 0;
+
+    for (const m of poolMembers.values()) {
+      const roles = m.roles?.cache;
+      if (!roles) continue;
+
+      // Excluded role check
+      if (excludedRoleIds.size) {
+        let excluded = false;
+        for (const [rid] of roles) {
+          if (excludedRoleIds.has(rid)) {
+            excluded = true;
+            break;
+          }
+        }
+        if (excluded) continue;
+      }
+
       const display = m.nickname || m.user?.username || '';
       if (!display) continue;
+
       const bm = bestMatchPlayer(allRows, display);
       if (!bm || !bm.row) continue;
-      const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
+
+      // Match quality
+      const qualityOk =
+        (bm.tier == null && bm.normD == null) ||
+        (bm.tier <= cfg.matchMaxTier &&
+         bm.normD <= cfg.matchMaxNormD);
+
       if (!qualityOk) continue;
+
+      // Threshold check
       const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
       if (rating >= cfg.threshold) continue;
-      // Grace period check based on join date in snapshot
-      const dojStr = bm.row['Date of entry'] || bm.row['date of entry'] || bm.row['Date'] || '';
+
+      // Grace days
+      const dojStr =
+        bm.row['Date of entry'] ||
+        bm.row['date of entry'] ||
+        bm.row['Date'] ||
+        '';
       const doj = parseDateOfEntry(dojStr);
       const days = daysSince(doj);
-      if (days != null && days < cfg.graceDays) continue; // skip if within grace period
+      if (days != null && days < (cfg.graceDays ?? 30)) continue;
+
       count++;
     }
+
     return count;
-  } catch (_) {
+  } catch (err) {
+    console.error("computeEligibleCount error:", err);
     return 0;
   }
 }
+
+
+
 
 async function resolveRole(guild, roleId, roleName) {
   try {

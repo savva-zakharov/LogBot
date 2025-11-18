@@ -169,13 +169,12 @@ function buildWindowSummaryLines(events, window) {
   const lines = [];
   let cumWins = 0;
   let cumLosses = 0;
-  let sessionDelta = 0;
+  let sessionDelta = 0;                               
   const pad = (n) => String(n).padStart(2, '0');
   for (const ev of events) {
     const d = new Date(ev.ts);
     const hhmm = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
     let delta = Number(ev.delta || 0);
-    if (delta > 0) delta = `+${delta}`;
     sessionDelta += delta;
     cumWins += Number(ev.matchesWon || 0);
     cumLosses += Number(ev.matchesLost || 0);
