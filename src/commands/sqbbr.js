@@ -41,7 +41,9 @@ module.exports = {
       let modifiedBody = body
         .split("\n")
         .map(line => {
-          if (line.includes(todaysBr)) {
+          let cleanLine = line.replace(/\([^)]*\)/g, '');
+          cleanLine = cleanLine.slice(1);
+          if (cleanLine.includes(todaysBr) && !brFound) {
             brFound = true;
             line = `\u001b[1;31m${line}\u001b[0m`;
             return line;
