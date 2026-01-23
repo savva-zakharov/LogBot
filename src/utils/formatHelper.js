@@ -25,9 +25,9 @@ const { loadSettings } = require('../config');
 function makeSeparator(str) {
   const settings = loadSettings();
   if (settings.tableStyle === 'light') {
-    return str.replace(/[^│]/g, '─').replace(/(?<=.)\|(?=.)/g, '┼').replace(/^\|/, '├').replace(/\|$/, '┤');
+    return str.replace(/[^│]/g, '─').replace(/(?<=.)│(?=.)/g, '┼').replace(/^│/, '├').replace(/│$/, '┤');
   } else {
-    return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
+    return str.replace(/[^│]/g, '═').replace(/(?<=.)│(?=.)/g, '╪').replace(/^│/, '╞').replace(/│$/, '╡');
   }
 }
 exports.makeSeparator = makeSeparator;
@@ -53,7 +53,33 @@ function padCenter(str, length, pad = ' ') {
 }
 exports.padCenter = padCenter;
 
+// Text Colors
+
+//     30: Gray
+//     31: Red
+//     32: Green
+//     33: Yellow
+//     34: Blue
+//     35: Pink
+//     36: Cyan
+//     37: White
+
+const ansiColors = {
+  black: 30,
+  red: 31,
+  green: 32,
+  yellow: 33,
+  blue: 34,
+  magenta: 35,
+  cyan: 36,
+  white: 37,
+  reset: 0,
+};
+
 function ansiColour(str, colour, bold = false) {
+  if (typeof colour == 'string') {
+    colour = ansiColors[colour];
+  }
   return `\u001b[${bold ? 1 : 0};${colour}m${str}\u001b[0m`;
 }
 exports.ansiColour = ansiColour;

@@ -166,7 +166,7 @@ module.exports = {
     if (useTable) {
       const fieldHeaders = showContribution ? ["Pos", "Name", "Pts", "Cont"] : ["Pos", "Name", "Pts"];
       const fieldOrder = showContribution ? ["pos", "name", "rating", "contribution"] : ["pos", "name", "rating"];
-      text = formatTable(lines, null, fieldHeaders, fieldOrder, true);
+      text = formatTable(lines, null, fieldHeaders, fieldOrder, false);
       console.log(text);
     } else {
       text = lines.join('\n');

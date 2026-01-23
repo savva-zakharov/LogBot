@@ -105,7 +105,7 @@ module.exports = {
       };
 
       if (x.isTop) {
-        const colour = 36;
+        const colour = 'yellow';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
         obj.time = obj.time;
@@ -114,7 +114,7 @@ module.exports = {
       }
 
       if (x.isLow) {
-        const colour = 31;
+        const colour = 'red';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
         obj.time = obj.time;
