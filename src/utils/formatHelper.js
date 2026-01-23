@@ -23,7 +23,7 @@ const { loadSettings } = require('../config');
 //     47: White
 
 function makeSeparator(str) {
-  
+
   return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
 }
 exports.makeSeparator = makeSeparator;
@@ -55,7 +55,7 @@ function ansiColour(str, colour, bold = false) {
 exports.ansiColour = ansiColour;
 
 function makeTitle(str, header) {
-  let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐")+"\n";
+  let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐") + "\n";
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
   title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
 
@@ -94,7 +94,7 @@ function formatTableLight(data, title = null, header = null, order = null) {
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body +=matrix[i].join(' │ ') +'\n';
+    body += matrix[i].join(' │ ') + '\n';
     if (i === 0) {
       separator = makeSeparator(body.split("\n")[0]);
       body = body + separator + '\n';
@@ -178,3 +178,12 @@ function isNumeric(str) {
   return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
 }
 exports.isNumeric = isNumeric;
+
+function sanitizeUsername(name) {
+    return name
+      .replace(/@(psn|live)\b/gi, "")
+      .normalize("NFKD")
+      .replace(/[^\x20-\x7E]/g, "")
+      .trim();
+}
+exports.sanitizeUsername = sanitizeUsername;

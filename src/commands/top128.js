@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { makeSeparator, makeStarter, makeCloser, padCenter, formatTable, ansiColour, makeTitle } = require('../utils/formatHelper');
+const { makeSeparator, makeStarter, makeCloser, padCenter, formatTable, ansiColour, makeTitle, sanitizeUsername } = require('../utils/formatHelper');
 
 const useEmbed = true;
 const useTable = true;
@@ -97,7 +97,7 @@ module.exports = {
 
     // Align columns: make ratings line up
     const rankWidth = String(list.length).length; // width for rank index (up to 3)
-    const prefixes = list.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
+    const prefixes = list.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name.replace(/[^\x20-\x7E]/g, "")}`);
     const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
     const ratingStrs = list.map(x => String(x.rating));
     const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
@@ -106,12 +106,12 @@ module.exports = {
 
     if (useTable) {
       list.forEach((x, i) => {
-        let maxNameLength = 10;
+        let maxNameLength = 14;
         const isTop20 = i < 20;
         const contribution = isTop20 ? x.rating : Math.round(x.rating / 20);
         const obj = {
           pos: i + 1,
-          name: x.name.slice(0, maxNameLength),
+          name: sanitizeUsername(x.name).slice(0, maxNameLength),
           rating: x.rating,
           contribution: contribution
         };
@@ -174,7 +174,20 @@ module.exports = {
     } else if (sub === 'embed') {
       try {
         // Fallback: chunk into code blocks if file sending fails
-        const blocks = chunkIntoCodeBlocks(text);
+        console.log(text.length);
+        let blocks;
+        if (text.length < 4000) {
+          const embed = new EmbedBuilder()
+            .setTitle('Top 128')
+            .setDescription('```ansi\n' + text + '\n```')
+            .setColor(embedColor)
+            .setTimestamp(new Date());
+
+          await interaction.reply({ embeds: [embed] });
+        } else {
+          blocks = chunkIntoCodeBlocks(text);
+        } 
+        
         if (blocks.length === 1) {
           const embed = new EmbedBuilder()
             .setTitle('Top 128')
