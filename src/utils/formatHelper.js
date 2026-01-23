@@ -23,7 +23,8 @@ const { loadSettings } = require('../config');
 //     47: White
 
 function makeSeparator(str) {
-  return str.replace(/[^│]/g, '═').replace(/│/g, '╪').replace(/^(.)(.*)(.)$/, "╞$2╡");
+  
+  return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
 }
 exports.makeSeparator = makeSeparator;
 
@@ -94,12 +95,17 @@ function formatTableLight(data, title = null, header = null, order = null) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
     body +=matrix[i].join(' │ ') +'\n';
+    if (i === 0) {
+      separator = makeSeparator(body.split("\n")[0]);
+      body = body + separator + '\n';
+    }
   }
 
   let starter;
   if (title) {
     starter = makeTitleLight(title, body.split("\n")[0]);
-    body = starter + '\n' + body;
+    separator = makeSeparator(body.split("\n")[0]);
+    body = starter + '\n' + separator + '\n' + body;
   }
 
   return body;

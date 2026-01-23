@@ -3,10 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
-const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle } = require('../utils/formatHelper');
+const { formatTable, ansiColour } = require('../utils/formatHelper');
 
-const useEmbed = false;
-const useTable = true;
+const { sanitizeName } = require('../utils/nameSanitizer');
 
 function readLatestSquadronSnapshot() {
   try {
@@ -30,15 +29,12 @@ function toNumber(val) {
   return cleaned ? parseInt(cleaned, 10) : 0;
 }
 
-const { sanitizeName } = require('../utils/nameSanitizer');
-
 module.exports = {
   data: {
     name: 'top20',
     description: 'Show top 20 players by Personal clan rating from the latest snapshot',
   },
   async execute(interaction) {
-
     const settings = loadSettings();
     const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
 
@@ -62,67 +58,23 @@ module.exports = {
       return;
     }
 
-    // Align columns: make ratings line up
-    const rankWidth = String(top.length).length; // width for rank index
-    const ranks = top.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}`);
-    const names = top.map(x => String(x.name));
-    const maxName = names.reduce((m, s) => Math.max(m, s.length), 0);
+    const tableData = top.map((x, i) => ({
+      pos: ansiColour(String(i + 1), 33),
+      name: ansiColour(x.name, 33),
+      rating: ansiColour(String(x.rating), 33)
+    }));
 
-    let lines = [];
+    const titleText = 'Top 20 Players in ' + primaryTag;
+    const fieldHeaders = ["Pos", "Name", "Points"];
+    const fieldOrder = ["pos", "name", "rating"];
+    const text = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
 
-    if (useTable) {
-      lines = top.map((x, i) => {
-        const prefix = ranks[i];
-        const name = names[i];
-        const rating = String(x.rating);
-        return `│ ${prefix} │ ${name.padEnd(maxName+1, ' ')}│ ${rating.padStart(6, ' ')} │`;
-      });
-    } else {
-      lines = top.map((x, i) => {
-        const prefix = ranks[i];
-        const name = names[i];
-        const rating = String(x.rating);
-        return `${prefix}. ${name.padEnd(maxName+1, ' ')}— ${rating.padStart(4, ' ')}`;
-      });
-    }
+    const embed = new EmbedBuilder()
+      .setTitle(titleText)
+      .setDescription('```ansi\n' + text + '\n```')
+      .setColor(0xd0463c)
+      .setTimestamp(new Date());
 
-    const titleText = 'Top 20 Players in ' + primaryTag + ':';
-
-
-    if (useTable) {
-      
-
-      const header = '│ No.│ ' + 'Name'.padEnd(maxName+1, ' ') + '│ Points │';
-      let title = makeTitle(titleText, header);
-      let starter = makeStarter(header);
-      let separator = makeSeparator(header);
-      let closer = makeCloser(header);
-
-      if (useEmbed) {
-        const content = '```\n' + [starter, header, separator, ...lines, closer].join('\n') + '\n```';
-        const embed = new EmbedBuilder()
-          .setTitle(titleText)
-          .setDescription(content)
-          .setColor(0xd0463c)
-          .setTimestamp(new Date());
-        await interaction.reply({ embeds: [embed] });
-      } else {
-        const content = '```\n' + [title, header, separator, ...lines, closer].join('\n') + '\n```';
-        await interaction.reply({ content });
-      }
-    } else {
-      if (useEmbed) {
-        const embed = new EmbedBuilder()
-          .setTitle(titleText)
-          .setDescription('```ansi\n' + lines.join('\n') + '\n```')
-          .setColor(0xd0463c)
-          .setTimestamp(new Date());
-        await interaction.reply({ embeds: [embed] });
-      } else {
-        const content = '```\n' + titleText + '\n\n' + lines.join('\n') + '\n```';
-        await interaction.reply({ content });
-      }
-    }
-
+    await interaction.reply({ embeds: [embed] });
   }
 };
