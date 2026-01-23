@@ -151,7 +151,7 @@ module.exports = {
     if (useTable) {
       const fieldHeaders = ["Pos", "Name", "Pts", "Cont"];
       const fieldOrder = ["pos", "name", "rating", "contribution"];
-      text = formatTable(lines, 'Top 128', fieldHeaders, fieldOrder);
+      text = formatTable(lines, null, fieldHeaders, fieldOrder);
       console.log(text);
     } else {
       text = lines.join('\n');
@@ -160,25 +160,6 @@ module.exports = {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const name = `top128-${ts}.txt`;
 
-    // Prefer sending as a file attachment to avoid message length limits
-    // try {
-    //   await interaction.reply({
-    //     content: 'Attached is the Top 128 list as a text file.',
-    //     files: [{ attachment: Buffer.from(text, 'utf8'), name }],
-    //   });
-    //   return;
-    // } catch (_) {
-    //   // Fallback: chunk into code blocks if file sending fails
-    //   const blocks = chunkIntoCodeBlocks(text);
-    //   if (blocks.length === 1) {
-    //     await interaction.reply({ content: blocks[0] });
-    //   } else {
-    //     await interaction.reply({ content: blocks[0] });
-    //     for (let i = 1; i < blocks.length; i++) {
-    //       await interaction.followUp({ content: blocks[i] });
-    //     }
-    //   }
-    // }
     const file = interaction.options.getBoolean('file');
 
     if (sub === 'file') {
