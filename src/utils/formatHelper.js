@@ -23,8 +23,12 @@ const { loadSettings } = require('../config');
 //     47: White
 
 function makeSeparator(str) {
-
-  return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
+  const settings = loadSettings();
+  if (settings.tableStyle === 'light') {
+    return str.replace(/[^│]/g, '─').replace(/(?<=.)\|(?=.)/g, '┼').replace(/^\|/, '├').replace(/\|$/, '┤');
+  } else {
+    return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
+  }
 }
 exports.makeSeparator = makeSeparator;
 
@@ -71,7 +75,7 @@ function makeTitleLight(str, header) {
 }
 exports.makeTitleLight = makeTitleLight;
 
-function formatTableLight(data, title = null, header = null, order = null) {
+function formatTableLight(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
@@ -90,11 +94,12 @@ function formatTableLight(data, title = null, header = null, order = null) {
   }
 
   let body = '';
+  let divider = compact ? ' ' : ' │ ';
 
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body += matrix[i].join(' │ ') + '\n';
+    body += matrix[i].join(divider) + '\n';
     if (i === 0) {
       separator = makeSeparator(body.split("\n")[0]);
       body = body + separator + '\n';
@@ -112,7 +117,7 @@ function formatTableLight(data, title = null, header = null, order = null) {
 }
 exports.formatTableLight = formatTableLight;
 
-function formatTableHeavy(data, title = null, header = null, order = null) {
+function formatTableHeavy(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
@@ -131,11 +136,12 @@ function formatTableHeavy(data, title = null, header = null, order = null) {
   }
 
   let body = '';
+  let divider = compact ? '│' : '│ ';
 
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body += '│ ' + matrix[i].join(' │ ') + ' │\n';
+    body += divider + matrix[i].join(divider) + divider + '\n';
   }
 
   let starter = makeStarter(body.split("\n")[0]);
@@ -148,12 +154,12 @@ function formatTableHeavy(data, title = null, header = null, order = null) {
 }
 exports.formatTableHeavy = formatTableHeavy;
 
-function formatTable(data, title = null, header = null, order = null) {
+function formatTable(data, title = null, header = null, order = null, compact = false) {
   const settings = loadSettings();
   if (settings.tableStyle === 'light') {
-    return formatTableLight(data, title, header, order);
+    return formatTableLight(data, title, header, order, compact);
   }
-  return formatTableHeavy(data, title, header, order);
+  return formatTableHeavy(data, title, header, order, compact);
 }
 exports.formatTable = formatTable;
 

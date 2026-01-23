@@ -3,9 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { makeSeparator, makeStarter, makeCloser, padCenter, formatTable, ansiColour, makeTitle, sanitizeUsername } = require('../utils/formatHelper');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 
 const useEmbed = true;
 const useTable = true;
+const showContribution = false;
 const embedColor = 0xd0463c;
 function readLatestSquadronSnapshot() {
   try {
@@ -30,7 +32,7 @@ function toNumber(val) {
 }
 
 function chunkIntoCodeBlocks(text) {
-  // Ensure we honor Discord's 2000 char limit per message
+  // Ensure we honor Discord's 2000 char limit per message or 1000 limit per embed
   const wrapper = { open: '```ansi\n', close: '\n```' };
   const maxLen = 1000;
   const contentMax = maxLen - (wrapper.open.length + wrapper.close.length);
@@ -81,6 +83,8 @@ module.exports = {
       await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
       return;
     }
+    
+    const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
 
     // Sort rows by Personal clan rating desc
     const list = [...rows]
@@ -106,22 +110,33 @@ module.exports = {
 
     if (useTable) {
       list.forEach((x, i) => {
-        let maxNameLength = 14;
+        
+        const maxNameLength = (showContribution ? 16 : 20);
         const isTop20 = i < 20;
+        const isLowPoint = x.rating < cfg.threshold;
         const contribution = isTop20 ? x.rating : Math.round(x.rating / 20);
         const obj = {
           pos: i + 1,
           name: sanitizeUsername(x.name).slice(0, maxNameLength),
           rating: x.rating,
-          contribution: contribution
+          contribution: showContribution ? contribution : null
         };
 
-        if (isTop20) {
-          obj.pos = ansiColour(String(obj.pos), 33);
-          obj.name = ansiColour(obj.name.slice(0, maxNameLength), 33);
-          obj.rating = ansiColour(String(obj.rating), 33);
-          obj.contribution = ansiColour(String(obj.contribution), 33);
-        }
+        // if (isTop20) {
+        //   obj.pos = String(obj.pos);
+        //   obj.name = ansiColour(obj.name.slice(0, maxNameLength), 31, true); //colour top 20 red
+        //   obj.rating = String(obj.rating);
+        //   if (showContribution) {
+        //     obj.contribution = String(obj.contribution);
+        //   }
+        // }else if (isLowPoint) {
+        //   obj.pos = String(obj.pos);
+        //   obj.name = ansiColour(obj.name.slice(0, maxNameLength), 30, true); //colour low points gray
+        //   obj.rating = String(obj.rating);
+        //   if (showContribution) {
+        //     obj.contribution = String(obj.contribution);
+        //   }
+        // }
         lines.push(obj);
       });
     } else {
@@ -149,9 +164,9 @@ module.exports = {
     let text;
 
     if (useTable) {
-      const fieldHeaders = ["Pos", "Name", "Pts", "Cont"];
-      const fieldOrder = ["pos", "name", "rating", "contribution"];
-      text = formatTable(lines, null, fieldHeaders, fieldOrder);
+      const fieldHeaders = showContribution ? ["Pos", "Name", "Pts", "Cont"] : ["Pos", "Name", "Pts"];
+      const fieldOrder = showContribution ? ["pos", "name", "rating", "contribution"] : ["pos", "name", "rating"];
+      text = formatTable(lines, null, fieldHeaders, fieldOrder, true);
       console.log(text);
     } else {
       text = lines.join('\n');
@@ -187,7 +202,7 @@ module.exports = {
         } else {
           blocks = chunkIntoCodeBlocks(text);
         } 
-        
+
         if (blocks.length === 1) {
           const embed = new EmbedBuilder()
             .setTitle('Top 128')
