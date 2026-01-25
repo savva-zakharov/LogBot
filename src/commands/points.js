@@ -96,7 +96,7 @@ module.exports = {
           contributionPercent: contributionPercent
         });
 
-        const fieldOrder = ["position", "points",  "contribution", "contributionPercent"];
+        const fieldOrder = ["position", "points", "contribution", "contributionPercent"];
         const fieldHeaders = ["Pos.", "Points", "Contribution", "%"];
         body = formatTable(displayData, playerName, fieldHeaders, fieldOrder);
     } else {
