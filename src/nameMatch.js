@@ -113,14 +113,9 @@ function bestMatchPlayer(rows, query) {
 }
 
 function fuseMatch(items, query, keys = ['name']) {
-  const fuseOptions = {
-    keys: keys
-  };
-  
+  const fuseOptions = { keys };
   const sanitizedQuery = sanitizeName(query.replace(/\([^)]*\)/g, ''));
-  const fuse = new Fuse(items, fuseOptions);
-  const result = fuse.search(sanitizedQuery);
-  return result.length > 0 ? result[0] : null;
+  return new Fuse(items, fuseOptions).search(sanitizedQuery)[0] || null;
 }
 
 module.exports = {
