@@ -7,9 +7,10 @@ const { loadSettings } = require('../config');
 const { formatTable, ansiColour } = require('../utils/formatHelper');
 const { sanitizeName } = require('../utils/nameSanitizer');
 const Fuse = require('fuse.js');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 
 const useTable = true;
-const useEmbed = false;
+const useEmbed = true;
 const embedColor = 0xd0463c;
 
 function readLatestSquadronSnapshot() {
@@ -45,6 +46,9 @@ module.exports = {
     ],
   },
   async execute(interaction) {
+    
+    const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
+    const threshold = Number.isFinite(cfg.threshold) ? cfg.threshold : 1300;
     const caller = interaction.member?.nickname || interaction.user?.username || interaction.member?.user?.username || 'Unknown';
     const queryInput = (interaction.options && typeof interaction.options.getString === 'function')
       ? interaction.options.getString('player')
@@ -63,7 +67,7 @@ module.exports = {
       : (Array.isArray(snap?.rows) ? snap.rows : []); // legacy fallback
 
     const top = [...rows]
-      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: sanitizeName(r.Player || r.player || 'Unknown') }))
+      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: (r.Player || r.player || 'Unknown') }))
       .sort((a, b) => b.rating - a.rating);
 
     top.forEach((row, index) => {
@@ -109,19 +113,38 @@ module.exports = {
     const rating = row['Personal clan rating'] ?? row.rating ?? 'N/A';
     const playerName = row.name || 'Unknown player';
     const contribution = row.contribution;
+    const contributionPercent = Math.round(contribution / snap.totalPoints * 10000) / 100 + '%';
+    let body = ``;
+
+    if (useTable) {
+      let displayData = [];
+        displayData.push({
+          // name: playerName,
+          points: row.rating < threshold ? ansiColour(row.rating, 'red') : row.rating,
+          position: row.position < 21 ? ansiColour(row.position, 'cyan') : row.position,
+          contribution: contribution,
+          contributionPercent: contributionPercent
+        });
+
+        // const fieldOrder = ["name", "points", "position", "contribution", "contributionPercent"];
+        const fieldHeaders = ["Points", "Position", "Contribution", "%"];
+        body = formatTable(displayData, playerName, fieldHeaders, null);
+    } else {
+      body = `Points: ${rating}\nPosition: ${row.position}\nContribution: ${contribution} (${contributionPercent})`;
+    }
 
     if (useEmbed) {
 
       const embed = new EmbedBuilder()
-        .setTitle(`Personal clan rating for ${playerName}`)
-        .setDescription(`Personal clan rating: ${rating}\nContribution: ${contribution}`)
+        .setTitle(playerName)
+        .setDescription(`\`\`\`ansi\n${body}\`\`\``)
         .setColor(embedColor)
         .setTimestamp(new Date());
 
       await interaction.reply({ embeds: [embed] });
 
     } else {
-      let header = `Player        : ${playerName}\nPoints        : ${rating}\nContribution  : ${contribution}`;
+      let header = `Player        : ${playerName}\nPoints        : ${rating}\nContribution  : ${contribution} (${contributionPercent})`;
       if (typeof snap.totalPoints === 'number') {
         header += `\nSquadron total: ${snap.totalPoints}`;
       }

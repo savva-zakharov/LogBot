@@ -22,48 +22,6 @@ const { loadSettings } = require('../config');
 //     46: Light gray
 //     47: White
 
-function makeSeparator(str) {
-  const settings = loadSettings();
-  if (settings.tableStyle === 'light') {
-    return str.replace(/[^│]/g, '─').replace(/(?<=.)│(?=.)/g, '┼').replace(/^│/, '├').replace(/│$/, '┤');
-  } else {
-    return str.replace(/[^│]/g, '═').replace(/(?<=.)│(?=.)/g, '╪').replace(/^│/, '╞').replace(/│$/, '╡');
-  }
-}
-exports.makeSeparator = makeSeparator;
-
-function makeStarter(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "┌$2┐");
-}
-exports.makeStarter = makeStarter;
-
-function makeCloser(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┴').replace(/^(.)(.*)(.)$/, "└$2┘");
-}
-exports.makeCloser = makeCloser;
-
-function padCenter(str, length, pad = ' ') {
-  const totalPadding = length - str.length;
-  if (totalPadding <= 0) return str;
-
-  const padStart = Math.floor(totalPadding / 2);
-  const padEnd = Math.ceil(totalPadding / 2);
-
-  return pad.repeat(padStart) + str + pad.repeat(padEnd);
-}
-exports.padCenter = padCenter;
-
-// Text Colors
-
-//     30: Gray
-//     31: Red
-//     32: Green
-//     33: Yellow
-//     34: Blue
-//     35: Pink
-//     36: Cyan
-//     37: White
-
 const ansiColors = {
   black: 30,
   red: 31,
@@ -84,15 +42,52 @@ function ansiColour(str, colour, bold = false) {
 }
 exports.ansiColour = ansiColour;
 
+
+//table functions
+
+// ┌─┬───┐
+// ├─┼─┬─┤
+// └─┴─┴─┘
+
+
+
+// ├─┼─┼─┤
+function makeSeparator(str) {
+  const settings = loadSettings();
+  if (settings.tableStyle === 'light') {
+    return str.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/(?<=.)│(?=.)/g, '┼');
+  } else {
+    return str.replace(/[^│]/g, '═').replace(/^│/, '╞').replace(/│$/, '╡').replace(/(?<=.)│(?=.)/g, '╪');
+  }
+}
+exports.makeSeparator = makeSeparator;
+
+//┌─┬─┬─┐
+function makeStarter(str) {
+  return str.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '┬');
+}
+exports.makeStarter = makeStarter;
+
+// └─┴─┴─┘
+function makeCloser(str) {
+  return str.replace(/[^│]/g, '─').replace(/^│/, '└').replace(/│$/, '┘').replace(/│/g, '┴');
+}
+exports.makeCloser = makeCloser;
+
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
 function makeTitle(str, header) {
-  let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐") + "\n";
+  let title = header.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '─') + "\n";
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
+  title += header.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/│/g, '┬');
 
   return title;
 }
 exports.makeTitle = makeTitle;
 
+//  Title 
+// ──┬──┬──
 function makeTitleLight(str, header) {
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
   title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
@@ -101,12 +96,19 @@ function makeTitleLight(str, header) {
 }
 exports.makeTitleLight = makeTitleLight;
 
+// Title 
+// ──┬──┬──
+//   │ │ │
 function formatTableLight(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
-
-  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
 
   let colCount = matrix[0].length;
   let colMaxLengths = Array(colCount).fill(0);
@@ -134,21 +136,33 @@ function formatTableLight(data, title = null, header = null, order = null, compa
 
   let starter;
   if (title) {
-    starter = makeTitleLight(title, body.split("\n")[0]);
-    separator = makeSeparator(body.split("\n")[0]);
-    body = starter + '\n' + separator + '\n' + body;
+    const titleLine = padCenter(title, body.split("\n")[0].length, ' ');
+    starter = makeStarter(body.split("\n")[0]);
+    body = titleLine + '\n' + starter + '\n' + body;
   }
 
   return body;
 }
 exports.formatTableLight = formatTableLight;
 
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
+// │  │  │  │
+// └──┴──┴──┘
+
+
 function formatTableHeavy(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
 
-  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
 
   let colCount = matrix[0].length;
   let colMaxLengths = Array(colCount).fill(0);
@@ -162,19 +176,28 @@ function formatTableHeavy(data, title = null, header = null, order = null, compa
   }
 
   let body = '';
-  let divider = compact ? '│' : '│ ';
+  let divider = compact ? '│' : ' │ ';
 
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body += divider + matrix[i].join(divider) + divider + '\n';
+    body += (compact ? '│' : '│ ') + matrix[i].join(divider) + (compact ? '│' : ' │') + '\n';
+    if (i === 0) {
+      const separator = makeSeparator(body.split("\n")[0]);
+      body = body + separator + '\n';
+    }
   }
-
-  let starter = makeStarter(body.split("\n")[0]);
-  let separator = makeSeparator(body.split("\n")[0]);
   let closer = makeCloser(body.split("\n")[0]);
+  let starter = ``;
+  if (title) {
+    starter = makeTitle(title, body.split("\n")[0]);
+    body = starter + `\n` + body;    
+  } else {
+    starter = makeStarter(body.split("\n")[0]);
+    body = starter + '\n' + body;
+  } 
 
-  body = starter + '\n' + body + closer;
+  body = body + closer;
 
   return body;
 }
@@ -219,3 +242,14 @@ function sanitizeUsername(name) {
       .trim();
 }
 exports.sanitizeUsername = sanitizeUsername;
+
+function padCenter(str, length, pad = ' ') {
+  const totalPadding = length - str.length;
+  if (totalPadding <= 0) return str;
+
+  const padStart = Math.floor(totalPadding / 2);
+  const padEnd = Math.ceil(totalPadding / 2);
+
+  return pad.repeat(padStart) + str + pad.repeat(padEnd);
+}
+exports.padCenter = padCenter;
