@@ -11,22 +11,22 @@ if errorlevel 1 (
   goto :end
 )
 
-echo [update-bot] Removing any local file changes...  
-git reset --hard
+echo [update-bot] Switching to main branch...
+git checkout main
 if errorlevel 1 (
-  echo [update-bot] git reset failed. Check your network or git remotes.
+  echo [update-bot] git checkout main failed.
   goto :end
 )
 
-echo [update-bot] Pulling latest changes...
-git pull --ff-only
+echo [update-bot] Resetting to match origin/main...
+git reset --hard origin/main
 if errorlevel 1 (
-  echo [update-bot] git pull failed. Resolve conflicts and rerun.
+  echo [update-bot] git reset failed.
   goto :end
 )
 
 echo [update-bot] Installing npm packages...
-npm install
+call npm install
 if errorlevel 1 (
   echo [update-bot] npm install encountered errors.
   goto :end
