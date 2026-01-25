@@ -87,31 +87,3 @@ module.exports = {
     }
   }
 };
-
-
-
-
-
-//     // Align columns: make ratings line up
-//     const rankWidth = String(bottom.length).length; // width for rank index
-//     const prefixes = bottom.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
-//     const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
-//     const ratingStrs = bottom.map(x => String(x.rating));
-//     const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
-
-//     const lines = bottom.map((x, i) => {
-//       const prefix = prefixes[i];
-//       const gap = ' '.repeat(maxPrefix - prefix.length);
-//       const rating = String(x.rating).padStart(ratingWidth, ' ');
-//       return `${prefix}${gap} — ${rating}`;
-//     });
-
-
-
-
-//     const header = 'Bottom 20 by Personal clan rating:';
-
-//     const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
-//     await interaction.reply({ content });
-//   }
-// };

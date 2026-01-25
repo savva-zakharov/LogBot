@@ -11,7 +11,7 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setTitle('Metalist Spreadsheet')
       .setDescription(`[Open the sheet](${url})`)
-      .setColor(0x00AE86);
+      .setColor(0xd0463c);
     await interaction.reply({ embeds: [embed] });
   },
 };
