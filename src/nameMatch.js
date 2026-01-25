@@ -1,4 +1,7 @@
 // src/nameMatch.js
+const Fuse = require('fuse.js');
+const { sanitizeName } = require('./utils/nameSanitizer');
+
 function normalizeName(s) {
   return String(s || '')
     .toLowerCase()
@@ -109,6 +112,17 @@ function bestMatchPlayer(rows, query) {
   return primary;
 }
 
+function fuseMatch(items, query, keys = ['name']) {
+  const fuseOptions = {
+    keys: keys
+  };
+  
+  const sanitizedQuery = sanitizeName(query.replace(/\([^)]*\)/g, ''));
+  const fuse = new Fuse(items, fuseOptions);
+  const result = fuse.search(sanitizedQuery);
+  return result.length > 0 ? result[0] : null;
+}
+
 module.exports = {
   normalizeName,
   stripNonWord,
@@ -117,4 +131,5 @@ module.exports = {
   levenshtein,
   toNumber,
   bestMatchPlayer,
+  fuseMatch,
 };

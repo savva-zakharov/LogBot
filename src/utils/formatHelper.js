@@ -40,7 +40,7 @@ function ansiColour(str, colour, bold = false) {
   }
   return `\u001b[${bold ? 1 : 0};${colour}m${str}\u001b[0m`;
 }
-exports.ansiColour = ansiColour;
+
 
 
 //table functions
@@ -60,19 +60,19 @@ function makeSeparator(str) {
     return str.replace(/[^│]/g, '═').replace(/^│/, '╞').replace(/│$/, '╡').replace(/(?<=.)│(?=.)/g, '╪');
   }
 }
-exports.makeSeparator = makeSeparator;
+
 
 //┌─┬─┬─┐
 function makeStarter(str) {
   return str.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '┬');
 }
-exports.makeStarter = makeStarter;
+
 
 // └─┴─┴─┘
 function makeCloser(str) {
   return str.replace(/[^│]/g, '─').replace(/^│/, '└').replace(/│$/, '┘').replace(/│/g, '┴');
 }
-exports.makeCloser = makeCloser;
+
 
 // ┌────────┐
 // │ Title │
@@ -84,7 +84,6 @@ function makeTitle(str, header) {
 
   return title;
 }
-exports.makeTitle = makeTitle;
 
 // Title 
 // ──┬──┬──
@@ -133,7 +132,6 @@ function formatTableLight(data, title = null, header = null, order = null, compa
 
   return body;
 }
-exports.formatTableLight = formatTableLight;
 
 // ┌────────┐
 // │ Title │
@@ -181,17 +179,16 @@ function formatTableHeavy(data, title = null, header = null, order = null, compa
   let starter = ``;
   if (title) {
     starter = makeTitle(title, body.split("\n")[0]);
-    body = starter + `\n` + body;    
+    body = starter + `\n` + body;
   } else {
     starter = makeStarter(body.split("\n")[0]);
     body = starter + '\n' + body;
-  } 
+  }
 
   body = body + closer;
 
   return body;
 }
-exports.formatTableHeavy = formatTableHeavy;
 
 function formatTable(data, title = null, header = null, order = null, compact = false) {
   const settings = loadSettings();
@@ -200,14 +197,12 @@ function formatTable(data, title = null, header = null, order = null, compact = 
   }
   return formatTableHeavy(data, title, header, order, compact);
 }
-exports.formatTable = formatTable;
 
 function visibleLength(str) {
   const ansiRegex = /\x1b\[[0-9;]*m/g;
   return str.replace(ansiRegex, "").length;
 }
 
-exports.visibleLength = visibleLength;
 function padCell(str, width) {
   const align = isNumeric(str) ? "right" : "left";
   const len = str.replace(/\x1b\[[0-9;]*m/g, "").length;
@@ -222,16 +217,14 @@ function isNumeric(str) {
   // allow negative numbers, decimals, commas
   return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
 }
-exports.isNumeric = isNumeric;
 
 function sanitizeUsername(name) {
-    return name
-      .replace(/@(psn|live)\b/gi, "")
-      .normalize("NFKD")
-      .replace(/[^\x20-\x7E]/g, "")
-      .trim();
+  return name
+    .replace(/@(psn|live)\b/gi, "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim();
 }
-exports.sanitizeUsername = sanitizeUsername;
 
 function padCenter(str, length, pad = ' ') {
   const totalPadding = length - str.length;
@@ -242,4 +235,15 @@ function padCenter(str, length, pad = ' ') {
 
   return pad.repeat(padStart) + str + pad.repeat(padEnd);
 }
-exports.padCenter = padCenter;
+
+module.exports = {
+  ansiColour,
+  formatTable,
+  formatTableLight,
+  formatTableHeavy,
+  visibleLength,
+  padCell,
+  isNumeric,
+  sanitizeUsername,
+  padCenter
+};
