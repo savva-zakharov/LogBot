@@ -70,9 +70,9 @@ module.exports = {
       }
 
       const tableData = top.map((x, i) => ({
-        pos: ansiColour(String(i + 1), 33),
-        name: ansiColour(x.name, 33),
-        rating: ansiColour(String(x.rating), 33)
+        pos: ansiColour(String(i + 1), `cyan`),
+        name: ansiColour(x.name, `cyan`),
+        rating: ansiColour(String(x.rating), `cyan`)
       }));
 
       const titleText = 'Top 20 Players in ' + primaryTag;

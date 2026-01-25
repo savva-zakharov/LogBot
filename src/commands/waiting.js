@@ -106,7 +106,7 @@ module.exports = {
       };
 
       if (x.isTop) {
-        const colour = 'yellow';
+        const colour = 'cyan';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
         obj.time = obj.time;
