@@ -3,11 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const waitingTracker = require('../waitingTracker');
-const { bestMatchPlayer, toNumber } = require('../nameMatch');
+const { fuseMatch, toNumber } = require('../nameMatch');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 const { formatTable, formatTableLight, ansiColour } = require('../utils/formatHelper');
-
-const { sanitizeName } = require('../utils/nameSanitizer');
 
 function readLatestSquadronSnapshot() {
   try {
@@ -52,12 +50,16 @@ module.exports = {
     const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
     const threshold = Number.isFinite(cfg.threshold) ? cfg.threshold : 1300;
 
+    const snapshotPlayers = rows.map(r => ({
+      r,
+      rating: toNumber(r['Personal clan rating'] ?? r.rating),
+      name: (r.Player || r.player || 'Unknown')
+    }));
+
     // Build Top 20 set from snapshot
     const top20Names = new Set();
     try {
-      const ranked = rows
-        .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || '' }))
-        .filter(x => x.name)
+      const ranked = [...snapshotPlayers]
         .sort((a, b) => b.rating - a.rating)
         .slice(0, 20);
       for (const x of ranked) top20Names.add(String(x.name).toLowerCase());
@@ -70,17 +72,16 @@ module.exports = {
         const gm = interaction.guild?.members?.cache?.get(w.userId) || (interaction.guild ? await interaction.guild.members.fetch(w.userId) : null);
         if (gm) {
           // Prefer per-server profile name (displayName), then global display name, then username
-          const preferred = gm.displayName ?? gm.user?.globalName ?? gm.user?.username;
-          if (preferred) display = sanitizeName(preferred);
+          display = gm.displayName ?? gm.user?.globalName ?? gm.user?.username ?? display;
         }
       } catch (error) { console.error('Error fetching guild member for waiting list:', error); }
       let rating = 'N/A';
       let matchedName = '';
-      if (rows.length && display) {
-        const found = bestMatchPlayer(rows, display);
-        if (found && found.row) {
-          rating = found.row['Personal clan rating'] ?? found.row.rating ?? 'N/A';
-          matchedName = String(found.row.Player || found.row.player || '');
+      if (snapshotPlayers.length && display) {
+        const found = fuseMatch(snapshotPlayers, display);
+        if (found && found.item) {
+          rating = found.item.rating ?? 'N/A';
+          matchedName = String(found.item.name || '');
         }
       }
       const numRating = toNumber(rating);
@@ -105,7 +106,7 @@ module.exports = {
       };
 
       if (x.isTop) {
-        const colour = 'yellow';
+        const colour = 'cyan';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
         obj.time = obj.time;

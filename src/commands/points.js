@@ -1,13 +1,10 @@
 // src/commands/points.js
 const fs = require('fs');
 const path = require('path');
-const { bestMatchPlayer } = require('../nameMatch');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { formatTable, ansiColour } = require('../utils/formatHelper');
-const { sanitizeName } = require('../utils/nameSanitizer');
-const Fuse = require('fuse.js');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
-const { bestMatchPlayer, toNumber } = require('../nameMatch');
+const { fuseMatch, toNumber } = require('../nameMatch');
 
 const useTable = true;
 const useEmbed = true;
@@ -75,39 +72,12 @@ module.exports = {
       row.contribution = row.position < 20 ? row.rating : Math.round((row.rating / 20));
     });
 
-    // const found = bestMatchPlayer(top.rows, targetName);
-    // if (!found || !found.row) {
-    //   await interaction.reply({ content: `Could not find a close match for \`${targetName || caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
-    //   return;
-    // } 
+    const found = fuseMatch(top, targetName);
 
-    const fuseOptions = {
-      // isCaseSensitive: false,
-      // includeScore: false,
-      // ignoreDiacritics: false,
-      // shouldSort: true,
-      // includeMatches: false,
-      // findAllMatches: false,
-      // minMatchCharLength: 1,
-      // location: 0,
-      // threshold: 0.6,
-      // distance: 100,
-      // useExtendedSearch: false,
-      // ignoreLocation: false,
-      // ignoreFieldNorm: false,
-      // fieldNormWeight: 1,
-      keys: [
-        "name"
-      ]
-    };
-    // console.log('Original target name:', targetName);
-    const sanitizedTargetName = sanitizeName(targetName.replace(/\([^)]*\)/g, ''));
-    // console.log('Sanitized target name:', sanitizedTargetName);
-    const found = new Fuse(top, fuseOptions).search(sanitizedTargetName)[0];
-    // console.log('Found:', found);
-
-
-
+    if (!found || !found.item) {
+      await interaction.reply({ content: `Could not find a close match for \`${targetName || caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
 
     const row = found.item;
     const rating = row['Personal clan rating'] ?? row.rating ?? 'N/A';
@@ -126,9 +96,9 @@ module.exports = {
           contributionPercent: contributionPercent
         });
 
-        // const fieldOrder = ["name", "points", "position", "contribution", "contributionPercent"];
-        const fieldHeaders = ["Points", "Position", "Contribution", "%"];
-        body = formatTable(displayData, playerName, fieldHeaders, null);
+        const fieldOrder = ["position", "points", "contribution", "contributionPercent"];
+        const fieldHeaders = ["Pos.", "Points", "Contribution", "%"];
+        body = formatTable(displayData, playerName, fieldHeaders, fieldOrder);
     } else {
       body = `Points: ${rating}\nPosition: ${row.position}\nContribution: ${contribution} (${contributionPercent})`;
     }
