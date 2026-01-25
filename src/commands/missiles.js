@@ -11,7 +11,7 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setTitle('Missiles Spreadsheet')
       .setDescription(`[Open the sheet](${url})`)
-      .setColor(0x5865F2);
+      .setColor(0xd0463c);
     await interaction.reply({ embeds: [embed] });
   },
 };

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
-const { makeSeparator, makeStarter, makeCloser, padCenter, ansiColour, makeTitle } = require('../utils/formatHelper');
+const { ansiColour, formatTable, formatTableLight, isNumeric } = require('../utils/formatHelper');
 
 const useEmbed = true;
 const useTable = true;
@@ -113,7 +113,7 @@ module.exports = {
 
     const fieldOrder = ["pos", "tag", "points", "change", "name"];
     const fieldHeaders = ["Pos", "Tag", "Points", "Δ", "Name"];
-    const table = formatTable(displayData, 'Leaderboard', fieldHeaders, fieldOrder);
+    const table = formatTable(displayData, null, fieldHeaders, fieldOrder);
 
 
 
@@ -234,58 +234,4 @@ module.exports = {
   }
 };
 
-function formatTable(data, title = null, header = null, order = null) {
-  if (!header) {
-    header = Object.keys(data[0]);
-  }
 
-  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
-
-  let colCount = matrix[0].length;
-  let colMaxLengths = Array(colCount).fill(0);
-
-  for (const row of matrix) {
-    row.forEach((cell, i) => {
-      if (visibleLength(cell) > colMaxLengths[i]) {
-        colMaxLengths[i] = visibleLength(cell);
-      }
-    });
-  }
-
-  let body = '';
-
-  for (let i = 0; i < matrix.length; i++) {
-    const row = matrix[i];
-    matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body += '│ ' + matrix[i].join(' │ ') + ' │\n';
-  }
-
-  let starter = makeStarter(body.split("\n")[0]);
-  let separator = makeSeparator(body.split("\n")[0]);
-  let closer = makeCloser(body.split("\n")[0]);
-
-  body = starter + '\n' + body + closer;
-
-  return body;
-}
-
-const ansiRegex = /\x1b\[[0-9;]*m/g;
-
-function visibleLength(str) {
-  return str.replace(ansiRegex, "").length;
-}
-
-function isNumeric(str) {
-  // strip ANSI codes first if your string has colors
-  const clean = str.replace(/\x1b\[[0-9;]*m/g, "");
-  // allow negative numbers, decimals, commas
-  return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
-}
-
-function padCell(str, width) {
-  const align = isNumeric(str) ? "right" : "left";
-  const len = str.replace(/\x1b\[[0-9;]*m/g, "").length;
-
-  if (align === "right") return " ".repeat(width - len) + str;
-  return str + " ".repeat(width - len);
-}

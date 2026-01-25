@@ -43,6 +43,7 @@ async function buildPanel() {
       { name: 'discordWinLossChannell (win/loss logs)', value: String(cfg.discordWinLossChannell || ''), inline: false },
       { name: 'metalistManager (allowed roles)', value: String(cfg.metalistManager?.roles?.join(', ') || '@everyone'), inline: false },
       { name: 'BOT_OWNER_ID', value: String(cfg.BOT_OWNER_ID || ''), inline: false },
+      { name: 'tableStyle', value: String(cfg.tableStyle || 'heavy'), inline: false },
     );
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_dc').setLabel('Set discordChannel').setStyle(ButtonStyle.Primary),
@@ -61,6 +62,7 @@ async function buildPanel() {
   );
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_owner').setLabel('Set Bot Owner ID').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('cfg_toggle_style').setLabel('Toggle Table Style').setStyle(ButtonStyle.Secondary),
   );
   return { embeds: [em], components: [row1, row2, row3, row4, row5] };
 }
@@ -245,6 +247,14 @@ module.exports = {
         writeJsonSettings({ BOT_OWNER_ID: val });
         const payload = await buildPanel();
         await interaction.reply({ ...payload, content: 'BOT_OWNER_ID updated.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'cfg_toggle_style') {
+        const current = readJsonSettings();
+        const nextStyle = (current.tableStyle === 'light') ? 'heavy' : 'light';
+        writeJsonSettings({ tableStyle: nextStyle });
+        const payload = await buildPanel();
+        await interaction.update({ ...payload, content: `Table style changed to ${nextStyle}.` });
         return true;
       }
     } catch (e) {

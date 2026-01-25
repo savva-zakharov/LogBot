@@ -1,3 +1,5 @@
+const { loadSettings } = require('../config');
+
 // Text Colors
 
 //     30: Gray
@@ -14,26 +16,222 @@
 //     40: Firefly dark blue
 //     41: Orange
 //     42: Marble blue
-//     43: Greyish turquoise
+//     43: Grayish turquoise
 //     44: Gray
 //     45: Indigo
 //     46: Light gray
 //     47: White
 
+const ansiColors = {
+  black: 30,
+  red: 31,
+  green: 32,
+  yellow: 33,
+  blue: 34,
+  magenta: 35,
+  cyan: 36,
+  white: 37,
+  reset: 0,
+};
+
+function ansiColour(str, colour, bold = false) {
+  if (typeof colour == 'string') {
+    colour = ansiColors[colour];
+  }
+  return `\u001b[${bold ? 1 : 0};${colour}m${str}\u001b[0m`;
+}
+exports.ansiColour = ansiColour;
+
+
+//table functions
+
+// ┌─┬───┐
+// ├─┼─┬─┤
+// └─┴─┴─┘
+
+
+
+// ├─┼─┼─┤
 function makeSeparator(str) {
-  return str.replace(/[^│]/g, '═').replace(/│/g, '╪').replace(/^(.)(.*)(.)$/, "╞$2╡");
+  const settings = loadSettings();
+  if (settings.tableStyle === 'light') {
+    return str.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/(?<=.)│(?=.)/g, '┼');
+  } else {
+    return str.replace(/[^│]/g, '═').replace(/^│/, '╞').replace(/│$/, '╡').replace(/(?<=.)│(?=.)/g, '╪');
+  }
 }
 exports.makeSeparator = makeSeparator;
 
+//┌─┬─┬─┐
 function makeStarter(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "┌$2┐");
+  return str.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '┬');
 }
 exports.makeStarter = makeStarter;
 
+// └─┴─┴─┘
 function makeCloser(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┴').replace(/^(.)(.*)(.)$/, "└$2┘");
+  return str.replace(/[^│]/g, '─').replace(/^│/, '└').replace(/│$/, '┘').replace(/│/g, '┴');
 }
 exports.makeCloser = makeCloser;
+
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
+function makeTitle(str, header) {
+  let title = header.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '─') + "\n";
+  title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
+  title += header.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/│/g, '┬');
+
+  return title;
+}
+exports.makeTitle = makeTitle;
+
+// Title 
+// ──┬──┬──
+//   │ │ │
+function formatTableLight(data, title = null, header = null, order = null, compact = false) {
+  if (!header) {
+    header = Object.keys(data[0]);
+  }
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
+
+  let colCount = matrix[0].length;
+  let colMaxLengths = Array(colCount).fill(0);
+
+  for (const row of matrix) {
+    row.forEach((cell, i) => {
+      if (visibleLength(cell) > colMaxLengths[i]) {
+        colMaxLengths[i] = visibleLength(cell);
+      }
+    });
+  }
+
+  let body = '';
+  let divider = compact ? ' ' : ' │ ';
+
+  for (let i = 0; i < matrix.length; i++) {
+    const row = matrix[i];
+    matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
+    body += matrix[i].join(divider) + '\n';
+    if (i === 0) {
+      separator = makeSeparator(body.split("\n")[0]);
+      body = body + separator + '\n';
+    }
+  }
+
+  let starter;
+  if (title) {
+    const titleLine = padCenter(title, body.split("\n")[0].length, ' ');
+    starter = makeStarter(body.split("\n")[0]);
+    body = titleLine + '\n' + starter + '\n' + body;
+  }
+
+  return body;
+}
+exports.formatTableLight = formatTableLight;
+
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
+// │  │  │  │
+// └──┴──┴──┘
+
+
+function formatTableHeavy(data, title = null, header = null, order = null, compact = false) {
+  if (!header) {
+    header = Object.keys(data[0]);
+  }
+
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
+
+  let colCount = matrix[0].length;
+  let colMaxLengths = Array(colCount).fill(0);
+
+  for (const row of matrix) {
+    row.forEach((cell, i) => {
+      if (visibleLength(cell) > colMaxLengths[i]) {
+        colMaxLengths[i] = visibleLength(cell);
+      }
+    });
+  }
+
+  let body = '';
+  let divider = compact ? '│' : ' │ ';
+
+  for (let i = 0; i < matrix.length; i++) {
+    const row = matrix[i];
+    matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
+    body += (compact ? '│' : '│ ') + matrix[i].join(divider) + (compact ? '│' : ' │') + '\n';
+    if (i === 0) {
+      const separator = makeSeparator(body.split("\n")[0]);
+      body = body + separator + '\n';
+    }
+  }
+  let closer = makeCloser(body.split("\n")[0]);
+  let starter = ``;
+  if (title) {
+    starter = makeTitle(title, body.split("\n")[0]);
+    body = starter + `\n` + body;    
+  } else {
+    starter = makeStarter(body.split("\n")[0]);
+    body = starter + '\n' + body;
+  } 
+
+  body = body + closer;
+
+  return body;
+}
+exports.formatTableHeavy = formatTableHeavy;
+
+function formatTable(data, title = null, header = null, order = null, compact = false) {
+  const settings = loadSettings();
+  if (settings.tableStyle === 'light') {
+    return formatTableLight(data, title, header, order, compact);
+  }
+  return formatTableHeavy(data, title, header, order, compact);
+}
+exports.formatTable = formatTable;
+
+function visibleLength(str) {
+  const ansiRegex = /\x1b\[[0-9;]*m/g;
+  return str.replace(ansiRegex, "").length;
+}
+
+exports.visibleLength = visibleLength;
+function padCell(str, width) {
+  const align = isNumeric(str) ? "right" : "left";
+  const len = str.replace(/\x1b\[[0-9;]*m/g, "").length;
+
+  if (align === "right") return " ".repeat(width - len) + str;
+  return str + " ".repeat(width - len);
+}
+
+function isNumeric(str) {
+  // strip ANSI codes first if your string has colors
+  const clean = str.replace(/\x1b\[[0-9;]*m/g, "");
+  // allow negative numbers, decimals, commas
+  return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
+}
+exports.isNumeric = isNumeric;
+
+function sanitizeUsername(name) {
+    return name
+      .replace(/@(psn|live)\b/gi, "")
+      .normalize("NFKD")
+      .replace(/[^\x20-\x7E]/g, "")
+      .trim();
+}
+exports.sanitizeUsername = sanitizeUsername;
 
 function padCenter(str, length, pad = ' ') {
   const totalPadding = length - str.length;
@@ -45,18 +243,3 @@ function padCenter(str, length, pad = ' ') {
   return pad.repeat(padStart) + str + pad.repeat(padEnd);
 }
 exports.padCenter = padCenter;
-
-function ansiColour(str, colour, bold = false) {
-  return `\u001b[${bold ? 1 : 0};${colour}m${str}\u001b[0m`;
-}
-exports.ansiColour = ansiColour;
-
-function makeTitle(str, header) {
-  let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐")+"\n";
-  title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
-
-  return title;
-}
-exports.makeTitle = makeTitle;
-

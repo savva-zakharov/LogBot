@@ -1,8 +1,17 @@
 // src/commands/points.js
 const fs = require('fs');
 const path = require('path');
-const { MessageFlags } = require('discord.js');
 const { bestMatchPlayer } = require('../nameMatch');
+const { MessageFlags, EmbedBuilder } = require('discord.js');
+const { formatTable, ansiColour } = require('../utils/formatHelper');
+const { sanitizeName } = require('../utils/nameSanitizer');
+const Fuse = require('fuse.js');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
+const { bestMatchPlayer, toNumber } = require('../nameMatch');
+
+const useTable = true;
+const useEmbed = true;
+const embedColor = 0xd0463c;
 
 function readLatestSquadronSnapshot() {
   try {
@@ -37,6 +46,9 @@ module.exports = {
     ],
   },
   async execute(interaction) {
+    
+    const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
+    const threshold = Number.isFinite(cfg.threshold) ? cfg.threshold : 1300;
     const caller = interaction.member?.nickname || interaction.user?.username || interaction.member?.user?.username || 'Unknown';
     const queryInput = (interaction.options && typeof interaction.options.getString === 'function')
       ? interaction.options.getString('player')
@@ -48,21 +60,96 @@ module.exports = {
       return;
     }
 
-    const found = bestMatchPlayer(snap.data.rows, targetName);
-    if (!found || !found.row) {
-      await interaction.reply({ content: `Could not find a close match for \`${targetName || caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
 
-    const row = found.row;
+
+    const rows = (snap && snap.data && Array.isArray(snap.data.rows) && snap.data.rows.length)
+      ? snap.data.rows
+      : (Array.isArray(snap?.rows) ? snap.rows : []); // legacy fallback
+
+    const top = [...rows]
+      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: (r.Player || r.player || 'Unknown') }))
+      .sort((a, b) => b.rating - a.rating);
+
+    top.forEach((row, index) => {
+      row.position = index + 1;
+      row.contribution = row.position < 20 ? row.rating : Math.round((row.rating / 20));
+    });
+
+    // const found = bestMatchPlayer(top.rows, targetName);
+    // if (!found || !found.row) {
+    //   await interaction.reply({ content: `Could not find a close match for \`${targetName || caller}\` in the latest squadron snapshot.`, flags: MessageFlags.Ephemeral });
+    //   return;
+    // } 
+
+    const fuseOptions = {
+      // isCaseSensitive: false,
+      // includeScore: false,
+      // ignoreDiacritics: false,
+      // shouldSort: true,
+      // includeMatches: false,
+      // findAllMatches: false,
+      // minMatchCharLength: 1,
+      // location: 0,
+      // threshold: 0.6,
+      // distance: 100,
+      // useExtendedSearch: false,
+      // ignoreLocation: false,
+      // ignoreFieldNorm: false,
+      // fieldNormWeight: 1,
+      keys: [
+        "name"
+      ]
+    };
+    // console.log('Original target name:', targetName);
+    const sanitizedTargetName = sanitizeName(targetName.replace(/\([^)]*\)/g, ''));
+    // console.log('Sanitized target name:', sanitizedTargetName);
+    const found = new Fuse(top, fuseOptions).search(sanitizedTargetName)[0];
+    // console.log('Found:', found);
+
+
+
+
+    const row = found.item;
     const rating = row['Personal clan rating'] ?? row.rating ?? 'N/A';
-    const playerName = row.Player || 'Unknown player';
+    const playerName = row.name || 'Unknown player';
+    const contribution = row.contribution;
+    const contributionPercent = Math.round(contribution / snap.totalPoints * 10000) / 100 + '%';
+    let body = ``;
 
-    let header = `Player: ${playerName}\nPersonal clan rating: ${rating}`;
-    if (typeof snap.totalPoints === 'number') {
-      header += `\nSquadron total: ${snap.totalPoints}`;
+    if (useTable) {
+      let displayData = [];
+        displayData.push({
+          // name: playerName,
+          points: row.rating < threshold ? ansiColour(row.rating, 'red') : row.rating,
+          position: row.position < 21 ? ansiColour(row.position, 'cyan') : row.position,
+          contribution: contribution,
+          contributionPercent: contributionPercent
+        });
+
+        // const fieldOrder = ["name", "points", "position", "contribution", "contributionPercent"];
+        const fieldHeaders = ["Points", "Position", "Contribution", "%"];
+        body = formatTable(displayData, playerName, fieldHeaders, null);
+    } else {
+      body = `Points: ${rating}\nPosition: ${row.position}\nContribution: ${contribution} (${contributionPercent})`;
     }
 
-    await interaction.reply({ content: '```\n' + header + '\n```' });
+    if (useEmbed) {
+
+      const embed = new EmbedBuilder()
+        .setTitle(playerName)
+        .setDescription(`\`\`\`ansi\n${body}\`\`\``)
+        .setColor(embedColor)
+        .setTimestamp(new Date());
+
+      await interaction.reply({ embeds: [embed] });
+
+    } else {
+      let header = `Player        : ${playerName}\nPoints        : ${rating}\nContribution  : ${contribution} (${contributionPercent})`;
+      if (typeof snap.totalPoints === 'number') {
+        header += `\nSquadron total: ${snap.totalPoints}`;
+      }
+      await interaction.reply({ content: '```\n' + header + '\n```' });
+    }
+
   }
 };

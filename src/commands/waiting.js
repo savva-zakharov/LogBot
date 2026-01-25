@@ -1,10 +1,11 @@
 // src/commands/waiting.js
 const fs = require('fs');
 const path = require('path');
-const { MessageFlags } = require('discord.js');
+const { MessageFlags, EmbedBuilder } = require('discord.js');
 const waitingTracker = require('../waitingTracker');
 const { bestMatchPlayer, toNumber } = require('../nameMatch');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
+const { formatTable, formatTableLight, ansiColour } = require('../utils/formatHelper');
 
 const { sanitizeName } = require('../utils/nameSanitizer');
 
@@ -60,7 +61,7 @@ module.exports = {
         .sort((a, b) => b.rating - a.rating)
         .slice(0, 20);
       for (const x of ranked) top20Names.add(String(x.name).toLowerCase());
-    } catch (_) {}
+    } catch (error) { console.error('Error building top 20 names for waiting list:', error); }
 
     const out = [];
     for (const w of waiters) {
@@ -72,7 +73,7 @@ module.exports = {
           const preferred = gm.displayName ?? gm.user?.globalName ?? gm.user?.username;
           if (preferred) display = sanitizeName(preferred);
         }
-      } catch (_) {}
+      } catch (error) { console.error('Error fetching guild member for waiting list:', error); }
       let rating = 'N/A';
       let matchedName = '';
       if (rows.length && display) {
@@ -91,26 +92,49 @@ module.exports = {
     // Sort by waiting longest first
     out.sort((a, b) => b.seconds - a.seconds);
 
-    // Align columns: prefix (rank + name), duration, rating
-    const rankWidth = String(out.length).length;
-    const prefixes = out.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
-    const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
-    const durations = out.map(x => formatDuration(x.seconds));
-    const maxDur = durations.reduce((m, s) => Math.max(m, s.length), 0);
-    const ratingStrs = out.map(x => String(x.rating));
-    const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
-
-    const lines = out.map((x, i) => {
-      const prefix = prefixes[i];
-      const dur = durations[i];
-      const gap1 = ' '.repeat(maxPrefix - prefix.length);
-      const durPad = ' '.repeat(maxDur - dur.length);
-      const rating = String(x.rating).padStart(ratingWidth, ' ');
+    const tableData = out.map((x, i) => {
+      const contribution = x.isTop ? x.rating : Math.round(x.rating / 20);
       const flags = `${x.isTop ? ' ⭐' : ''}${x.isLow ? ' ⚠️' : ''}`;
-      return `${prefix}${gap1} — ${durPad}${dur} — ${rating}${flags}`;
+
+      const obj = {
+        pos: i + 1,
+        name: x.name + flags,
+        time: formatDuration(x.seconds),
+        rating: x.rating,
+        contribution: contribution
+      };
+
+      if (x.isTop) {
+        const colour = 'yellow';
+        obj.pos = String(obj.pos);
+        obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
+        obj.time = obj.time;
+        obj.rating = String(obj.rating);
+        obj.contribution = String(obj.contribution);
+      }
+
+      if (x.isLow) {
+        const colour = 'red';
+        obj.pos = String(obj.pos);
+        obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
+        obj.time = obj.time;
+        obj.rating = String(obj.rating);
+        obj.contribution = String(obj.contribution);
+      }
+
+      return obj;
     });
-    const header = 'Waiting in voice channel:';
-    const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
-    await interaction.reply({ content });
+
+    const fieldHeaders = ["Pos", "Name", "Time", "Pts", "Cont"];
+    const fieldOrder = ["pos", "name", "time", "rating", "contribution"];
+    const text = formatTableLight(tableData, null, fieldHeaders, fieldOrder);
+
+    const embed = new EmbedBuilder()
+      .setTitle('Waiting List')
+      .setDescription('```ansi\n' + text + '\n```')
+      .setColor(0xd0463c)
+      .setTimestamp(new Date());
+
+    await interaction.reply({ embeds: [embed] });
   }
 };
