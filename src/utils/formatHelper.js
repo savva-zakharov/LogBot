@@ -86,16 +86,6 @@ function makeTitle(str, header) {
 }
 exports.makeTitle = makeTitle;
 
-//  Title 
-// ──┬──┬──
-function makeTitleLight(str, header) {
-  title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
-
-  return title;
-}
-exports.makeTitleLight = makeTitleLight;
-
 // Title 
 // ──┬──┬──
 //   │ │ │

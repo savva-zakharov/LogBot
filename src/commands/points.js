@@ -3,11 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const { bestMatchPlayer } = require('../nameMatch');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
-const { loadSettings } = require('../config');
 const { formatTable, ansiColour } = require('../utils/formatHelper');
 const { sanitizeName } = require('../utils/nameSanitizer');
 const Fuse = require('fuse.js');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
+const { bestMatchPlayer, toNumber } = require('../nameMatch');
 
 const useTable = true;
 const useEmbed = true;
@@ -100,11 +100,11 @@ module.exports = {
         "name"
       ]
     };
-    console.log('Original target name:', targetName);
+    // console.log('Original target name:', targetName);
     const sanitizedTargetName = sanitizeName(targetName.replace(/\([^)]*\)/g, ''));
-    console.log('Sanitized target name:', sanitizedTargetName);
+    // console.log('Sanitized target name:', sanitizedTargetName);
     const found = new Fuse(top, fuseOptions).search(sanitizedTargetName)[0];
-    console.log('Found:', found);
+    // console.log('Found:', found);
 
 
 
@@ -153,9 +153,3 @@ module.exports = {
 
   }
 };
-
-
-function toNumber(val) {
-  const cleaned = String(val ?? '').replace(/[^0-9]/g, '');
-  return cleaned ? parseInt(cleaned, 10) : 0;
-}

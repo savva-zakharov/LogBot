@@ -61,7 +61,7 @@ module.exports = {
         .sort((a, b) => b.rating - a.rating)
         .slice(0, 20);
       for (const x of ranked) top20Names.add(String(x.name).toLowerCase());
-    } catch (_) { }
+    } catch (error) { console.error('Error building top 20 names for waiting list:', error); }
 
     const out = [];
     for (const w of waiters) {
@@ -73,7 +73,7 @@ module.exports = {
           const preferred = gm.displayName ?? gm.user?.globalName ?? gm.user?.username;
           if (preferred) display = sanitizeName(preferred);
         }
-      } catch (_) { }
+      } catch (error) { console.error('Error fetching guild member for waiting list:', error); }
       let rating = 'N/A';
       let matchedName = '';
       if (rows.length && display) {
@@ -109,7 +109,7 @@ module.exports = {
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
         obj.time = obj.time;
-        obj.rating =  String(obj.rating);
+        obj.rating = String(obj.rating);
         obj.contribution = String(obj.contribution);
       }
 

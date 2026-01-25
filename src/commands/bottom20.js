@@ -78,7 +78,7 @@ module.exports = {
 
       await interaction.reply({ embeds: [embed] });
     } catch (error) {
-      console.error('[top20] Critical error executing command:', error);
+      console.error('[bottom20] Critical error executing command:', error);
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ content: `An error occurred while executing this command: ${error.message}`, flags: MessageFlags.Ephemeral });
       } else {

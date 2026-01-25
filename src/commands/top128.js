@@ -167,7 +167,6 @@ module.exports = {
       const fieldHeaders = showContribution ? ["Pos", "Name", "Pts", "Cont"] : ["Pos", "Name", "Pts"];
       const fieldOrder = showContribution ? ["pos", "name", "rating", "contribution"] : ["pos", "name", "rating"];
       text = formatTable(lines, null, fieldHeaders, fieldOrder, false);
-      console.log(text);
     } else {
       text = lines.join('\n');
     }
@@ -189,7 +188,6 @@ module.exports = {
     } else if (sub === 'embed') {
       try {
         // Fallback: chunk into code blocks if file sending fails
-        console.log(text.length);
         let blocks;
         if (text.length < 4000) {
           const embed = new EmbedBuilder()
