@@ -226,8 +226,8 @@ module.exports = {
           return;
         }
         const toNum = (v) => { const s = String(v ?? '').replace(/[^0-9]/g, ''); return s ? parseInt(s, 10) : 0; };
-        rows.sort((a, b) => toNum(a['Personal clan rating'] ?? a.rating) - toNum(b['Personal clan rating'] ?? b.rating));
-        const lines = rows.map(r => `${r.Player || r.player || '(unknown)'} — ${toNum(r['Personal clan rating'] ?? r.rating)}`);
+        rows.sort((a,b) => toNum(a['Points'] ?? a.rating) - toNum(b['Points'] ?? b.rating));
+        const lines = rows.map(r => `${r.Player || r.player || '(unknown)'} — ${toNum(r['Points'] ?? r.rating)}`);
         // keep within limit
 
         const displayData = [];

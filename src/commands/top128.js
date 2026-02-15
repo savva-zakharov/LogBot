@@ -2,10 +2,12 @@
 const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { makeSeparator, makeStarter, makeCloser, padCenter, formatTable, ansiColour, makeTitle } = require('../utils/formatHelper');
+const { makeSeparator, makeStarter, makeCloser, padCenter, formatTable, ansiColour, makeTitle, sanitizeUsername } = require('../utils/formatHelper');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 
 const useEmbed = true;
 const useTable = true;
+const showContribution = false;
 const embedColor = 0xd0463c;
 function readLatestSquadronSnapshot() {
   try {
@@ -30,7 +32,7 @@ function toNumber(val) {
 }
 
 function chunkIntoCodeBlocks(text) {
-  // Ensure we honor Discord's 2000 char limit per message
+  // Ensure we honor Discord's 2000 char limit per message or 1000 limit per embed
   const wrapper = { open: '```ansi\n', close: '\n```' };
   const maxLen = 1000;
   const contentMax = maxLen - (wrapper.open.length + wrapper.close.length);
@@ -81,10 +83,12 @@ module.exports = {
       await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
       return;
     }
+    
+    const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
 
     // Sort rows by Personal clan rating desc
     const list = [...rows]
-      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
+      .map(r => ({ r, rating: toNumber(r['Points'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
       .sort((a, b) => b.rating - a.rating)
       .slice(0, 128);
 
@@ -97,7 +101,7 @@ module.exports = {
 
     // Align columns: make ratings line up
     const rankWidth = String(list.length).length; // width for rank index (up to 3)
-    const prefixes = list.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
+    const prefixes = list.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name.replace(/[^\x20-\x7E]/g, "")}`);
     const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
     const ratingStrs = list.map(x => String(x.rating));
     const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
@@ -106,22 +110,33 @@ module.exports = {
 
     if (useTable) {
       list.forEach((x, i) => {
-        let maxNameLength = 10;
+        
+        const maxNameLength = (showContribution ? 16 : 20);
         const isTop20 = i < 20;
+        const isLowPoint = x.rating < cfg.threshold;
         const contribution = isTop20 ? x.rating : Math.round(x.rating / 20);
         const obj = {
           pos: i + 1,
-          name: x.name.slice(0, maxNameLength),
+          name: sanitizeUsername(x.name).slice(0, maxNameLength),
           rating: x.rating,
-          contribution: contribution
+          contribution: showContribution ? contribution : null
         };
 
-        if (isTop20) {
-          obj.pos = ansiColour(String(obj.pos), 33);
-          obj.name = ansiColour(obj.name.slice(0, maxNameLength), 33);
-          obj.rating = ansiColour(String(obj.rating), 33);
-          obj.contribution = ansiColour(String(obj.contribution), 33);
-        }
+        // if (isTop20) {
+        //   obj.pos = String(obj.pos);
+        //   obj.name = ansiColour(obj.name.slice(0, maxNameLength), 31, true); //colour top 20 red
+        //   obj.rating = String(obj.rating);
+        //   if (showContribution) {
+        //     obj.contribution = String(obj.contribution);
+        //   }
+        // }else if (isLowPoint) {
+        //   obj.pos = String(obj.pos);
+        //   obj.name = ansiColour(obj.name.slice(0, maxNameLength), 30, true); //colour low points gray
+        //   obj.rating = String(obj.rating);
+        //   if (showContribution) {
+        //     obj.contribution = String(obj.contribution);
+        //   }
+        // }
         lines.push(obj);
       });
     } else {
@@ -149,10 +164,9 @@ module.exports = {
     let text;
 
     if (useTable) {
-      const fieldHeaders = ["Pos", "Name", "Pts", "Cont"];
-      const fieldOrder = ["pos", "name", "rating", "contribution"];
-      text = formatTable(lines, 'Top 128', fieldHeaders, fieldOrder);
-      console.log(text);
+      const fieldHeaders = showContribution ? ["Pos", "Name", "Pts", "Cont"] : ["Pos", "Name", "Pts"];
+      const fieldOrder = showContribution ? ["pos", "name", "rating", "contribution"] : ["pos", "name", "rating"];
+      text = formatTable(lines, null, fieldHeaders, fieldOrder, false);
     } else {
       text = lines.join('\n');
     }
@@ -160,25 +174,6 @@ module.exports = {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const name = `top128-${ts}.txt`;
 
-    // Prefer sending as a file attachment to avoid message length limits
-    // try {
-    //   await interaction.reply({
-    //     content: 'Attached is the Top 128 list as a text file.',
-    //     files: [{ attachment: Buffer.from(text, 'utf8'), name }],
-    //   });
-    //   return;
-    // } catch (_) {
-    //   // Fallback: chunk into code blocks if file sending fails
-    //   const blocks = chunkIntoCodeBlocks(text);
-    //   if (blocks.length === 1) {
-    //     await interaction.reply({ content: blocks[0] });
-    //   } else {
-    //     await interaction.reply({ content: blocks[0] });
-    //     for (let i = 1; i < blocks.length; i++) {
-    //       await interaction.followUp({ content: blocks[i] });
-    //     }
-    //   }
-    // }
     const file = interaction.options.getBoolean('file');
 
     if (sub === 'file') {
@@ -193,7 +188,19 @@ module.exports = {
     } else if (sub === 'embed') {
       try {
         // Fallback: chunk into code blocks if file sending fails
-        const blocks = chunkIntoCodeBlocks(text);
+        let blocks;
+        if (text.length < 4000) {
+          const embed = new EmbedBuilder()
+            .setTitle('Top 128')
+            .setDescription('```ansi\n' + text + '\n```')
+            .setColor(embedColor)
+            .setTimestamp(new Date());
+
+          await interaction.reply({ embeds: [embed] });
+        } else {
+          blocks = chunkIntoCodeBlocks(text);
+        } 
+
         if (blocks.length === 1) {
           const embed = new EmbedBuilder()
             .setTitle('Top 128')

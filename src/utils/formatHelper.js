@@ -22,61 +22,87 @@ const { loadSettings } = require('../config');
 //     46: Light gray
 //     47: White
 
-function makeSeparator(str) {
-  
-  return str.replace(/[^│]/g, '═').replace(/(?<=.)\|(?=.)/g, '╪').replace(/^\|/, '╞').replace(/\|$/, '╡');
-}
-exports.makeSeparator = makeSeparator;
-
-function makeStarter(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "┌$2┐");
-}
-exports.makeStarter = makeStarter;
-
-function makeCloser(str) {
-  return str.replace(/[^│]/g, '─').replace(/│/g, '┴').replace(/^(.)(.*)(.)$/, "└$2┘");
-}
-exports.makeCloser = makeCloser;
-
-function padCenter(str, length, pad = ' ') {
-  const totalPadding = length - str.length;
-  if (totalPadding <= 0) return str;
-
-  const padStart = Math.floor(totalPadding / 2);
-  const padEnd = Math.ceil(totalPadding / 2);
-
-  return pad.repeat(padStart) + str + pad.repeat(padEnd);
-}
-exports.padCenter = padCenter;
+const ansiColors = {
+  black: 30,
+  grey: 30,
+  gray: 30,
+  red: 31,
+  green: 32,
+  yellow: 33,
+  blue: 34,
+  magenta: 35,
+  cyan: 36,
+  white: 37,
+  reset: 0,
+};
 
 function ansiColour(str, colour, bold = false) {
+  if (typeof colour == 'string') {
+    colour = ansiColors[colour];
+  }
   return `\u001b[${bold ? 1 : 0};${colour}m${str}\u001b[0m`;
 }
-exports.ansiColour = ansiColour;
 
+
+
+//table functions
+
+// ┌─┬───┐
+// ├─┼─┬─┤
+// └─┴─┴─┘
+
+
+
+// ├─┼─┼─┤
+function makeSeparator(str) {
+  const settings = loadSettings();
+  if (settings.tableStyle === 'light') {
+    return str.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/(?<=.)│(?=.)/g, '┼');
+  } else {
+    return str.replace(/[^│]/g, '═').replace(/^│/, '╞').replace(/│$/, '╡').replace(/(?<=.)│(?=.)/g, '╪');
+  }
+}
+
+
+//┌─┬─┬─┐
+function makeStarter(str) {
+  str = visibleString(str);
+  return str.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '┬');
+}
+
+
+// └─┴─┴─┘
+function makeCloser(str) {
+  str = visibleString(str);
+  return str.replace(/[^│]/g, '─').replace(/^│/, '└').replace(/│$/, '┘').replace(/│/g, '┴');
+}
+
+
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
 function makeTitle(str, header) {
-  let title = header.replace(/[^│]/g, '─').replace(/│/g, '─').replace(/^(.)(.*)(.)$/, "┌$2┐")+"\n";
+  header = visibleString(header);
+  let title = header.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '─') + "\n";
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
+  title += header.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/│/g, '┬');
 
   return title;
 }
-exports.makeTitle = makeTitle;
 
-function makeTitleLight(str, header) {
-  title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
-  title += header.replace(/[^│]/g, '─').replace(/│/g, '┬').replace(/^(.)(.*)(.)$/, "├$2┤");
-
-  return title;
-}
-exports.makeTitleLight = makeTitleLight;
-
-function formatTableLight(data, title = null, header = null, order = null) {
+// Title 
+// ──┬──┬──
+//   │ │ │
+function formatTableLight(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
-
-  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
 
   let colCount = matrix[0].length;
   let colMaxLengths = Array(colCount).fill(0);
@@ -90,11 +116,12 @@ function formatTableLight(data, title = null, header = null, order = null) {
   }
 
   let body = '';
+  let divider = compact ? ' ' : ' │ ';
 
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body +=matrix[i].join(' │ ') +'\n';
+    body += matrix[i].join(divider) + '\n';
     if (i === 0) {
       separator = makeSeparator(body.split("\n")[0]);
       body = body + separator + '\n';
@@ -103,21 +130,32 @@ function formatTableLight(data, title = null, header = null, order = null) {
 
   let starter;
   if (title) {
-    starter = makeTitleLight(title, body.split("\n")[0]);
-    separator = makeSeparator(body.split("\n")[0]);
-    body = starter + '\n' + separator + '\n' + body;
+    const titleLine = padCenter(title, body.split("\n")[0].length, ' ');
+    starter = makeStarter(body.split("\n")[0]);
+    body = titleLine + '\n' + starter + '\n' + body;
   }
 
   return body;
 }
-exports.formatTableLight = formatTableLight;
 
-function formatTableHeavy(data, title = null, header = null, order = null) {
+// ┌────────┐
+// │ Title │
+// ├──┬──┬──┤
+// │  │  │  │
+// └──┴──┴──┘
+
+
+function formatTableHeavy(data, title = null, header = null, order = null, compact = false) {
   if (!header) {
     header = Object.keys(data[0]);
   }
 
-  let matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  let matrix;
+  if (order) {
+    matrix = [header, ...data.map(obj => order.map(f => String(obj[f])))];
+  } else {
+    matrix = [header, ...data.map(obj => Object.values(obj).map(v => String(v)))];
+  }
 
   let colCount = matrix[0].length;
   let colMaxLengths = Array(colCount).fill(0);
@@ -131,38 +169,110 @@ function formatTableHeavy(data, title = null, header = null, order = null) {
   }
 
   let body = '';
+  let divider = compact ? '│' : ' │ ';
 
   for (let i = 0; i < matrix.length; i++) {
     const row = matrix[i];
     matrix[i] = row.map((s, j) => padCell(s, colMaxLengths[j], 'left'));
-    body += '│ ' + matrix[i].join(' │ ') + ' │\n';
+    body += (compact ? '│' : '│ ') + matrix[i].join(divider) + (compact ? '│' : ' │') + '\n';
+    if (i === 0) {
+      const separator = makeSeparator(body.split("\n")[0]);
+      body = body + separator + '\n';
+    }
+  }
+  let closer = makeCloser(body.split("\n")[0]);
+  let starter = ``;
+  if (title) {
+    starter = makeTitle(title, body.split("\n")[0]);
+    body = starter + `\n` + body;
+  } else {
+    starter = makeStarter(body.split("\n")[0]);
+    body = starter + '\n' + body;
   }
 
-  let starter = makeStarter(body.split("\n")[0]);
-  let separator = makeSeparator(body.split("\n")[0]);
-  let closer = makeCloser(body.split("\n")[0]);
-
-  body = starter + '\n' + body + closer;
+  body = body + closer;
 
   return body;
 }
-exports.formatTableHeavy = formatTableHeavy;
 
-function formatTable(data, title = null, header = null, order = null) {
+function formatTable(data, title = null, header = null, order = null, compact = false) {
   const settings = loadSettings();
   if (settings.tableStyle === 'light') {
-    return formatTableLight(data, title, header, order);
+    return formatTableLight(data, title, header, order, compact);
   }
-  return formatTableHeavy(data, title, header, order);
+  return formatTableHeavy(data, title, header, order, compact);
 }
-exports.formatTable = formatTable;
+
+function formatRowTable(data, title = null, width = null, closer = false) {
+  const settings = loadSettings();
+  const isHeavy = settings.tableStyle !== 'light';
+
+  // Convert all values to arrays for uniform multi-column processing
+  const entries = Object.entries(data).map(([k, v]) => [k, Array.isArray(v) ? v : [v]]);
+  
+  const keyMaxLength = Math.max(...entries.map(([k]) => visibleLength(k)));
+  const maxValCols = Math.max(...entries.map(([_, v]) => v.length));
+  const valMaxLengths = Array(maxValCols).fill(0);
+
+  for (const [_, vals] of entries) {
+    vals.forEach((v, i) => {
+      const len = visibleLength(String(v));
+      if (len > valMaxLengths[i]) valMaxLengths[i] = len;
+    });
+  }
+
+  const divider = " │ ";
+  let body = "";
+  for (const [k, vals] of entries) {
+    let line = isHeavy ? "│ " : "";
+    line += padCell(k, keyMaxLength);
+    for (let i = 0; i < maxValCols; i++) {
+      line += divider + padCell(String(vals[i] || ""), valMaxLengths[i]);
+    }
+    if (isHeavy) {
+      line = padRight(line, width - 2);
+      line += " │";
+    } else {
+      line = padRight(line, width);
+    }
+    
+    body += line + "\n";
+  }
+
+  const sampleLine = body.split("\n")[0];
+
+  let result = "";
+  if (isHeavy) {
+    const starter = makeStarter(sampleLine);
+    const closer = makeCloser(sampleLine);
+    if (title) {
+      result += makeTitle(title, sampleLine) + "\n";
+    } else {
+      result += starter + "\n";
+    }
+    result += body + closer;
+  } else {
+    if (title) {
+      const titleWidth = visibleLength(sampleLine);
+      result += padCenter(title, width) + "\n" + makeStarter(sampleLine) + "\n";
+      
+    }
+    result += body;
+    if (closer) result += makeCloser(sampleLine);
+  }
+  return result;
+}
 
 function visibleLength(str) {
   const ansiRegex = /\x1b\[[0-9;]*m/g;
   return str.replace(ansiRegex, "").length;
 }
 
-exports.visibleLength = visibleLength;
+function visibleString(str) {
+  const ansiRegex = /\x1b\[[0-9;]*m/g;
+  return str.replace(ansiRegex, "");
+}
+
 function padCell(str, width) {
   const align = isNumeric(str) ? "right" : "left";
   const len = str.replace(/\x1b\[[0-9;]*m/g, "").length;
@@ -177,4 +287,48 @@ function isNumeric(str) {
   // allow negative numbers, decimals, commas
   return /^[-+]?[0-9,]*\.?[0-9]*$/.test(clean);
 }
-exports.isNumeric = isNumeric;
+
+function sanitizeUsername(name) {
+  return name
+    .replace(/@(psn|live)\b/gi, "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim();
+}
+
+function padCenter(str, length, pad = ' ') {
+  const totalPadding = length - visibleLength(str);
+  if (totalPadding <= 0) return str;
+
+  const paddingStart = Math.floor(totalPadding / 2);
+  const paddingEnd = totalPadding - paddingStart;
+
+  return pad.repeat(paddingStart) + str + pad.repeat(paddingEnd);
+}
+
+function padRight(str, length, pad = ' ') {
+  const totalPadding = length - visibleLength(str);
+  if (totalPadding <= 0) return str;
+
+  return str + pad.repeat(totalPadding);
+}
+
+function padLeft(str, length, pad = ' ') {
+  const totalPadding = length - visibleLength(str);
+  if (totalPadding <= 0) return str;
+
+  return pad.repeat(totalPadding) + str;
+}
+
+module.exports = {
+  ansiColour,
+  formatTable,
+  formatRowTable,
+  formatTableLight,
+  formatTableHeavy,
+  visibleLength,
+  padCell,
+  isNumeric,
+  sanitizeUsername,
+  padCenter
+};

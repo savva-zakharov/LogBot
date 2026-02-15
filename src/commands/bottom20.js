@@ -2,6 +2,9 @@
 const fs = require('fs');
 const path = require('path');
 const { MessageFlags } = require('discord.js');
+const { loadSettings } = require('../config');
+const { formatTable, ansiColour } = require('../utils/formatHelper');
+const { EmbedBuilder } = require('discord.js');
 
 function readLatestSquadronSnapshot() {
   try {
@@ -31,43 +34,56 @@ module.exports = {
     description: 'Show bottom 20 players by Personal clan rating from the latest snapshot',
   },
   async execute(interaction) {
-    const snap = readLatestSquadronSnapshot();
-    const rows = (snap && snap.data && Array.isArray(snap.data.rows) && snap.data.rows.length)
-      ? snap.data.rows
-      : (Array.isArray(snap?.rows) ? snap.rows : []); // legacy fallback
-    if (!snap || rows.length === 0) {
-      await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
-      return;
+    try {
+      const settings = loadSettings();
+      const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
+
+      const snap = readLatestSquadronSnapshot();
+      const rows = (snap && snap.data && Array.isArray(snap.data.rows) && snap.data.rows.length)
+        ? snap.data.rows
+        : (Array.isArray(snap?.rows) ? snap.rows : []); // legacy fallback
+      if (!snap || rows.length === 0) {
+        await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // Sort rows by Personal clan rating asc
+      const bottom = [...rows]
+        .map(r => ({ r, rating: toNumber(r['Points'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
+        .sort((a, b) => a.rating - b.rating)
+        .slice(0, 20);
+
+      if (!bottom.length) {
+        await interaction.reply({ content: 'Could not find any players with a Personal clan rating.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const tableData = bottom.map((x, i) => ({
+        pos: String(i + 1),
+        name: x.name,
+        rating: String(x.rating),
+        contribution: String(Math.round(x.rating / 20))
+      }));
+
+      const titleText = 'Bottom 20 Players in ' + primaryTag;
+      const fieldHeaders = ["Pos", "Name", "Points", "Cont."];
+      const fieldOrder = ["pos", "name", "rating", "contribution"];
+      const text = formatTable(tableData, null, fieldHeaders, fieldOrder);
+
+      const embed = new EmbedBuilder()
+        .setTitle(titleText)
+        .setDescription('```ansi\n' + text + '\n```')
+        .setColor(0xd0463c)
+        .setTimestamp(new Date());
+
+      await interaction.reply({ embeds: [embed] });
+    } catch (error) {
+      console.error('[bottom20] Critical error executing command:', error);
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: `An error occurred while executing this command: ${error.message}`, flags: MessageFlags.Ephemeral });
+      } else {
+        await interaction.reply({ content: `An error occurred while executing this command: ${error.message}`, flags: MessageFlags.Ephemeral });
+      }
     }
-
-    // Sort rows by Personal clan rating asc
-    const bottom = [...rows]
-      .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
-      .sort((a, b) => a.rating - b.rating)
-      .slice(0, 20);
-
-    if (!bottom.length) {
-      await interaction.reply({ content: 'Could not find any players with a Personal clan rating.', flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    // Align columns: make ratings line up
-    const rankWidth = String(bottom.length).length; // width for rank index
-    const prefixes = bottom.map((x, i) => `${String(i + 1).padStart(rankWidth, ' ')}. ${x.name}`);
-    const maxPrefix = prefixes.reduce((m, s) => Math.max(m, s.length), 0);
-    const ratingStrs = bottom.map(x => String(x.rating));
-    const ratingWidth = ratingStrs.reduce((m, s) => Math.max(m, s.length), 0);
-
-    const lines = bottom.map((x, i) => {
-      const prefix = prefixes[i];
-      const gap = ' '.repeat(maxPrefix - prefix.length);
-      const rating = String(x.rating).padStart(ratingWidth, ' ');
-      return `${prefix}${gap} — ${rating}`;
-    });
-
-    const header = 'Bottom 20 by Personal clan rating:';
-
-    const content = '```\n' + header + '\n\n' + lines.join('\n') + '\n```';
-    await interaction.reply({ content });
   }
 };

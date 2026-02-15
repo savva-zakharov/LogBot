@@ -78,7 +78,7 @@ function loadSettings() {
     metalistManager: {},
     outputOrder: [...DEFAULT_OUTPUT_ORDER],
     categoryToOutput: {...DEFAULT_CATEGORY_TO_OUTPUT},
-    tableStyle: 'heavy'
+    tableStyle: 'light'
   };
 
   try {
