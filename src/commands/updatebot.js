@@ -44,7 +44,7 @@ module.exports = {
       });
 
       child.on('close', (code) => {
-        interaction.followUp('```\n' + output + '```');
+        interaction.editReply('```\n' + output + '```');
         if (code === 0) {
           if (!output.includes('Already up to date.')) {
             interaction.followUp('Update successful. Restarting bot...');
