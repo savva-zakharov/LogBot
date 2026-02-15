@@ -24,6 +24,8 @@ const { loadSettings } = require('../config');
 
 const ansiColors = {
   black: 30,
+  grey: 30,
+  gray: 30,
   red: 31,
   green: 32,
   yellow: 33,
@@ -64,12 +66,14 @@ function makeSeparator(str) {
 
 //┌─┬─┬─┐
 function makeStarter(str) {
+  str = visibleString(str);
   return str.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '┬');
 }
 
 
 // └─┴─┴─┘
 function makeCloser(str) {
+  str = visibleString(str);
   return str.replace(/[^│]/g, '─').replace(/^│/, '└').replace(/│$/, '┘').replace(/│/g, '┴');
 }
 
@@ -78,6 +82,7 @@ function makeCloser(str) {
 // │ Title │
 // ├──┬──┬──┤
 function makeTitle(str, header) {
+  header = visibleString(header);
   let title = header.replace(/[^│]/g, '─').replace(/^│/, '┌').replace(/│$/, '┐').replace(/│/g, '─') + "\n";
   title += `│` + padCenter(str, header.length - 2, ' ') + `│\n`;
   title += header.replace(/[^│]/g, '─').replace(/^│/, '├').replace(/│$/, '┤').replace(/│/g, '┬');
@@ -198,9 +203,74 @@ function formatTable(data, title = null, header = null, order = null, compact = 
   return formatTableHeavy(data, title, header, order, compact);
 }
 
+function formatRowTable(data, title = null, width = null, closer = false) {
+  const settings = loadSettings();
+  const isHeavy = settings.tableStyle !== 'light';
+
+  // Convert all values to arrays for uniform multi-column processing
+  const entries = Object.entries(data).map(([k, v]) => [k, Array.isArray(v) ? v : [v]]);
+  
+  const keyMaxLength = Math.max(...entries.map(([k]) => visibleLength(k)));
+  const maxValCols = Math.max(...entries.map(([_, v]) => v.length));
+  const valMaxLengths = Array(maxValCols).fill(0);
+
+  for (const [_, vals] of entries) {
+    vals.forEach((v, i) => {
+      const len = visibleLength(String(v));
+      if (len > valMaxLengths[i]) valMaxLengths[i] = len;
+    });
+  }
+
+  const divider = " │ ";
+  let body = "";
+  for (const [k, vals] of entries) {
+    let line = isHeavy ? "│ " : "";
+    line += padCell(k, keyMaxLength);
+    for (let i = 0; i < maxValCols; i++) {
+      line += divider + padCell(String(vals[i] || ""), valMaxLengths[i]);
+    }
+    if (isHeavy) {
+      line = padRight(line, width - 2);
+      line += " │";
+    } else {
+      line = padRight(line, width);
+    }
+    
+    body += line + "\n";
+  }
+
+  const sampleLine = body.split("\n")[0];
+
+  let result = "";
+  if (isHeavy) {
+    const starter = makeStarter(sampleLine);
+    const closer = makeCloser(sampleLine);
+    if (title) {
+      result += makeTitle(title, sampleLine) + "\n";
+    } else {
+      result += starter + "\n";
+    }
+    result += body + closer;
+  } else {
+    if (title) {
+      const titleWidth = visibleLength(sampleLine);
+      result += padCenter(title, width) + "\n" + makeStarter(sampleLine) + "\n";
+      
+    }
+    result += body;
+    if (closer) result += makeCloser(sampleLine);
+  }
+  return result;
+}
+
 function visibleLength(str) {
   const ansiRegex = /\x1b\[[0-9;]*m/g;
   return str.replace(ansiRegex, "").length;
+}
+
+function visibleString(str) {
+  const ansiRegex = /\x1b\[[0-9;]*m/g;
+  return str.replace(ansiRegex, "");
 }
 
 function padCell(str, width) {
@@ -227,18 +297,33 @@ function sanitizeUsername(name) {
 }
 
 function padCenter(str, length, pad = ' ') {
-  const totalPadding = length - str.length;
+  const totalPadding = length - visibleLength(str);
   if (totalPadding <= 0) return str;
 
-  const padStart = Math.floor(totalPadding / 2);
-  const padEnd = Math.ceil(totalPadding / 2);
+  const paddingStart = Math.floor(totalPadding / 2);
+  const paddingEnd = totalPadding - paddingStart;
 
-  return pad.repeat(padStart) + str + pad.repeat(padEnd);
+  return pad.repeat(paddingStart) + str + pad.repeat(paddingEnd);
+}
+
+function padRight(str, length, pad = ' ') {
+  const totalPadding = length - visibleLength(str);
+  if (totalPadding <= 0) return str;
+
+  return str + pad.repeat(totalPadding);
+}
+
+function padLeft(str, length, pad = ' ') {
+  const totalPadding = length - visibleLength(str);
+  if (totalPadding <= 0) return str;
+
+  return pad.repeat(totalPadding) + str;
 }
 
 module.exports = {
   ansiColour,
   formatTable,
+  formatRowTable,
   formatTableLight,
   formatTableHeavy,
   visibleLength,

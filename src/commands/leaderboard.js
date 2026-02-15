@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 const { ansiColour, formatTable, formatTableLight, isNumeric } = require('../utils/formatHelper');
 
 const useEmbed = true;
@@ -39,34 +40,61 @@ module.exports = {
     }
 
     const settings = loadSettings();
-    const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
 
-    const lines = [];
     const topCount = 20;
-    const surroundingCount = 5;
+    const surroundingCount = 3;
     let primarySquadronIndex = -1;
-    if (primaryTag) {
-      primarySquadronIndex = leaderboard.findIndex(s => s.tag === primaryTag);
-    }
+
+    const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
+    const needle = primaryTag.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+
+    const squadronInfo = leaderboard.find(s => {
+      const stag = String(s.tagl || s.tag || '').replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+      primarySquadronIndex = leaderboard.indexOf(s);
+      return stag === needle;
+    });
+
+
+    console.log('[DEBUG] Primary squadron index:', primarySquadronIndex, 'Primary tag:', primaryTag, 'Squadron info:', squadronInfo);
+    console.log('[DEBUG] type:', typeof leaderboard);
+
+    console.log('[DEBUG] leaderboard:', leaderboard);
+    console.log('[DEBUG] isArray:', Array.isArray(leaderboard));
+    console.log('[DEBUG] length:', leaderboard?.length);
+
 
     let displayData = [];
-    if (primarySquadronIndex !== -1 && primarySquadronIndex >= topCount) {
-      // Show top, then a separator, then squadrons around the primary one.
-      displayData.push(...leaderboard.slice(0, topCount));
-      displayData.push({ separator: true });
-      const startIndex = Math.max(topCount, primarySquadronIndex - surroundingCount);
-      const endIndex = Math.min(leaderboard.length, primarySquadronIndex + surroundingCount + 1);
-      displayData.push(...leaderboard.slice(startIndex, endIndex));
-    } else {
-      // Show top N squadrons, or all if less than N
-      displayData = leaderboard.slice(0, topCount);
+    try {
+      if (primarySquadronIndex !== -1 && primarySquadronIndex >= topCount) {
+        // Show top, then a separator, then squadrons around the primary one.
+        displayData.push(...leaderboard.slice(0, topCount));
+        displayData.push({ 
+          name: "·".repeat(leaderboard[topCount - 1].name.length),
+          tag: "·".repeat(5), 
+          points: "·".repeat(leaderboard[topCount - 1].points.toString().length), 
+          pointsStart: "·".repeat(leaderboard[topCount - 1].pointsStart.toString().length), 
+          pos: " ", 
+          separator: true 
+        });
+        const startIndex = Math.max(topCount, primarySquadronIndex - surroundingCount);
+        const endIndex = Math.min(leaderboard.length, primarySquadronIndex + surroundingCount + 1);
+        displayData.push(...leaderboard.slice(startIndex, endIndex));
+      } else {
+        // Show top N squadrons, or all if less than N
+        displayData = leaderboard.slice(0, topCount);
+      }
+    } catch (error) {
+      console.error('[ERROR] Failed to process leaderboard data:', error);
+      await interaction.reply({ content: 'An error occurred while processing the leaderboard data. Please try again later.', flags: MessageFlags.Ephemeral });
+      return;
     }
 
     //calculate the points change of each squadron
     for (const squadron of displayData) {
       squadron.change = squadron.points - squadron.pointsStart;
-
-      if (squadron.change > 0) {
+      if (squadron.separator) {
+        squadron.change = ' ';
+      } else if (squadron.change > 0) {
         squadron.change = ansiColour(`+${fmt(squadron.change)}`, 32);
       } else if (squadron.change < 0) {
         squadron.change = ansiColour(fmt(squadron.change), 31);
@@ -75,9 +103,28 @@ module.exports = {
       }
     }
 
-    const maxPoints = Math.max(...displayData.map(d => fmt(d.points).length)) + 1;
-    const maxChange = Math.max(...displayData.map(d => d.change.length)) + 1;
-    let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
+    let maxPointsLength = 0;
+    let maxChangeLength = 0;
+    let maxNameLength = 0;
+
+    try {
+      for (const squadron of displayData) {
+        if (squadron.separator) continue;
+        
+        maxPointsLength = Math.max(maxPointsLength, fmt(squadron.points).length);
+        maxChangeLength = Math.max(maxChangeLength, squadron.change.length);
+        maxNameLength = Math.max(maxNameLength, squadron.name.length);
+      }
+    } catch (error) {
+      console.error('[ERROR] Failed to calculate max lengths:', error);
+      await interaction.reply({ content: 'An error occurred while processing the leaderboard data. Please try again later.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+
+    const maxPoints = maxPointsLength + 1;
+    const maxChange = maxChangeLength + 1;
+    let maxName = maxNameLength + 1;
 
     const borders = 11 + maxPoints + maxChange;
     if (useEmbed && (borders + maxName > 56)) {
@@ -86,6 +133,8 @@ module.exports = {
 
     let squadronPassed = false;
     for (const squadron of displayData) {
+      if (squadron.separator) continue;
+      
       squadron.tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
       squadron.points = fmt(squadron.points);
       delete squadron.pointsStart;
@@ -98,16 +147,16 @@ module.exports = {
 
       if (squadron.tag.includes(primaryTag)) {
         squadronPassed = true;
-        squadron.tag = ansiColour(squadron.tag, 31);
-        squadron.name = ansiColour(squadron.name, 31);
-        squadron.pos = ansiColour(squadron.pos, 31);
-        squadron.points = ansiColour(squadron.points, 31);
-      } 
+        squadron.tag = ansiColour(squadron.tag, "red");
+        squadron.name = ansiColour(squadron.name, "red");
+        squadron.pos = ansiColour(squadron.pos, "red");
+        squadron.points = ansiColour(squadron.points, "red");
+      }
       else if (squadronPassed) {
-        squadron.tag = ansiColour(squadron.tag, 30);
-        squadron.name = ansiColour(squadron.name, 30);
-        squadron.pos = ansiColour(squadron.pos, 30);
-        squadron.points = ansiColour(squadron.points, 30);
+        squadron.tag = ansiColour(squadron.tag, "gray");
+        squadron.name = ansiColour(squadron.name, "gray");
+        squadron.pos = ansiColour(squadron.pos, "gray");
+        squadron.points = ansiColour(squadron.points, "gray");
       }
     }
 
@@ -117,8 +166,8 @@ module.exports = {
 
 
 
-    console.log(table);
-    
+    // console.log(table);
+
     if (useEmbed) {
       const embed = new EmbedBuilder()
         .setTitle('Squadron Leaderboard')
@@ -126,111 +175,10 @@ module.exports = {
         .setColor(embedColor)
         .setTimestamp(new Date());
 
-      await interaction.reply({ embeds: [embed] });    
+      await interaction.reply({ embeds: [embed] });
     } else {
-    await interaction.reply({ content: `\`\`\`ansi\n${table}\n\`\`\`` });
+      await interaction.reply({ content: `\`\`\`ansi\n${table}\n\`\`\`` });
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // const maxPoints = Math.max(...displayData.map(d => d.points.length)) + 1;
-    // const maxChange = Math.max(...displayData.map(d => d.change.length)) + 1;
-    // let maxName = Math.max(...displayData.map(d => d.name.length)) + 1;
-
-    // if (useEmbed && (maxPoints + maxChange + maxName + 22 > 56)) {
-    //   maxName = 56 - maxPoints - maxChange - 22;
-    // }
-
-    // for (const squadron of displayData) {
-    //   if (squadron.separator) {
-    //     lines.push('...');
-    //     continue;
-    //   }
-
-
-    //   const rank = (squadron.pos + 1).toString().padStart(3, ' ');
-    //   const tag = squadron.tag.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').padEnd(5, ' ');
-    //   const points = fmt(squadron.points).padStart(maxPoints, ' ');
-    //   const name = squadron.name.slice(0, maxName).padEnd(maxName, ' ');
-    //   let change = squadron.change;
-
-
-      // let line = `${rank} | ${tag} | ${points} | ${change} | ${name}`;
-
-      //highlight the change if it is positive or negative
-    //   let line = '';
-
-
-    //   if (primaryTag && squadron.tag.includes(primaryTag)) {
-    //     line = `│${ansiColour(rank, 33, true)} │ ${ansiColour(tag, 33, true)} │ ${ansiColour(points, 33, true)} │ `;
-    //   } else {
-    //     line = `│${rank} │ ${tag} │ ${points} │ `;
-    //   }
-
-    //   change = change.padStart(maxChange, ' ');
-    //   line += change;
-
-    //   if (primaryTag && squadron.tag.includes(primaryTag)) {
-    //     line += ` │ ${ansiColour(name, 33, true)}│`;
-    //   } else {
-    //     line += ` │ ${name}│`;
-    //   }
-
-    //   if (!useTable) {
-    //     line = line.replaceAll('│', ' ');
-    //   }
-
-    //   lines.push(line);
-    // }
-    // let header = '│ No.│ Tag   │ ' + 'Points'.padEnd(maxPoints, ' ') + ' │ ' + 'Δ'.padStart(maxChange, ' ') + ' │ ' + 'Name'.padEnd(maxName, ' ') + '│';
-
-    // let title = makeTitle('Squadron Leaderboard', header);
-    // let separator = makeSeparator(header);
-    // let closer = makeCloser(header);
-    // if (!useTable) {
-    //   header = header.replaceAll('│', ' ');
-    // }
-
-    // let body = '';
-
-    // if (useTable) {
-    //   body = [title, header, separator, ...lines, closer].join('\n');
-    // } else {
-    //   body = [header, ...lines].join('\n');
-    // }
-
-
-    // if (useEmbed) {
-    //   const embed = new EmbedBuilder()
-    //     .setTitle('Squadron Leaderboard')
-    //     .setDescription('```ansi\n' + body + '\n```')
-    //     .setColor(0xd0463c)
-    //     .setTimestamp(new Date());
-
-    //   await interaction.reply({ embeds: [embed] });
-    // } else {
-    //   await interaction.reply({ content: `\`\`\`ansi\n${body}\n\`\`\`` });
-    // }
   }
 };
 
