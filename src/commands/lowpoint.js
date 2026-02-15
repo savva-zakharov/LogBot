@@ -231,10 +231,10 @@ module.exports = {
         // keep within limit
 
         const displayData = [];
-        for (row of rows) {
+        for (const row of rows) {
           displayData.push({
             name: row.Player || row.player || '(unknown)',
-            points: toNum(row['Personal clan rating'] ?? row.rating)
+            points: toNum(row['Points'] ?? row.rating)
           });
         }
 
