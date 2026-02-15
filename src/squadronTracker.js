@@ -40,6 +40,11 @@ const __session = {
   windowKey: null,           // e.g., 2025-08-17|EU or 2025-08-17|US
 };
 
+function getSession() {
+  const session = __session;
+  return session;
+}
+
 const __playerSession = {
   windowKey: null,
   dateKey: null,
@@ -1879,4 +1884,7 @@ function mergePointsStart(newRows, prevRows) {
   };
 }
 
-module.exports = { startSquadronTracker };
+module.exports = { 
+  startSquadronTracker, 
+  getSession 
+};

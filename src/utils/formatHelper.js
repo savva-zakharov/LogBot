@@ -24,6 +24,8 @@ const { loadSettings } = require('../config');
 
 const ansiColors = {
   black: 30,
+  grey: 30,
+  gray: 30,
   red: 31,
   green: 32,
   yellow: 33,
@@ -299,7 +301,7 @@ function padCenter(str, length, pad = ' ') {
   if (totalPadding <= 0) return str;
 
   const paddingStart = Math.floor(totalPadding / 2);
-  const paddingEnd = Math.ceil(totalPadding / 2);
+  const paddingEnd = totalPadding - paddingStart;
 
   return pad.repeat(paddingStart) + str + pad.repeat(paddingEnd);
 }

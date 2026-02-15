@@ -8,6 +8,11 @@ const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 
 const { sanitizeName } = require('../utils/nameSanitizer');
 
+// const getSession = require('../squadronTracker');
+const { getSession } = require('../squadronTracker');
+console.log(getSession);
+
+
 const useEmbed = true;
 const embedColor = 0xd0463c;
 
@@ -110,10 +115,10 @@ module.exports = {
         const fieldOrder = ["position", "name", "points", "pointsDelta"];
         const playerTable = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
 
-        console.log('[DEBUG] playerTable', playerTable);
+        // console.log('[DEBUG] playerTable', playerTable);
 
         const firstLineLength = playerTable.split('\n')[1].length;
-        console.log('[DEBUG] firstLineLength:', firstLineLength);
+        // console.log('[DEBUG] firstLineLength:', firstLineLength);
 
         let squadronSummary = '';
         if (squadronInfo) {
@@ -122,21 +127,36 @@ module.exports = {
             const ptsDelta = curPts - startPts;
             const ptsDeltaStr = ptsDelta >= 0 ? `+${ptsDelta}` : `${ptsDelta}`;
 
-            const curPos = squadronInfo.pos || 0;
-            const startPos = squadronInfo.posStart || curPos;
+            const curPos = (squadronInfo.pos || 0) + 1;
+            const startPos = (squadronInfo.posStart || curPos) + 1;
             const posDelta = startPos - curPos;
             const posDeltaStr = posDelta >= 0 ? `+${posDelta}` : `${posDelta}`;
 
+            let session = '';
+            
+            try {
+                console.log(typeof getSession);
+                session = getSession();
+                console.log('[DEBUG] session', session);
+            } catch (error) {
+                console.error('[ERROR] Failed to get session:', error);
+            }
+
+            const ratio = session.wins / session.losses;
+            const ratioStr = Math.round(ratio * 100) / 100;
+
             const rowData = {
                 // "Squadron": [primaryTag],
+                // "Session": [session.windowKey],          
                 "Points": [`${startPts} → ${curPts}`, `${ansiColour(ptsDeltaStr, ptsDelta >= 0 ? 'green' : 'red')}`],
-                "Rank": [`${startPos} → ${curPos}`, `${ansiColour(posDeltaStr, posDelta >= 0 ? 'green' : 'red')}`]
+                "Place": [`${startPos} → ${curPos}`, `${ansiColour(posDeltaStr, posDelta >= 0 ? 'green' : 'red')}`],
+                "W/L": [`${session.wins || 0} / ${session.losses || 0}`, ansiColour(ratioStr, ratio >= 1 ? 'green' : 'red')]
             };
             const squadronTableTitle = primaryTag + " Session Summary";
-            squadronSummary = formatRowTable(rowData, squadronTableTitle, firstLineLength, true) + "\n";
+            squadronSummary = formatRowTable(rowData, session.windowKey.replace(/\|/g, ' | '), firstLineLength, true) + "\n";
         }
 
-        console.log('[DEBUG] squadronSummary', squadronSummary);
+        // console.log('[DEBUG] squadronSummary', squadronSummary);
 
 
         if (useEmbed) {
