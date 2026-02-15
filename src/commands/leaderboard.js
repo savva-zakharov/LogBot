@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
-const { ansiColour, formatTable, formatTableLight, isNumeric } = require('../utils/formatHelper');
+const { ansiColour, formatTable} = require('../utils/formatHelper');
 
 const useEmbed = true;
 const useTable = true;

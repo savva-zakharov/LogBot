@@ -1,6 +1,7 @@
 // src/commands/lowpoint.js
 const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder } = require('discord.js');
 const issuer = require('../lowPointsIssuer');
+const { ansiColour, formatTable } = require('../utils/formatHelper');
 
 module.exports = {
   data: {
@@ -63,63 +64,63 @@ module.exports = {
       },
     ],
   },
-    async buildPanel(guild) {
-      const cfg = issuer.getConfig();
-      const exclDisp = (cfg.excludeRoles && cfg.excludeRoles.length)
-        ? cfg.excludeRoles.join(', ').slice(0, 256)
-        : '(none)';
-      const roleDisp = cfg.roleId || cfg.roleName || '(not set)';
-      const limiterDisp = cfg.memberRoleId || cfg.memberRoleName || '(none)';
-      const messageDisp = (cfg.hasCustomLowPointsMessage ? cfg.lowPointsMessage : `${cfg.lowPointsMessage} (default)`).slice(0, 1024);
-      const channelDisp = cfg.lowPointsChannel || '(not set)';
-      const eligible = guild ? await issuer.computeEligibleCount(guild) : 0;
-      const assigned = guild ? await issuer.countAssigned(guild) : 0;
-      const em = new EmbedBuilder()
-        .setTitle('Low Points Control Panel')
-        .setDescription('Manage the low-points role. Use the buttons below to change settings, issue  or remove the roles or enable auto-issuing.')
-        .setColor(cfg.enabled ? 0x3ba55d : 0x808080)
-        .addFields(
-          { name: 'Threshold', value: String(cfg.threshold), inline: true },
-          { name: 'Role', value: roleDisp, inline: true },
-          { name: 'Eligible Role', value: limiterDisp, inline: true },
-          { name: 'Auto Enabled', value: String(!!cfg.enabled), inline: true },
-          { name: 'Eligible Now', value: String(eligible), inline: true },
-          { name: 'Assigned Now', value: String(assigned), inline: true },
-          { name: 'Grace Days', value: String(cfg.graceDays ?? 30), inline: true },
-          { name: 'Low Points Message', value: messageDisp, inline: false },
-          { name: 'Feedback Channel', value: channelDisp, inline: true },
-          { name: 'Excluded Roles', value: exclDisp, inline: false },
-        );
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lp_issue').setLabel('Sync').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('lp_remove').setLabel('Remove All').setStyle(ButtonStyle.Danger),
+  async buildPanel(guild) {
+    const cfg = issuer.getConfig();
+    const exclDisp = (cfg.excludeRoles && cfg.excludeRoles.length)
+      ? cfg.excludeRoles.join(', ').slice(0, 256)
+      : '(none)';
+    const roleDisp = cfg.roleId || cfg.roleName || '(not set)';
+    const limiterDisp = cfg.memberRoleId || cfg.memberRoleName || '(none)';
+    const messageDisp = (cfg.hasCustomLowPointsMessage ? cfg.lowPointsMessage : `${cfg.lowPointsMessage} (default)`).slice(0, 1024);
+    const channelDisp = cfg.lowPointsChannel || '(not set)';
+    const eligible = guild ? await issuer.computeEligibleCount(guild) : 0;
+    const assigned = guild ? await issuer.countAssigned(guild) : 0;
+    const em = new EmbedBuilder()
+      .setTitle('Low Points Control Panel')
+      .setDescription('Manage the low-points role. Use the buttons below to change settings, issue  or remove the roles or enable auto-issuing.')
+      .setColor(cfg.enabled ? 0x3ba55d : 0x808080)
+      .addFields(
+        { name: 'Threshold', value: String(cfg.threshold), inline: true },
+        { name: 'Role', value: roleDisp, inline: true },
+        { name: 'Eligible Role', value: limiterDisp, inline: true },
+        { name: 'Auto Enabled', value: String(!!cfg.enabled), inline: true },
+        { name: 'Eligible Now', value: String(eligible), inline: true },
+        { name: 'Assigned Now', value: String(assigned), inline: true },
+        { name: 'Grace Days', value: String(cfg.graceDays ?? 30), inline: true },
+        { name: 'Low Points Message', value: messageDisp, inline: false },
+        { name: 'Feedback Channel', value: channelDisp, inline: true },
+        { name: 'Excluded Roles', value: exclDisp, inline: false },
       );
-      const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lp_set_thr').setLabel('Set Threshold').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('lp_set_role').setLabel('Set Role').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('lp_set_limiter').setLabel('Set Included Role').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('lp_set_grace').setLabel('Set Grace').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('lp_set_excluded').setLabel('Set Excluded Roles').setStyle(ButtonStyle.Primary),
-      );
-      const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lp_start').setLabel('Start Auto').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('lp_stop').setLabel('Stop Auto').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('lp_refresh').setLabel('Refresh ui').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary),
-      );
-      const row4 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lp_set_message').setLabel('Set LP Message').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('lp_send_message').setLabel('Send LP Message').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('lp_set_channel').setLabel('Set LP Channel').setStyle(ButtonStyle.Primary),
-      );
-      return { embeds: [em], components: [row1, row2, row3, row4] };
-    },
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_issue').setLabel('Sync').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('lp_remove').setLabel('Remove All').setStyle(ButtonStyle.Danger),
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_set_thr').setLabel('Set Threshold').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_role').setLabel('Set Role').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_limiter').setLabel('Set Included Role').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_grace').setLabel('Set Grace').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_set_excluded').setLabel('Set Excluded Roles').setStyle(ButtonStyle.Primary),
+    );
+    const row3 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_start').setLabel('Start Auto').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_stop').setLabel('Stop Auto').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_refresh').setLabel('Refresh ui').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('lp_list').setLabel('List Below').setStyle(ButtonStyle.Secondary),
+    );
+    const row4 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lp_set_message').setLabel('Set LP Message').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('lp_send_message').setLabel('Send LP Message').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('lp_set_channel').setLabel('Set LP Channel').setStyle(ButtonStyle.Primary),
+    );
+    return { embeds: [em], components: [row1, row2, row3, row4] };
+  },
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     try {
       if (sub === 'panel') {
-        await interaction.deferReply({flags: MessageFlags.Ephemeral});
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         console.log('Building panel...');
         await interaction.editReply({ content: 'Building panel...' });
         const payload = await this.buildPanel(interaction.guild);
@@ -217,15 +218,31 @@ module.exports = {
       if (sub === 'list') {
         const cfg = issuer.getConfig();
         const rows = issuer.getRowsBelowThreshold(cfg.threshold);
+
+
+
         if (!rows.length) {
           await interaction.reply({ content: `No members below ${cfg.threshold} in the latest snapshot.`, flags: MessageFlags.Ephemeral });
           return;
         }
         const toNum = (v) => { const s = String(v ?? '').replace(/[^0-9]/g, ''); return s ? parseInt(s, 10) : 0; };
-        rows.sort((a,b) => toNum(a['Personal clan rating'] ?? a.rating) - toNum(b['Personal clan rating'] ?? b.rating));
+        rows.sort((a, b) => toNum(a['Personal clan rating'] ?? a.rating) - toNum(b['Personal clan rating'] ?? b.rating));
         const lines = rows.map(r => `${r.Player || r.player || '(unknown)'} — ${toNum(r['Personal clan rating'] ?? r.rating)}`);
         // keep within limit
-        let content = lines.join('\n');
+
+        const displayData = [];
+        for (row of rows) {
+          displayData.push({
+            name: row.Player || row.player || '(unknown)',
+            points: toNum(row['Personal clan rating'] ?? row.rating)
+          });
+        }
+
+        const fieldOrder = ["name", "points"];
+        const fieldHeaders = ["Name", "Points"];
+        const content = formatTable(displayData, null, fieldHeaders, fieldOrder);
+
+        // let content = lines.join('\n');
         const wrapperOverhead = 8;
         const maxLen = 2000 - wrapperOverhead;
         if (content.length > maxLen) content = content.slice(0, maxLen);
@@ -263,7 +280,7 @@ module.exports = {
         } else {
           await interaction.reply({ content: 'Error executing command.', flags: MessageFlags.Ephemeral });
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   },
   async handleComponent(interaction) {
@@ -521,7 +538,7 @@ module.exports = {
         return true;
       }
     } catch (e) {
-      try { await interaction.reply({ content: 'Error handling action.', flags: MessageFlags.Ephemeral }); } catch (_) {}
+      try { await interaction.reply({ content: 'Error handling action.', flags: MessageFlags.Ephemeral }); } catch (_) { }
     }
     return false;
   }
