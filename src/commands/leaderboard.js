@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
+const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 const { ansiColour, formatTable, formatTableLight, isNumeric } = require('../utils/formatHelper');
 
 const useEmbed = true;
@@ -41,7 +42,6 @@ module.exports = {
     const settings = loadSettings();
     const primaryTag = Object.keys(settings.squadrons || {})[0] || '';
 
-    const lines = [];
     const topCount = 20;
     const surroundingCount = 5;
     let primarySquadronIndex = -1;
@@ -117,7 +117,7 @@ module.exports = {
 
 
 
-    console.log(table);
+    // console.log(table);
     
     if (useEmbed) {
       const embed = new EmbedBuilder()

@@ -34,6 +34,7 @@ const __session = {
   startedAt: null,           // Date
   dateKey: null,             // YYYY-MM-DD
   startingPoints: null,      // number
+  startingPos: null,         // number
   wins: 0,
   losses: 0,
   windowKey: null,           // e.g., 2025-08-17|EU or 2025-08-17|US
@@ -351,6 +352,7 @@ function rebuildSessionFromEvents() {
 
     // Only consider events within this window
     let startingPoints = null;
+    let startingPos = null;
     let startedAt = window.start;
     let wins = 0, losses = 0;
 
@@ -360,6 +362,7 @@ function rebuildSessionFromEvents() {
       if (!ets || !isWithinWindow(ets, window)) continue;
       if (ev.type === 'session_start' || ev.type === 'session_reset') {
         if (typeof ev.startingPoints === 'number') startingPoints = ev.startingPoints;
+        if (typeof ev.startingPos === 'number') startingPos = ev.startingPos;
         startedAt = ets || startedAt;
         wins = 0; losses = 0;
       } else if (ev.type === 'w_l_update') {
@@ -373,6 +376,7 @@ function rebuildSessionFromEvents() {
         if (Number.isFinite(w)) wins += w;
         if (Number.isFinite(l)) losses += l;
         if (startingPoints == null && typeof ev.from === 'number') startingPoints = ev.from;
+        if (startingPos == null && typeof ev.place === 'number') startingPos = ev.place;
       }
     }
 
@@ -380,6 +384,7 @@ function rebuildSessionFromEvents() {
       __session.dateKey = dateKeyUTC(window.start);
       __session.startedAt = startedAt || window.start;
       __session.startingPoints = startingPoints;
+      __session.startingPos = startingPos;
       __session.wins = wins;
       __session.losses = losses;
       __session.windowKey = window.key;
@@ -879,6 +884,8 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
             ...squadron,
             pointsStart:
               oldSquadron?.pointsStart ?? squadron.points,
+            posStart:
+              oldSquadron?.posStart ?? squadron.pos,
           };
         });
 
@@ -903,9 +910,10 @@ async function resetLeaderboardPointsStart() {
       if (Array.isArray(leaderboardData)) {
         leaderboardData.forEach(squadron => {
           squadron.pointsStart = squadron.points;
+          squadron.posStart = squadron.pos;
         });
         fs.writeFileSync(leaderboardFile, JSON.stringify(leaderboardData, null, 2), 'utf8');
-        console.log('[INFO] Leaderboard pointsStart has been reset.');
+        console.log('[INFO] Leaderboard pointsStart and posStart have been reset.');
       }
     }
   } catch (e) {
@@ -1547,13 +1555,14 @@ function mergePointsStart(newRows, prevRows) {
             __session.startedAt = now;
             __session.dateKey = todayKey;
             __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
+            __session.startingPos = (prev && prev.squadronPlace != null ? prev.squadronPlace : (snapshot.squadronPlace != null ? snapshot.squadronPlace : null));
             __session.wins = 0;
             __session.losses = 0;
             __session.windowKey = activeWindow.key;
             // Persist and post initial summary for this window
             try {
               if (__session.startingPoints != null) {
-                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey, windowKey: __session.windowKey });
+                appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, startingPos: __session.startingPos, dateKey: __session.dateKey, windowKey: __session.windowKey });
                 resetLeaderboardPointsStart();
                 resetPlayerPointsStart();
               }
@@ -1584,6 +1593,7 @@ function mergePointsStart(newRows, prevRows) {
             __session.startedAt = now;
             __session.dateKey = todayKey;
             __session.startingPoints = (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null));
+            __session.startingPos = (prev && prev.squadronPlace != null ? prev.squadronPlace : (snapshot.squadronPlace != null ? snapshot.squadronPlace : null));
             __session.wins = __session.wins | 0;
             __session.losses = __session.losses | 0;
           }
@@ -1751,6 +1761,7 @@ function mergePointsStart(newRows, prevRows) {
           dateKey: __session.dateKey,
           startedAt: __session.startedAt ? __session.startedAt.toISOString() : null,
           startingPoints: __session.startingPoints,
+          startingPos: __session.startingPos,
           wins: __session.wins,
           losses: __session.losses,
           lastInterval: {
@@ -1795,6 +1806,7 @@ function mergePointsStart(newRows, prevRows) {
                 dateKey: __session.dateKey,
                 startedAt: __session.startedAt ? __session.startedAt.toISOString() : null,
                 startingPoints: __session.startingPoints,
+                startingPos: __session.startingPos,
                 wins: __session.wins,
                 losses: __session.losses,
               };
@@ -1810,11 +1822,13 @@ function mergePointsStart(newRows, prevRows) {
               const mm2 = String(resetNow.getUTCMonth() + 1).padStart(2, '0');
               const dd2 = String(resetNow.getUTCDate()).padStart(2, '0');
               const newStarting = (typeof snapshot.totalPoints === 'number') ? snapshot.totalPoints : (__session.startingPoints ?? null);
+              const newStartingPos = (typeof snapshot.squadronPlace === 'number') ? snapshot.squadronPlace : (__session.startingPos ?? null);
               // Persist a session_reset event with new starting points
-              try { if (newStarting != null) appendEvent({ type: 'session_reset', startingPoints: newStarting, dateKey: `${yy}-${mm2}-${dd2}` }); } catch (_) {}
+              try { if (newStarting != null) appendEvent({ type: 'session_reset', startingPoints: newStarting, startingPos: newStartingPos, dateKey: `${yy}-${mm2}-${dd2}` }); } catch (_) {}
               __session.startedAt = resetNow;
               __session.dateKey = `${yy}-${mm2}-${dd2}`;
               __session.startingPoints = newStarting;
+              __session.startingPos = newStartingPos;
               __session.wins = 0;
               __session.losses = 0;
             } catch (_) {}

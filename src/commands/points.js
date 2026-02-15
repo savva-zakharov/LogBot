@@ -90,7 +90,7 @@ module.exports = {
       let displayData = [];
         displayData.push({
           // name: playerName,
-          points: row.points < threshold ? ansiColour(row.points, 'red') : row.points,
+          points: row.points < threshold ? ansiColour(row.points, 'yellow') : row.points,
           delta: pointsDelta < 0 ? ansiColour(pointsDelta, 'red') : pointsDelta > 0 ? ansiColour(pointsDelta, 'green') : pointsDelta,
           position: row.position < 21 ? ansiColour(row.position, 'cyan') : row.position,
           contribution: contribution,
