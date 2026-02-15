@@ -5,13 +5,8 @@ const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 const { ansiColour, formatTable, formatRowTable } = require('../utils/formatHelper');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
-
 const { sanitizeName } = require('../utils/nameSanitizer');
-
-// const getSession = require('../squadronTracker');
 const { getSession } = require('../squadronTracker');
-console.log(getSession);
-
 
 const useEmbed = true;
 const embedColor = 0xd0463c;
