@@ -54,7 +54,7 @@ async function listBelowDetails(guild) {
     if (!bm || !bm.row) continue;
     const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
     if (!qualityOk) continue;
-    const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
+    const rating = toNumber(bm.row['Points'] ?? bm.row.rating);
     if (!(rating < cfg.threshold)) continue;
     // Evaluate reasons
     let withinGrace = false;
@@ -206,7 +206,7 @@ function getAllRows() {
 
 function getRowsBelowThreshold(threshold) {
   const rows = getAllRows();
-  return rows.filter(r => toNumber(r['Personal clan rating'] ?? r.rating) < threshold);
+  return rows.filter(r => toNumber(r['Points'] ?? r.rating) < threshold);
 }
 
 async function computeEligibleCount(guild) {
@@ -306,7 +306,7 @@ async function computeEligibleCount(guild) {
       if (!qualityOk) continue;
 
       // Threshold check
-      const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
+      const rating = toNumber(bm.row['Points'] ?? bm.row.rating);
       if (rating >= cfg.threshold) continue;
 
       // Grace days
@@ -403,7 +403,7 @@ async function issueRolesInGuild(guild, options = {}) {
       // quality gate
       const qualityOk = (bm.tier == null && bm.normD == null) || ((bm.tier <= cfg.matchMaxTier) && (bm.normD <= cfg.matchMaxNormD));
       // threshold gate
-      const rating = toNumber(bm.row['Personal clan rating'] ?? bm.row.rating);
+      const rating = toNumber(bm.row['Points'] ?? bm.row.rating);
       const below = rating < cfg.threshold;
       // grace period gate
       let withinGrace = false;
@@ -808,7 +808,7 @@ async function resolveMemberProfile(client, userId) {
         if (!member) continue;
         const display = member.nickname || member.user?.globalName || member.user?.username || '';
         const match = bestMatchPlayer(getAllRows(), display);
-        const rating = match && match.row ? toNumber(match.row['Personal clan rating'] ?? match.row.rating) : null;
+        const rating = match && match.row ? toNumber(match.row['Points'] ?? match.row.rating) : null;
         return {
           guildId: guild.id,
           ign: match && match.row ? String(match.row.Player || match.row.player || '') : '',

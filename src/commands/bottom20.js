@@ -49,7 +49,7 @@ module.exports = {
 
       // Sort rows by Personal clan rating asc
       const bottom = [...rows]
-        .map(r => ({ r, rating: toNumber(r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
+        .map(r => ({ r, rating: toNumber(r['Points'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
         .sort((a, b) => a.rating - b.rating)
         .slice(0, 20);
 

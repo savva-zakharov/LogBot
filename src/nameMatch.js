@@ -89,8 +89,8 @@ function bestMatchPlayer(rows, query) {
       if (a.tier !== b.tier) return a.tier - b.tier;
       if (a.normD !== b.normD) return a.normD - b.normD;
       if (a.d !== b.d) return a.d - b.d;
-      const aRating = toNumber(a.row['Personal clan rating'] ?? a.row.rating);
-      const bRating = toNumber(b.row['Personal clan rating'] ?? b.row.rating);
+      const aRating = toNumber(a.row['Points'] ?? a.row.rating);
+      const bRating = toNumber(b.row['Points'] ?? b.row.rating);
       return bRating - aRating;
     });
 

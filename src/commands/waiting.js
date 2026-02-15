@@ -52,7 +52,7 @@ module.exports = {
 
     const snapshotPlayers = rows.map(r => ({
       r,
-      rating: toNumber(r['Personal clan rating'] ?? r.rating),
+      rating: toNumber(r['Points'] ?? r.rating),
       name: (r.Player || r.player || 'Unknown')
     }));
 

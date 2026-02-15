@@ -592,7 +592,7 @@ function parseSquadronWithCheerio(html) {
         rows.push({
           'num.': num,
           'Player': player,
-          'Personal clan rating': rating,
+          'Points': rating,
           'Activity': activity,
           'Role': role,
           'Date of entry': date,
@@ -600,7 +600,7 @@ function parseSquadronWithCheerio(html) {
       }
     }
     console.log(`ℹ️ Cheerio: parsed member rows=${rows.length}`);
-    return { headers: ['num.', 'Player', 'Personal clan rating', 'Activity', 'Role', 'Date of entry'], rows };
+    return { headers: ['num.', 'Player', 'Points', 'Activity', 'Role', 'Date of entry'], rows };
   } catch (_) {
     console.warn('⚠️ Cheerio: parse error');
     return { headers: [], rows: [] };
@@ -913,6 +913,28 @@ async function resetLeaderboardPointsStart() {
   }
 }
 
+async function resetPlayerPointsStart() {
+  const dataFile = path.join(process.cwd(), 'squadron_data.json');
+  try {
+    if (fs.existsSync(dataFile)) {
+      const content = fs.readFileSync(dataFile, 'utf8');
+      if (!content) return;
+      const obj = JSON.parse(content);
+      if (obj && obj.data && Array.isArray(obj.data.rows)) {
+        obj.data.rows.forEach(row => {
+          // Sync PointsStart with current Points
+          const currentPoints = row['Points'] || row['points'] || '0';
+          row['PointsStart'] = currentPoints;
+        });
+        fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
+        console.log('[INFO] Player PointsStart has been reset in squadron_data.json.');
+      }
+    }
+  } catch (e) {
+    console.warn(`[WARN] Failed to reset player PointsStart: ${e.message}`);
+  }
+}
+
 
 
 // --- Events logging (mirror Discord messages) ---
@@ -1106,10 +1128,10 @@ async function scrapeTable(page) {
     const text = container.innerText || '';
     const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     // Remove known header labels if present
-    const headerLabels = new Set(['num.', 'Player', 'Personal clan rating', 'Activity', 'Role', 'Date of entry']);
+    const headerLabels = new Set(['num.', 'Player', 'Points', 'Activity', 'Role', 'Date of entry']);
     const filtered = lines.filter(l => !headerLabels.has(l));
     const isDate = (s) => /^\d{2}\.\d{2}\.\d{4}$/.test(s);
-    const headers = ['num.', 'Player', 'Personal clan rating', 'Activity', 'Role', 'Date of entry'];
+    const headers = ['num.', 'Player', 'Points', 'Activity', 'Role', 'Date of entry'];
     const rows = [];
     // Group by finding date tokens and collecting preceding 5 tokens
     const buf = [];
@@ -1126,7 +1148,7 @@ async function scrapeTable(page) {
           rows.push({
             'num.': num.replace(/\s+/g, ''),
             'Player': player,
-            'Personal clan rating': rating.replace(/\s+/g, ''),
+            'Points': rating.replace(/\s+/g, ''),
             'Activity': activity.replace(/\s+/g, ''),
             'Role': role,
             'Date of entry': date,
@@ -1173,6 +1195,29 @@ async function startSquadronTracker() {
   let __lastApiData = { points: null, ts: null };
   let __lastWebData = { points: null, ts: null };
   let __lastReportedPoints = null;
+
+function mergePointsStart(newRows, prevRows) {
+  if (!Array.isArray(newRows)) return;
+  const pointsStartMap = new Map();
+  if (Array.isArray(prevRows)) {
+    prevRows.forEach(r => {
+      const name = String(r['Player'] || r['player'] || '').trim();
+      if (name && r['PointsStart'] !== undefined) pointsStartMap.set(name, r['PointsStart']);
+    });
+  }
+
+  newRows.forEach(r => {
+    const name = String(r['Player'] || r['player'] || '').trim();
+    if (name) {
+      if (pointsStartMap.has(name)) {
+        r['PointsStart'] = pointsStartMap.get(name);
+      } else {
+        // New player, default PointsStart to current Points
+        r['PointsStart'] = r['Points'] || r['points'] || '0';
+      }
+    }
+  });
+}
 
   async function captureOnce(forceSave = false) {
     // Determine primary squadron tag (from settings or fallback parsing if needed)
@@ -1231,6 +1276,10 @@ async function startSquadronTracker() {
       if (rawHtml && !htmlLooksLikeError) {
         const parsed = parseSquadronWithCheerio(rawHtml);
         if (parsed && Array.isArray(parsed.rows)) {
+          // Preserve PointsStart for each player from the previous snapshot
+          const prevRows = snapshot.data?.rows || [];
+          mergePointsStart(parsed.rows, prevRows);
+
           // Preserve leaderboard data if it exists from the last snapshot
           const existingLeaderboard = snapshot.data?.leaderboard;
           snapshot.data = parsed;
@@ -1352,6 +1401,7 @@ async function startSquadronTracker() {
               console.log(`ℹ️ Startup members HTML length=${raw0.length}`);
               const parsed0 = parseSquadronWithCheerio(raw0);
               if (parsed0 && Array.isArray(parsed0.rows)) {
+                mergePointsStart(parsed0.rows, snapshot.data?.rows);
                 snapshot.data = parsed0;
                 snapshot.membersCaptured = true;
                 didInitialMembersFetch = true;
@@ -1373,6 +1423,7 @@ async function startSquadronTracker() {
             if (raw) {
               const parsed = parseSquadronWithCheerio(raw);
               if (parsed && Array.isArray(parsed.rows)) {
+                mergePointsStart(parsed.rows, snapshot.data?.rows);
                 snapshot.data = parsed;
                 snapshot.membersCaptured = true;
               }
@@ -1419,8 +1470,8 @@ async function startSquadronTracker() {
             prevMap.forEach((prevMember, name) => {
               const currMember = currMap.get(name);
               if (!currMember) return;
-              const prevRatingRaw = (prevMember['Personal clan rating'] || prevMember['rating'] || prevMember['Points'] || '').toString();
-              const currRatingRaw = (currMember['Personal clan rating'] || currMember['rating'] || currMember['Points'] || '').toString();
+              const prevRatingRaw = (prevMember['Points'] || prevMember['rating'] || prevMember['Points'] || '').toString();
+              const currRatingRaw = (currMember['Points'] || currMember['rating'] || currMember['Points'] || '').toString();
               const prevRating = toNum(prevRatingRaw);
               const currRating = toNum(currRatingRaw);
               if (Number.isFinite(prevRating) && Number.isFinite(currRating)) {
@@ -1504,6 +1555,7 @@ async function startSquadronTracker() {
               if (__session.startingPoints != null) {
                 appendEvent({ type: 'session_start', startingPoints: __session.startingPoints, dateKey: __session.dateKey, windowKey: __session.windowKey });
                 resetLeaderboardPointsStart();
+                resetPlayerPointsStart();
               }
             } catch (_) {}
             try {
@@ -1598,7 +1650,7 @@ async function startSquadronTracker() {
             for (const r of removed) {
               const member = {
                 'Player': safeName(r),
-                'Personal clan rating': safeRating(r) || '0',
+                'Points': safeRating(r) || '0',
                 'Role': safeRole(r) || 'Member',
                 'Date of entry': (r['Date of entry'] || r['date of entry'] || r['Date'] || '').toString(),
               };
@@ -1616,7 +1668,7 @@ async function startSquadronTracker() {
             for (const r of added) {
               const member = {
                 'Player': safeName(r),
-                'Personal clan rating': safeRating(r) || '0',
+                'Points': safeRating(r) || '0',
                 'Role': safeRole(r) || 'Member',
                 'Date of entry': (r['Date of entry'] || r['date of entry'] || r['Date'] || '').toString(),
               };
