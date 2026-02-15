@@ -102,22 +102,27 @@ module.exports = {
 
         const topFiltered = top.filter(row => row.pointsDelta !== 0);
 
-        const tableData = topFiltered.map((x, i) => ({
-            position: x.position < 21 ? ansiColour(x.position, 'cyan') : x.position,
-            name: x.name,
-            points: x.points < threshold ? ansiColour(x.points, 'yellow') : x.points,
-            pointsDelta: x.pointsDelta < 0 ? ansiColour(x.pointsDelta, 'red') : x.pointsDelta > 0 ? ansiColour('+' + x.pointsDelta, 'green') : x.pointsDelta,
-        }));
+        let playerTable = '';
+        let firstLineLength = 35;
 
+        if (topFiltered.length > 0) {
+            const tableData = topFiltered.map((x, i) => ({
+                position: x.position < 21 ? ansiColour(x.position, 'cyan') : x.position,
+                name: x.name,
+                points: x.points < threshold ? ansiColour(x.points, 'yellow') : x.points,
+                pointsDelta: x.pointsDelta < 0 ? ansiColour(x.pointsDelta, 'red') : x.pointsDelta > 0 ? ansiColour('+' + x.pointsDelta, 'green') : x.pointsDelta,
+            }));
 
-        const titleText = 'Player Summary';
-        const fieldHeaders = ["Pos", "Name", "Points", "Δ"];
-        const fieldOrder = ["position", "name", "points", "pointsDelta"];
-        const playerTable = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
+            const titleText = 'Player Summary';
+            const fieldHeaders = ["Pos", "Name", "Points", "Δ"];
+            const fieldOrder = ["position", "name", "points", "pointsDelta"];
+            playerTable = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
+
+            firstLineLength = playerTable.split('\n')[1].length;
+        }
 
         // console.log('[DEBUG] playerTable', playerTable);
 
-        const firstLineLength = playerTable.split('\n')[1].length;
         // console.log('[DEBUG] firstLineLength:', firstLineLength);
 
         let squadronSummary = '';
@@ -133,7 +138,7 @@ module.exports = {
             const posDeltaStr = posDelta >= 0 ? `+${posDelta}` : `${posDelta}`;
 
             let session = '';
-            
+
             try {
                 console.log(typeof getSession);
                 session = getSession();
