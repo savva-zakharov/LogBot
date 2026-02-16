@@ -69,13 +69,12 @@ module.exports = {
 
 
     const rowData = {
-      // "Points": [, ` `],
       "Above": [ansiColour(`${place - 1}`, "white"), ansiColour(above != null ? fmt(above) : '—', "white"), ansiColour(needForAbove, "white")],
       "Place": [ansiColour(`${place}`, "red"), ansiColour(`${fmt(ours)}`, "red"), ` `],
       "Below": [ansiColour(`${place + 1}`, "black"), ansiColour(below != null ? fmt(below) : '—', "black"), ansiColour(leadOverBelow, "white")]
     };
 
-    const table = formatRowTable(rowData, "Rank data", null, false);
+    const table = formatRowTable(rowData, "Rank data", 35, true);
 
     const content = '```\n' + table + '\n```';
     if (useEmbed) {

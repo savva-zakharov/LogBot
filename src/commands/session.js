@@ -125,7 +125,7 @@ module.exports = {
             const curPts = squadronInfo.points || 0;
             const startPts = squadronInfo.pointsStart || curPts;
             const ptsDelta = curPts - startPts;
-            const ptsDeltaStr = ptsDelta >= 0 ? `+${ptsDelta}` : `${ptsDelta}`;
+            const ptsDeltaStr = ptsDelta > 0 ? `+${ptsDelta}` : `${ptsDelta}`;
 
             const curPos = (squadronInfo.pos || 0) + 1;
             const startPos = (squadronInfo.posStart || curPos) + 1;
@@ -143,18 +143,19 @@ module.exports = {
             }
 
             const ratio = session.wins / session.losses;
-            const ratioStr = Math.round(ratio * 100) / 100;
+            const ratioStr = (session.wins) ? Math.round(ratio * 100) / 100 : " ";
             const windowKey = session.windowKey || '';
 
             const ptsString = (startPos === curPos) ? `${curPts}` : `${startPts} → ${curPts}`;
             const posString = (startPos === curPos) ? `${curPos}` : `${startPos} → ${curPos}`;
+            const wlString = (session.wins) ? `${session.wins} / ${session.losses}` : "N/A";
 
             const rowData = {
                 // "Squadron": [primaryTag],
                 // "Session": [session.windowKey],          
                 "Points": [ptsString, `${ansiColour(ptsDeltaStr, ptsDelta > 0 ? 'green' : ptsDelta < 0 ? 'red' : 'white')}`],
                 "Place": [posString, `${ansiColour(posDeltaStr, posDelta > 0 ? 'green' : posDelta < 0 ? 'red' : 'white')}`],
-                "W/L": [`${session.wins || "N/A"} / ${session.losses || "N/A"}`, ansiColour(ratioStr, ratio >= 1 ? 'green' : 'red')]
+                "W/L": [wlString, ansiColour(ratioStr, ratio > 1 ? 'green' : 'red')]
             };
             squadronSummary = formatRowTable(rowData, windowKey.replace(/\|/g, ' | '), firstLineLength, true) + "\n";
         }
