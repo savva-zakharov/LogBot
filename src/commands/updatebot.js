@@ -48,7 +48,7 @@ module.exports = {
         console.log('[updatebot] Child process closed with code ' + code);
         interaction.editReply('```\n' + output + '```');
         if (code === 0) {
-          if (!output.includes('Already up to date.')) {
+          if (!output.includes("Your branch is up to date with 'origin/main'")) {
             interaction.followUp('Update successful. Restarting bot...');
             console.log('[updatebot] Update successful, restarting bot...');
 
@@ -58,6 +58,9 @@ module.exports = {
               console.log('[updatebot] Creating restart flag at ' + flagPath);
               fs.writeFileSync(flagPath, new Date().toISOString());
             }, 10000);
+          } else {
+            interaction.followUp('No updates available. Bot is up to date.');
+            console.log('[updatebot] No updates available, bot is up to date.');
           }
         } else {
           interaction.followUp('Update process exited with code ' + code);
