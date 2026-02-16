@@ -146,11 +146,14 @@ module.exports = {
             const ratioStr = Math.round(ratio * 100) / 100;
             const windowKey = session.windowKey || '';
 
+            const ptsString = (startPos === curPos) ? `${curPts}` : `${startPts} → ${curPts}`;
+            const posString = (startPos === curPos) ? `${curPos}` : `${startPos} → ${curPos}`;
+
             const rowData = {
                 // "Squadron": [primaryTag],
                 // "Session": [session.windowKey],          
-                "Points": [`${startPts} → ${curPts}`, `${ansiColour(ptsDeltaStr, ptsDelta >= 0 ? 'green' : 'red')}`],
-                "Place": [`${startPos} → ${curPos}`, `${ansiColour(posDeltaStr, posDelta >= 0 ? 'green' : 'red')}`],
+                "Points": [ptsString, `${ansiColour(ptsDeltaStr, ptsDelta > 0 ? 'green' : ptsDelta < 0 ? 'red' : 'white')}`],
+                "Place": [posString, `${ansiColour(posDeltaStr, posDelta > 0 ? 'green' : posDelta < 0 ? 'red' : 'white')}`],
                 "W/L": [`${session.wins || "N/A"} / ${session.losses || "N/A"}`, ansiColour(ratioStr, ratio >= 1 ? 'green' : 'red')]
             };
             squadronSummary = formatRowTable(rowData, windowKey.replace(/\|/g, ' | '), firstLineLength, true) + "\n";

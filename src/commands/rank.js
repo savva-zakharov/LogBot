@@ -1,7 +1,7 @@
 // src/commands/rank.js
 const fs = require('fs');
 const path = require('path');
-const { MessageFlags } = require('discord.js');
+const { MessageFlags , EmbedBuilder } = require('discord.js');
 const { ansiColour, formatRowTable } = require('../utils/formatHelper');
 
 const useEmbed = true;
@@ -69,10 +69,10 @@ module.exports = {
 
 
     const rowData = {
-      "Points": [`${fmt(ours)}`, ` `],
-      "Place": [`${place}`, ` `],
-      "Above": [above != null ? fmt(above) : '—', needForAbove != null ? (needForAbove > 0 ? `need +${fmt(needForAbove)}` : `lead ${fmt(Math.abs(needForAbove))}`) : '—'],
-      "Below": [below != null ? fmt(below) : '—', leadOverBelow != null ? (leadOverBelow > 0 ? `lead +${fmt(leadOverBelow)}` : `behind ${fmt(Math.abs(leadOverBelow))}`) : '—']
+      // "Points": [, ` `],
+      "Above": [ansiColour(`${place - 1}`, "white"), ansiColour(above != null ? fmt(above) : '—', "white"), ansiColour(needForAbove, "white")],
+      "Place": [ansiColour(`${place}`, "red"), ansiColour(`${fmt(ours)}`, "red"), ` `],
+      "Below": [ansiColour(`${place + 1}`, "black"), ansiColour(below != null ? fmt(below) : '—', "black"), ansiColour(leadOverBelow, "white")]
     };
 
     const table = formatRowTable(rowData, "Rank data", null, false);
