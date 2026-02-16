@@ -57,7 +57,7 @@ module.exports = {
               const flagPath = path.join(process.cwd(), 'restart.flag');
               console.log('[updatebot] Creating restart flag at ' + flagPath);
               fs.writeFileSync(flagPath, new Date().toISOString());
-            }, 10000);
+            }, 5000);
           } else {
             interaction.followUp('No updates available. Bot is up to date.');
             console.log('[updatebot] No updates available, bot is up to date.');
