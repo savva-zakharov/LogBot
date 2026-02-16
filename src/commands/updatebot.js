@@ -20,6 +20,7 @@ module.exports = {
       const scriptName = isWindows ? 'update-bot.bat' : 'update-bot.sh';
       const scriptPath = path.join(process.cwd(), scriptName);
       
+      console.log('[updatebot] Starting update process...');      
       let child;
       if (isWindows) {
         child = spawn('cmd.exe', ['/c', scriptPath], {
@@ -33,6 +34,7 @@ module.exports = {
           env: { ...process.env },
         });
       }
+      console.log('[updatebot] Child process spawned');
 
       let output = '';
       child.stdout.on('data', (data) => {
@@ -42,19 +44,24 @@ module.exports = {
       child.stderr.on('data', (data) => {
         output += data.toString();
       });
-
       child.on('close', (code) => {
+        console.log('[updatebot] Child process closed with code ' + code);
         interaction.editReply('```\n' + output + '```');
         if (code === 0) {
           if (!output.includes('Already up to date.')) {
             interaction.followUp('Update successful. Restarting bot...');
+            console.log('[updatebot] Update successful, restarting bot...');
+
+
             setTimeout(() => {
               const flagPath = path.join(process.cwd(), 'restart.flag');
+              console.log('[updatebot] Creating restart flag at ' + flagPath);
               fs.writeFileSync(flagPath, new Date().toISOString());
-            }, 5000);
+            }, 10000);
           }
         } else {
           interaction.followUp('Update process exited with code ' + code);
+          console.log('[updatebot] Update process exited with code ' + code);
         }
       });
 
