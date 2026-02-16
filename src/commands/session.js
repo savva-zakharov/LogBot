@@ -144,16 +144,16 @@ module.exports = {
 
             const ratio = session.wins / session.losses;
             const ratioStr = Math.round(ratio * 100) / 100;
+            const windowKey = session.windowKey.replace(/\|/g, ' | ') || '';
 
             const rowData = {
                 // "Squadron": [primaryTag],
                 // "Session": [session.windowKey],          
                 "Points": [`${startPts} → ${curPts}`, `${ansiColour(ptsDeltaStr, ptsDelta >= 0 ? 'green' : 'red')}`],
                 "Place": [`${startPos} → ${curPos}`, `${ansiColour(posDeltaStr, posDelta >= 0 ? 'green' : 'red')}`],
-                "W/L": [`${session.wins || 0} / ${session.losses || 0}`, ansiColour(ratioStr, ratio >= 1 ? 'green' : 'red')]
+                "W/L": [`${session.wins || "N/A"} / ${session.losses || "N/A"}`, ansiColour(ratioStr, ratio >= 1 ? 'green' : 'red')]
             };
-            const squadronTableTitle = primaryTag + " Session Summary";
-            squadronSummary = formatRowTable(rowData, session.windowKey.replace(/\|/g, ' | '), firstLineLength, true) + "\n";
+            squadronSummary = formatRowTable(rowData, windowKey, firstLineLength, true) + "\n";
         }
 
         // console.log('[DEBUG] squadronSummary', squadronSummary);
