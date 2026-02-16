@@ -4,6 +4,9 @@ const path = require('path');
 const { MessageFlags } = require('discord.js');
 const { ansiColour, formatRowTable } = require('../utils/formatHelper');
 
+const useEmbed = true;
+const embedColor = 0xd0463c;
+
 function readLatestSnapshot() {
   try {
     const file = path.join(process.cwd(), 'squadron_data.json');
@@ -65,9 +68,9 @@ module.exports = {
     }
 
 
-    const rowData = {         
-      "Points": [`${fmt(ours)} → ${fmt(ours)}`, `${ansiColour('', true)}`],
-      "Place": [`${place} → ${place}`, `${ansiColour('', true)}`],
+    const rowData = {
+      "Points": [`${fmt(ours)}`, ` `],
+      "Place": [`${place}`, ` `],
       "Above": [above != null ? fmt(above) : '—', needForAbove != null ? (needForAbove > 0 ? `need +${fmt(needForAbove)}` : `lead ${fmt(Math.abs(needForAbove))}`) : '—'],
       "Below": [below != null ? fmt(below) : '—', leadOverBelow != null ? (leadOverBelow > 0 ? `lead +${fmt(leadOverBelow)}` : `behind ${fmt(Math.abs(leadOverBelow))}`) : '—']
     };
@@ -75,6 +78,16 @@ module.exports = {
     const table = formatRowTable(rowData, "Rank data", null, false);
 
     const content = '```\n' + table + '\n```';
-    await interaction.reply({ content });
+    if (useEmbed) {
+      const embed = new EmbedBuilder()
+        .setTitle('Rank Summary')
+        .setDescription(content)
+        .setColor(embedColor)
+        .setTimestamp(new Date());
+
+      await interaction.reply({ embeds: [embed] });
+    } else {
+      await interaction.reply({ content });
+    }
   }
 };
