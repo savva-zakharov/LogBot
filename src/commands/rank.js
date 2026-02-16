@@ -1,7 +1,7 @@
 // src/commands/rank.js
 const fs = require('fs');
 const path = require('path');
-const { MessageFlags , EmbedBuilder } = require('discord.js');
+const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { ansiColour, formatRowTable } = require('../utils/formatHelper');
 
 const useEmbed = true;
@@ -69,14 +69,20 @@ module.exports = {
 
 
     const rowData = {
-      "Above": [ansiColour(`${place - 1}`, "white"), ansiColour(above != null ? fmt(above) : '—', "white"), ansiColour(needForAbove, "white")],
-      "Place": [ansiColour(`${place}`, "red"), ansiColour(`${fmt(ours)}`, "red"), ` `],
-      "Below": [ansiColour(`${place + 1}`, "black"), ansiColour(below != null ? fmt(below) : '—', "black"), ansiColour(leadOverBelow, "white")]
+      "Above": [ansiColour(`${place}`, "white"), ansiColour(above != null ? fmt(above) : '—', "white"), ansiColour(`+${needForAbove}`, "white")],
+      "Place": [ansiColour(`${place + 1}`, "red"), ansiColour(`${fmt(ours)}`, "red"), ` `],
+      "Below": [ansiColour(`${place + 2}`, "black"), ansiColour(below != null ? fmt(below) : '—', "black"), ansiColour(`-${leadOverBelow}`, "black")]
     };
 
-    const table = formatRowTable(rowData, "Rank data", 35, true);
+    // const rowData = {
+    //   "Above": [`${place - 1}`, above != null ? fmt(above) : '—', needForAbove],
+    //   "Place": [`${place}`, fmt(ours), `${ansiColour(`test`, 'red')}`],
+    //   "Below": [`${place + 1}`, below != null ? fmt(below) : '—', leadOverBelow]
+    // };
 
-    const content = '```\n' + table + '\n```';
+    const table = formatRowTable(rowData, "Rank data", 35, false);
+
+    const content = `\`\`\`ansi\n${table}\n\`\`\``;
     if (useEmbed) {
       const embed = new EmbedBuilder()
         .setTitle('Rank Summary')

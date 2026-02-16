@@ -130,14 +130,14 @@ module.exports = {
             const curPos = (squadronInfo.pos || 0) + 1;
             const startPos = (squadronInfo.posStart || curPos) + 1;
             const posDelta = startPos - curPos;
-            const posDeltaStr = posDelta >= 0 ? `+${posDelta}` : `${posDelta}`;
+            const posDeltaStr = posDelta >0 ? `+${posDelta}` : `${posDelta}`;
 
             let session = '';
 
             try {
                 console.log(typeof getSession);
                 session = getSession();
-                console.log('[DEBUG] session', session);
+                // console.log('[DEBUG] session', session);
             } catch (error) {
                 console.error('[ERROR] Failed to get session:', error);
             }
