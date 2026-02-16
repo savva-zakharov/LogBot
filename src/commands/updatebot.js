@@ -48,7 +48,7 @@ module.exports = {
         console.log('[updatebot] Child process closed with code ' + code);
         interaction.editReply('```\n' + output + '```');
         if (code === 0) {
-          if (!output.includes("Your branch is up to date with 'origin/main'")) {
+          if (!output.includes("Your branch is up to date")) {
             interaction.followUp('Update successful. Restarting bot...');
             console.log('[updatebot] Update successful, restarting bot...');
 

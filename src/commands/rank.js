@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { MessageFlags } = require('discord.js');
+const { ansiColour, formatRowTable } = require('../utils/formatHelper');
 
 function readLatestSnapshot() {
   try {
@@ -63,7 +64,17 @@ module.exports = {
       lines.push('Below:     —');
     }
 
-    const content = '```\n' + lines.join('\n') + '\n```';
+
+    const rowData = {         
+      "Points": [`${fmt(ours)} → ${fmt(ours)}`, `${ansiColour('', true)}`],
+      "Place": [`${place} → ${place}`, `${ansiColour('', true)}`],
+      "Above": [above != null ? fmt(above) : '—', needForAbove != null ? (needForAbove > 0 ? `need +${fmt(needForAbove)}` : `lead ${fmt(Math.abs(needForAbove))}`) : '—'],
+      "Below": [below != null ? fmt(below) : '—', leadOverBelow != null ? (leadOverBelow > 0 ? `lead +${fmt(leadOverBelow)}` : `behind ${fmt(Math.abs(leadOverBelow))}`) : '—']
+    };
+
+    const table = formatRowTable(rowData, "Rank data", null, false);
+
+    const content = '```\n' + table + '\n```';
     await interaction.reply({ content });
   }
 };
