@@ -6,7 +6,7 @@ const path = require('path');
 module.exports = {
   data: {
     name: 'version',
-    description: 'Replies with the bot\'s version and latest commit hash.'
+    description: 'Replies with the bot\'s version, latest commit hash, and message.'
   },
   async execute(interaction) {
     const packageJsonPath = path.join(__dirname, '..', '..', 'package.json');
@@ -19,13 +19,16 @@ module.exports = {
       const packageJson = JSON.parse(data);
       const version = packageJson.version;
 
-      exec('git rev-parse HEAD', (error, stdout, stderr) => {
+      exec('git log -1 --pretty=format:"%H%n%s"', (error, stdout, stderr) => {
         if (error) {
           console.error(`exec error: ${error}`);
           interaction.reply({ content: 'Error getting version information.', ephemeral: true });
           return;
         }
-        interaction.reply({ content: `\`\`\`Version: ${version}\nCommit: ${stdout.trim()}\`\`\``, ephemeral: true });
+        const lines = stdout.trim().split('\n');
+        const commitHash = lines[0];
+        const commitMessage = lines.slice(1).join('\n');
+        interaction.reply({ content: `\`\`\`Version: ${version}\nCommit: ${commitHash}\nMessage: ${commitMessage}\`\`\``, ephemeral: true });
       });
     });
   }
