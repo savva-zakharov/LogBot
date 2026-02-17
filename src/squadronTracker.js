@@ -722,7 +722,10 @@ async function initSeasonSchedule() {
           }
         }
         return text;
-      } catch (_) { return String(s || ''); }
+      } catch (e) {
+        logError('stripHeaderPrefix', e);
+        return String(s || '');
+      }
     };
     const metaDescStripped = stripHeaderPrefix(metaDesc);
     const metaDescEnStripped = stripHeaderPrefix(metaDescEn);
