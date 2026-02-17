@@ -320,15 +320,126 @@ function padLeft(str, length, pad = ' ') {
   return pad.repeat(totalPadding) + str;
 }
 
+/**
+ * Format a session summary for Discord display
+ * @param {Object} session - Session object with wins, losses, windowKey, etc.
+ * @param {number} startingPoints - Starting points value
+ * @param {number} endingPoints - Ending points value
+ * @param {number} startingPos - Starting position (1-based)
+ * @param {number} endingPos - Ending position (1-based)
+ * @param {boolean} useAnsi - Whether to include ANSI color codes
+ * @returns {string} Formatted session summary
+ */
+function formatSessionSummary(session, startingPoints, endingPoints, startingPos, endingPos, width = 50, useAnsi = true) {
+  const pointsDelta = endingPoints != null && startingPoints != null
+    ? endingPoints - startingPoints
+    : null;
+  const posDelta = startingPos != null && endingPos != null
+    ? startingPos - endingPos  // Positive means gained positions
+    : null;
+
+  const ptsDeltaStr = pointsDelta != null
+    ? (pointsDelta > 0 ? `+${pointsDelta}` : `${pointsDelta}`)
+    : 'N/A';
+  const ptsDeltaColor = pointsDelta > 0 ? 'green' : pointsDelta < 0 ? 'red' : 'white';
+
+  const posDeltaStr = posDelta != null
+    ? (posDelta > 0 ? `+${posDelta}` : `${posDelta}`)
+    : 'N/A';
+  const posDeltaColor = posDelta > 0 ? 'green' : posDelta < 0 ? 'red' : 'white';
+
+  const ptsString = (startingPos === endingPos)
+    ? `${endingPoints}`
+    : `${startingPoints} → ${endingPoints}`;
+  const posString = (startingPos === endingPos)
+    ? `#${endingPos}`
+    : `#${startingPos} → #${endingPos}`;
+  const wlString = session.wins > 0 || session.losses > 0
+    ? `${session.wins}W / ${session.losses}L`
+    : 'N/A';
+
+  const ratio = session.losses > 0 ? (session.wins / session.losses) : session.wins;
+  const ratioStr = (session.wins > 0 || session.losses > 0)
+    ? Math.round(ratio * 100) / 100
+    : 'N/A';
+  const wlColor = ratio > 1 ? 'green' : ratio < 1 ? 'red' : 'white';
+
+  // Build row data for formatRowTable
+  const rowData = {
+    "Points": [ptsString, useAnsi ? ansiColour(ptsDeltaStr, ptsDeltaColor) : ptsDeltaStr],
+    "Place": [posString, useAnsi ? ansiColour(posDeltaStr, posDeltaColor) : posDeltaStr],
+    "W/L": [wlString, useAnsi ? ansiColour(ratioStr, wlColor) : ratioStr]
+  };
+
+  // Get window key formatted (e.g., "2026-02-17 | EU")
+  const windowKey = session.windowKey ? session.windowKey.replace(/\|/g, ' | ') : 'Session Summary';
+
+  // Format using formatRowTable with specified width
+  const summary = formatRowTable(rowData, windowKey, width, true);
+
+  return summary;
+}
+
+/**
+ * Format complete session summary including player table
+ * @param {Object} session - Session object
+ * @param {number} startingPoints - Starting points
+ * @param {number} endingPoints - Ending points
+ * @param {number} startingPos - Starting position
+ * @param {number} endingPos - Ending position
+ * @param {Array} playerData - Array of player data for the table
+ * @param {number} width - Width of the tables
+ * @param {boolean} useAnsi - Whether to use ANSI colors
+ * @returns {string} Complete formatted session summary
+ */
+function formatFullSessionSummary(session, startingPoints, endingPoints, startingPos, endingPos, playerData, width = 50, useAnsi = true) {
+  // Format the session summary header
+  const sessionSummary = formatSessionSummary(
+    session,
+    startingPoints,
+    endingPoints,
+    startingPos,
+    endingPos,
+    width,
+    useAnsi
+  );
+
+  // Format the player table if data provided
+  let playerTable = '';
+  if (playerData && playerData.length > 0) {
+    const tableData = playerData.map((x, i) => ({
+      position: x.position < 21 ? ansiColour(x.position, 'cyan') : x.position,
+      name: x.name,
+      points: x.points < x.threshold ? ansiColour(x.points, 'yellow') : x.points,
+      pointsDelta: x.pointsDelta < 0
+        ? ansiColour(x.pointsDelta, 'red')
+        : x.pointsDelta > 0
+          ? ansiColour('+' + x.pointsDelta, 'green')
+          : x.pointsDelta,
+    }));
+
+    const titleText = 'Player Summary';
+    const fieldHeaders = ["Pos", "Name", "Points", "Δ"];
+    const fieldOrder = ["position", "name", "points", "pointsDelta"];
+    playerTable = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
+  }
+
+  return sessionSummary + '\n' + playerTable;
+}
+
 module.exports = {
   ansiColour,
   formatTable,
   formatRowTable,
   formatTableLight,
   formatTableHeavy,
+  formatSessionSummary,
+  formatFullSessionSummary,
   visibleLength,
   padCell,
   isNumeric,
   sanitizeUsername,
-  padCenter
+  padCenter,
+  padRight,
+  padLeft,
 };

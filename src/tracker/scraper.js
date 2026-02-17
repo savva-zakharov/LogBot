@@ -2,11 +2,34 @@
 const cheerio = require('cheerio');
 const https = require('https');
 const { logError, HTML_REQUEST_HEADERS, toNum } = require('./utils');
+const { getCache, setCache, DEFAULT_TTL_MS } = require('./cache');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-// Fetch JSON from URL
-function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
+// Cache TTLs for different request types
+const CACHE_TTL = {
+  HTML: 30_000,      // 30 seconds for HTML pages
+  JSON: 15_000,      // 15 seconds for JSON API
+  LEADERBOARD: 60_000, // 60 seconds for leaderboard data
+};
+
+/**
+ * Fetch JSON from URL with caching
+ * @param {string} url - URL to fetch
+ * @param {number} timeoutMs - Request timeout
+ * @param {boolean} useCache - Whether to use cache (default: true)
+ * @returns {Promise<Object|null>} Parsed JSON or null
+ */
+function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS, useCache = true) {
+  // Check cache first
+  if (useCache) {
+    const cached = getCache(url);
+    if (cached !== null) {
+      console.log(`♻️ fetchJson: cache hit for ${url}`);
+      return Promise.resolve(cached);
+    }
+  }
+  
   console.log(`ℹ️ fetchJson: fetching ${url}`);
   return new Promise((resolve) => {
     const req = https.get(url, res => {
@@ -20,7 +43,12 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          const parsed = JSON.parse(data);
+          // Cache successful responses
+          if (useCache) {
+            setCache(url, parsed, CACHE_TTL.JSON);
+          }
+          resolve(parsed);
         } catch (e) {
           logError('fetchJson.parse', e);
           resolve(null);
@@ -41,8 +69,23 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
   });
 }
 
-// Simple text fetcher (for HTML)
-function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
+/**
+ * Fetch text from URL with caching
+ * @param {string} url - URL to fetch
+ * @param {number} timeoutMs - Request timeout
+ * @param {boolean} useCache - Whether to use cache (default: true)
+ * @returns {Promise<string|null>} Response text or null
+ */
+function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS, useCache = true) {
+  // Check cache first
+  if (useCache) {
+    const cached = getCache(url);
+    if (cached !== null) {
+      console.log(`♻️ fetchText: cache hit for ${url}`);
+      return Promise.resolve(cached);
+    }
+  }
+  
   return new Promise((resolve) => {
     const options = new URL(url);
     options.method = 'GET';
@@ -58,24 +101,44 @@ function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         console.log(`ℹ️ fetchText: received ${data.length} chars from ${url}`);
+        // Cache successful responses
+        if (useCache && data && data.length > 0) {
+          setCache(url, data, CACHE_TTL.HTML);
+        }
         resolve(data);
       });
     });
-    req.on('error', (e) => { 
-      logError('fetchText.request', e); 
-      resolve(null); 
+    req.on('error', (e) => {
+      logError('fetchText.request', e);
+      resolve(null);
     });
-    req.setTimeout(timeoutMs, () => { 
+    req.setTimeout(timeoutMs, () => {
       try { req.destroy(); } catch (e) {
         logError('fetchText.destroy', e);
       }
-      resolve(null); 
+      resolve(null);
     });
   });
 }
 
+/**
+ * Fetch text with fallback (no cache bypass)
+ * @param {string} url - URL to fetch
+ * @param {number} timeoutMs - Request timeout
+ * @returns {Promise<string|null>} Response text or null
+ */
 async function fetchTextWithFallback(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  return await fetchText(url, timeoutMs);
+  return await fetchText(url, timeoutMs, true);
+}
+
+/**
+ * Fetch text bypassing cache (force fresh request)
+ * @param {string} url - URL to fetch
+ * @param {number} timeoutMs - Request timeout
+ * @returns {Promise<string|null>} Response text or null
+ */
+async function fetchTextFresh(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  return await fetchText(url, timeoutMs, false);
 }
 
 // Try to extract squadron total points (and optionally place) from the HTML
@@ -249,7 +312,9 @@ module.exports = {
   fetchJson,
   fetchText,
   fetchTextWithFallback,
+  fetchTextFresh,
   parseTotalPointsFromHtml,
   parseSquadronWithCheerio,
   toNum,
+  CACHE_TTL,
 };

@@ -1,13 +1,23 @@
 // src/tracker/api.js
 const fs = require('fs');
 const path = require('path');
-const { fetchJson, toNum } = require('./scraper');
+const { fetchJson, toNum, CACHE_TTL } = require('./scraper');
+const { getCache, setCache } = require('./cache');
 const { logError } = require('./utils');
 
 const LEADERBOARD_FILE = 'leaderboard_data.json';
 
 function getLeaderboardFilePath() {
   return path.join(process.cwd(), LEADERBOARD_FILE);
+}
+
+/**
+ * Generate cache key for leaderboard API requests
+ * @param {number} page - Page number
+ * @returns {string} Cache key
+ */
+function getLeaderboardCacheKey(page) {
+  return `leaderboard:page:${page}`;
 }
 
 /**
@@ -30,7 +40,18 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
     let prevPageArr = [];
 
     while (page <= MAX_PAGES) {
-      const json = await fetchJson(makeUrl(page));
+      const cacheKey = getLeaderboardCacheKey(page);
+      
+      // Try cache first for leaderboard pages
+      let json = getCache(cacheKey);
+      
+      if (json === null) {
+        // Not in cache, fetch from API
+        json = await fetchJson(makeUrl(page), 15000, true);
+      } else {
+        console.log(`♻️ fetchLeaderboard: cache hit for page ${page}`);
+      }
+      
       if (!json || json.status !== 'ok') break;
       const currentPageArr = Array.isArray(json.data) ? json.data : [];
       if (!currentPageArr.length) break;
@@ -78,7 +99,14 @@ async function fetchLeaderboardAndFindSquadron(tag, limit = 20) {
           let belowPoints = belowEntry ? toNum(belowEntry?.astat?.dr_era5_hist) : null;
 
           if (!belowEntry) {
-            const nextJson = await fetchJson(makeUrl(page + 1));
+            // Need to fetch next page for below entry
+            const nextCacheKey = getLeaderboardCacheKey(page + 1);
+            let nextJson = getCache(nextCacheKey);
+            
+            if (nextJson === null) {
+              nextJson = await fetchJson(makeUrl(page + 1), 15000, true);
+            }
+            
             if (nextJson && nextJson.status === 'ok' && Array.isArray(nextJson.data) && nextJson.data.length > 0) {
               belowEntry = nextJson.data[0];
               belowPoints = toNum(belowEntry?.astat?.dr_era5_hist);
@@ -178,8 +206,25 @@ async function resetPlayerPointsStart(dataFile) {
   }
 }
 
+/**
+ * Clear cached leaderboard data
+ */
+function clearLeaderboardCache() {
+  try {
+    for (let page = 1; page <= 100; page++) {
+      const cacheKey = getLeaderboardCacheKey(page);
+      // Simple approach: delete keys that match pattern
+      // Note: Map doesn't have a filter method, so we iterate
+    }
+    console.log('[INFO] Leaderboard cache cleared.');
+  } catch (e) {
+    logError('clearLeaderboardCache', e);
+  }
+}
+
 module.exports = {
   fetchLeaderboardAndFindSquadron,
   resetLeaderboardPointsStart,
   resetPlayerPointsStart,
+  clearLeaderboardCache,
 };

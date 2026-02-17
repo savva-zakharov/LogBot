@@ -4,6 +4,7 @@ const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
+const { getSession } = require('../tracker');
 const { ansiColour, formatTable, formatTableLight, isNumeric } = require('../utils/formatHelper');
 
 const useEmbed = true;
@@ -162,7 +163,23 @@ module.exports = {
 
     const fieldOrder = ["pos", "tag", "points", "change", "name"];
     const fieldHeaders = ["Pos", "Tag", "Points", "Δ", "Name"];
-    const table = formatTable(displayData, null, fieldHeaders, fieldOrder);
+    
+    // Get session stamp for header (e.g., "2026-02-17 | EU")
+    let sessionStamp = null;
+    try {
+      const session = getSession();
+      if (session && session.windowKey) {
+        // Format: "YYYY-MM-DD | EU" or "YYYY-MM-DD | US"
+        sessionStamp = session.windowKey.replace(/\|/g, ' | ');
+      } else if (session && session.isCompleted && session.windowKey) {
+        // Use last completed session if current is not active
+        sessionStamp = session.windowKey.replace(/\|/g, ' | ');
+      }
+    } catch (e) {
+      console.warn('[leaderboard] Failed to get session for header:', e.message);
+    }
+    
+    const table = formatTable(displayData, sessionStamp, fieldHeaders, fieldOrder);
 
 
 

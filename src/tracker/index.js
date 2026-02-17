@@ -136,8 +136,9 @@ async function startSquadronTracker() {
   
   async function pollLoop() {
     if (__pollStopped) return;
-    try { 
-      await capture.captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater); 
+    try {
+      // Don't force fresh on subsequent polls - use cache
+      await capture.captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, false, false);
     } catch (e) {
       logError('pollLoop.captureOnce', e);
     }
@@ -147,11 +148,12 @@ async function startSquadronTracker() {
       logError('pollLoop.setTimeout', e);
     }
   }
-  
+
   // Initial run and schedule next with jitter
   console.log('ℹ️ Performing forced leaderboard fetch at startup...');
-  try { 
-    await capture.captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, true); 
+  try {
+    // Force fresh fetch on first run to get accurate initial data
+    await capture.captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, true, true);
   } catch (e) {
     logError('startup.captureOnce', e);
   }
@@ -207,4 +209,16 @@ module.exports = {
   startSquadronTracker,
   getSession,
   handleDailyCutoff,
+  // Cache management
+  getCacheStats: require('./cache').getCacheStats,
+  clearCache: require('./cache').clearCache,
+  cleanupExpired: require('./cache').cleanupExpired,
+  // Events archive management
+  archiveEventsFile: require('./snapshot').archiveEventsFile,
+  getArchivedEventsFiles: require('./snapshot').getArchivedEventsFiles,
+  // Session management
+  getLastCompletedSession: require('./session').getLastCompletedSession,
+  getSessionStats: require('./session').getSessionStats,
+  getSessionSummaryContent: require('./session').getSessionSummaryContent,
+  cancelPendingSessionEnd: require('./session').cancelPendingSessionEnd,
 };

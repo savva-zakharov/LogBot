@@ -2,13 +2,14 @@
 const fs = require('fs');
 const path = require('path');
 const { logError, getCurrentWindow, dateKeyUTC, simplifyForComparison, toNum } = require('./utils');
-const { getSession, updateSessionWinsLosses, handleWindowEnd, handleWindowStart, ensureSessionInitialized } = require('./session');
+const { getSession, updateSessionWinsLosses, handleWindowEnd, handleWindowStart, ensureSessionInitialized, cancelPendingSessionEnd, getSessionSummaryContent } = require('./session');
 const { appendEvent, buildWindowSummaryContent, buildWindowSummaryLines } = require('./events');
-const { appendSnapshot, readLastSnapshot } = require('./snapshot');
-const { parseSquadronWithCheerio, parseTotalPointsFromHtml, fetchText, fetchTextWithFallback } = require('./scraper');
+const { appendSnapshot, readLastSnapshot, archiveEventsFile } = require('./snapshot');
+const { parseSquadronWithCheerio, parseTotalPointsFromHtml, fetchText, fetchTextWithFallback, fetchTextFresh } = require('./scraper');
 const { fetchLeaderboardAndFindSquadron, resetLeaderboardPointsStart, resetPlayerPointsStart } = require('./api');
 const { loadSettings } = require('../config');
 const { autoIssueAfterSnapshot } = require('../lowPointsIssuer');
+const { clearCache } = require('./cache');
 
 const DATA_FILE = 'squadron_data.json';
 
@@ -57,19 +58,21 @@ function getPrimarySquadronTag() {
 }
 
 // Fetch all squadron data (HTML + API) concurrently
-async function fetchSquadronData(squadronPageUrl, primaryTag) {
+async function fetchSquadronData(squadronPageUrl, primaryTag, forceFresh = false) {
   let rawHtml = null;
   let apiLeaderboard = null;
   let apiSquadronData = null;
-  
+
   try {
-    const htmlPromise = (async () => { 
-      try { 
-        return await fetchText(squadronPageUrl); 
+    const htmlPromise = (async () => {
+      try {
+        // Use fresh fetch on first run or when forced
+        const fetchFn = forceFresh ? fetchTextFresh : fetchTextWithFallback;
+        return await fetchFn(squadronPageUrl);
       } catch (e) {
         logError('fetchSquadronData.fetchText', e);
-        return null; 
-      } 
+        return null;
+      }
     })();
     const apiPromise = fetchLeaderboardAndFindSquadron(primaryTag, 20);
 
@@ -83,7 +86,7 @@ async function fetchSquadronData(squadronPageUrl, primaryTag) {
   } catch (e) {
     logError('fetchSquadronData', e);
   }
-  
+
   return { rawHtml, apiLeaderboard, apiSquadronData };
 }
 
@@ -322,11 +325,11 @@ async function postWindowSummary(window, getDiscordWinLossUpdater, getDiscordWin
 }
 
 // Main capture function - orchestrates all the sub-functions
-async function captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave = false) {
+async function captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave = false, forceFresh = false) {
   const dataFile = getDataFilePath();
   const primaryTag = getPrimarySquadronTag();
   const session = getSession();
-  
+
   // Initialize leaderboard context
   let squadronPlace = null;
   let totalPointsAbove = null;
@@ -343,8 +346,8 @@ async function captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSen
     membersCaptured: lastSnapshotForInit?.membersCaptured ?? false,
   };
 
-  // Fetch data from both sources
-  const { rawHtml, apiLeaderboard, apiSquadronData } = await fetchSquadronData(squadronPageUrl, primaryTag);
+  // Fetch data from both sources (forceFresh on first run or when explicitly requested)
+  const { rawHtml, apiLeaderboard, apiSquadronData } = await fetchSquadronData(squadronPageUrl, primaryTag, forceFresh);
 
   if (!rawHtml && !apiLeaderboard && !apiSquadronData) {
     console.warn('⚠️ Squadron tracker: failed to fetch data from both web and API. Skipping update and using cached data.');
@@ -449,12 +452,20 @@ async function captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSen
 
     // Handle session window transitions
     const activeWindow = getCurrentWindow();
-    
+
     if (!activeWindow && session.windowKey) {
-      handleWindowEnd();
+      // Pass function to get current points for final session stats
+      const getCurrentPoints = () => ({
+        points: snapshot.totalPoints,
+        pos: snapshot.squadronPlace,
+      });
+      handleWindowEnd(archiveEventsFile, getCurrentPoints, getDiscordWinLossSend);
     }
-    
+
     if (activeWindow && session.windowKey !== activeWindow.key) {
+      // Cancel pending session end when new window starts
+      cancelPendingSessionEnd();
+      
       handleWindowStart(activeWindow, prevTotal, snapshot);
       try {
         if (session.startingPoints != null) {
@@ -585,8 +596,8 @@ const staticVars = {
 // Export with initializer
 function createCaptureModule() {
   return {
-    captureOnce: (squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave = false) => 
-      captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave),
+    captureOnce: (squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave = false, forceFresh = false) =>
+      captureOnce(squadronPageUrl, getDiscordWinLossSend, getDiscordSend, getDiscordWinLossUpdater, forceSave, forceFresh),
     resetState: () => {
       staticVars.lastKey = null;
       staticVars.lastSnapshot = null;

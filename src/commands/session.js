@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { MessageFlags, EmbedBuilder } = require('discord.js');
 const { loadSettings } = require('../config');
-const { ansiColour, formatTable, formatRowTable } = require('../utils/formatHelper');
+const { ansiColour, formatTable, formatFullSessionSummary } = require('../utils/formatHelper');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 const { sanitizeName } = require('../utils/nameSanitizer');
 const { getSession } = require('../squadronTracker');
@@ -99,19 +99,21 @@ module.exports = {
 
         let playerTable = '';
         let firstLineLength = 35;
+        let playerTableData = [];
 
         if (topFiltered.length > 0) {
-            const tableData = topFiltered.map((x, i) => ({
+            playerTableData = topFiltered.map((x, i) => ({
                 position: x.position < 21 ? ansiColour(x.position, 'cyan') : x.position,
                 name: x.name,
                 points: x.points < threshold ? ansiColour(x.points, 'yellow') : x.points,
                 pointsDelta: x.pointsDelta < 0 ? ansiColour(x.pointsDelta, 'red') : x.pointsDelta > 0 ? ansiColour('+' + x.pointsDelta, 'green') : x.pointsDelta,
+                threshold: threshold,
             }));
 
             const titleText = 'Player Summary';
             const fieldHeaders = ["Pos", "Name", "Points", "Δ"];
             const fieldOrder = ["position", "name", "points", "pointsDelta"];
-            playerTable = formatTable(tableData, titleText, fieldHeaders, fieldOrder);
+            playerTable = formatTable(playerTableData, titleText, fieldHeaders, fieldOrder);
 
             firstLineLength = playerTable.split('\n')[1].length;
         }
@@ -123,41 +125,30 @@ module.exports = {
         let squadronSummary = '';
         if (squadronInfo) {
             const curPts = squadronInfo.points || 0;
-            const startPts = squadronInfo.pointsStart || curPts;
-            const ptsDelta = curPts - startPts;
-            const ptsDeltaStr = ptsDelta > 0 ? `+${ptsDelta}` : `${ptsDelta}`;
-
-            const curPos = (squadronInfo.pos || 0) + 1;
-            const startPos = (squadronInfo.posStart || curPos) + 1;
-            const posDelta = startPos - curPos;
-            const posDeltaStr = posDelta >0 ? `+${posDelta}` : `${posDelta}`;
 
             let session = '';
 
             try {
-                console.log(typeof getSession);
                 session = getSession();
-                // console.log('[DEBUG] session', session);
             } catch (error) {
                 console.error('[ERROR] Failed to get session:', error);
             }
 
-            const ratio = session.wins / session.losses;
-            const ratioStr = (session.wins) ? Math.round(ratio * 100) / 100 : " ";
-            const windowKey = session.windowKey || '';
-
-            const ptsString = (startPos === curPos) ? `${curPts}` : `${startPts} → ${curPts}`;
-            const posString = (startPos === curPos) ? `${curPos}` : `${startPos} → ${curPos}`;
-            const wlString = (session.wins) ? `${session.wins} / ${session.losses}` : "N/A";
-
-            const rowData = {
-                // "Squadron": [primaryTag],
-                // "Session": [session.windowKey],          
-                "Points": [ptsString, `${ansiColour(ptsDeltaStr, ptsDelta > 0 ? 'green' : ptsDelta < 0 ? 'red' : 'white')}`],
-                "Place": [posString, `${ansiColour(posDeltaStr, posDelta > 0 ? 'green' : posDelta < 0 ? 'red' : 'white')}`],
-                "W/L": [wlString, ansiColour(ratioStr, ratio > 1 ? 'green' : 'red')]
-            };
-            squadronSummary = formatRowTable(rowData, windowKey.replace(/\|/g, ' | '), firstLineLength, true) + "\n";
+            // Use formatFullSessionSummary to combine session header with player table
+            // This ensures consistent width between the two tables
+            const fullSummary = formatFullSessionSummary(
+                session,
+                session.startingPoints,
+                curPts,
+                session.startingPos,
+                (squadronInfo.pos || 0) + 1,
+                playerTableData,
+                firstLineLength, // Use the player table width
+                true // use ANSI colors
+            );
+            
+            squadronSummary = fullSummary + "\n";
+            playerTable = ''; // Already included in fullSummary
         }
 
         // console.log('[DEBUG] squadronSummary', squadronSummary);

@@ -203,6 +203,108 @@ function archiveIfStale() {
   }
 }
 
+// --- Squadron Events Archive Functions ---
+
+const EVENTS_FILE = 'squadron_events.json';
+
+function getEventsFilePath() {
+  return path.join(process.cwd(), EVENTS_FILE);
+}
+
+/**
+ * Archive squadron_events.json to logs directory with timestamp and window label
+ * @param {string} windowLabel - 'EU' or 'US'
+ * @param {string} dateKeyOverride - Optional date key (YYYY-MM-DD)
+ * @returns {string|null} Destination path or null if archive failed
+ */
+function archiveEventsFile(windowLabel, dateKeyOverride = null) {
+  try {
+    const src = getEventsFilePath();
+    if (!fs.existsSync(src)) {
+      console.log(`[EVENTS] No events file to archive at ${src}`);
+      return null;
+    }
+    
+    // Check if file has any events
+    const content = fs.readFileSync(src, 'utf8');
+    const obj = JSON.parse(content);
+    const eventCount = Array.isArray(obj.events) ? obj.events.length : 0;
+    
+    if (eventCount === 0) {
+      console.log(`[EVENTS] Events file is empty, skipping archive`);
+      return null;
+    }
+    
+    const dateKey = dateKeyOverride || dateKeyUTC();
+    const logsDir = ensureLogsDir();
+    
+    // Generate timestamp for unique filename
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5); // Remove milliseconds
+    let dest = path.join(logsDir, `squadron_events-${dateKey}-${windowLabel}-${ts}.json`);
+    
+    // Avoid overwrite if already present
+    let counter = 0;
+    while (fs.existsSync(dest)) {
+      counter++;
+      dest = path.join(logsDir, `squadron_events-${dateKey}-${windowLabel}-${ts}-${counter}.json`);
+    }
+    
+    // Copy the current file to logs
+    fs.copyFileSync(src, dest);
+    
+    // Create fresh events file
+    fs.writeFileSync(src, JSON.stringify({ events: [] }, null, 2), 'utf8');
+    
+    console.log(`[EVENTS] Archived ${eventCount} events to ${dest}`);
+    return dest;
+  } catch (e) {
+    logError('archiveEventsFile', e);
+    return null;
+  }
+}
+
+/**
+ * Get list of archived events files
+ * @returns {Array<{filename: string, path: string, date: string, window: string}>}
+ */
+function getArchivedEventsFiles() {
+  try {
+    const logsDir = ensureLogsDir();
+    if (!fs.existsSync(logsDir)) return [];
+    
+    const files = fs.readdirSync(logsDir);
+    const archived = [];
+    
+    for (const file of files) {
+      if (file.startsWith('squadron_events-') && file.endsWith('.json')) {
+        // Parse filename: squadron_events-YYYY-MM-DD-EU-TIMESTAMP.json
+        const match = file.match(/squadron_events-(\d{4}-\d{2}-\d{2})-(EU|US)-(.+)\.json/);
+        if (match) {
+          archived.push({
+            filename: file,
+            path: path.join(logsDir, file),
+            date: match[1],
+            window: match[2],
+            timestamp: match[3],
+          });
+        }
+      }
+    }
+    
+    // Sort by date and timestamp (newest first)
+    archived.sort((a, b) => {
+      const dateCompare = b.date.localeCompare(a.date);
+      if (dateCompare !== 0) return dateCompare;
+      return b.timestamp.localeCompare(a.timestamp);
+    });
+    
+    return archived;
+  } catch (e) {
+    logError('getArchivedEventsFiles', e);
+    return [];
+  }
+}
+
 module.exports = {
   pruneSnapshot,
   snapshotHasSignal,
@@ -213,4 +315,8 @@ module.exports = {
   scheduleDailyArchive,
   getSquadronDataDateKeyOrNull,
   archiveIfStale,
+  // Events archive functions
+  archiveEventsFile,
+  getArchivedEventsFiles,
+  getEventsFilePath,
 };
