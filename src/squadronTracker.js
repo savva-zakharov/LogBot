@@ -28,6 +28,12 @@ let __discordWLUpdateFn = null;
 let __discordWLClearFn = null;
 let __debugSaveJson = false;
 
+// --- Helper: log errors consistently ---
+function logError(context, err) {
+  const msg = err && err.message ? err.message : String(err);
+  console.warn(`⚠️ [${context}] ${msg}`);
+}
+
 // --- Session state (W/L and starting points) ---
 // Resets at daily cutoff. In-memory only.
 const __session = {
@@ -70,7 +76,9 @@ function parseTotalPointsFromHtml(html) {
         const num = Number((selText || '').replace(/[^\d]/g, ''));
         if (Number.isFinite(num) && num > 0) totalPoints = num;
       }
-    } catch (_) {}
+    } catch (e) {
+      logError('parseTotalPointsFromHtml.selector', e);
+    }
 
     // 1) Look for obvious labels like "Total points" (English UI)
     const labelCandidates = $('*:contains("Total points")').filter(function() {
@@ -126,7 +134,10 @@ function parseTotalPointsFromHtml(html) {
     }
 
     return { totalPoints, place };
-  } catch (_) { return { totalPoints: null, place: null }; }
+  } catch (e) {
+    logError('parseTotalPointsFromHtml', e);
+    return { totalPoints: null, place: null };
+  }
 }
 
 // Given a Date, return the active window { label, start, end, key } or null if outside windows
@@ -232,19 +243,25 @@ async function postWindowSummary(window) {
     const content = [title, '```', body, '```'].join('\n');
     if (typeof sendWL === 'function') await sendWL(content);
     else if (typeof send === 'function') await send(content);
-  } catch (_) {}
+  } catch (e) {
+    logError('postWindowSummary', e);
+  }
 }
 
 // --- Daily archive of squadron_data.json at UTC midnight ---
 function ensureLogsDir() {
   const dir = path.join(process.cwd(), 'logs');
-  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) {
+    logError('ensureLogsDir', e);
+  }
   return dir;
 }
 
 function ensureTmpDir() {
   const dir = path.join(process.cwd(), '.tmp');
-  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) {
+    logError('ensureTmpDir', e);
+  }
   return dir;
 }
 
@@ -262,7 +279,9 @@ function archiveSquadronData(dateKeyOverride = null) {
       dest = path.join(logsDir, `squadron_data-${dateKey}-${ts}.json`);
     }
     // Copy the current file to logs, keeping the original in place
-    try { fs.copyFileSync(src, dest); } catch (_) {}
+    try { fs.copyFileSync(src, dest); } catch (e) {
+      logError('archiveSquadronData.copyFileSync', e);
+    }
     console.log(`[SEASON] Archived (copied) squadron_data.json to ${dest}`);
   } catch (e) {
     console.warn(`[SEASON] Failed to archive squadron_data.json: ${e && e.message ? e.message : e}`);
@@ -277,10 +296,14 @@ function msUntilNextUtcMidnight() {
 
 let __archiveTimer = null;
 function scheduleDailyArchive() {
-  try { if (__archiveTimer) clearTimeout(__archiveTimer); } catch (_) {}
+  try { if (__archiveTimer) clearTimeout(__archiveTimer); } catch (e) {
+    logError('scheduleDailyTimer.clearTimeout', e);
+  }
   const delay = Math.max(1000, msUntilNextUtcMidnight());
   __archiveTimer = setTimeout(() => {
-    try { archiveSquadronData(); } catch (_) {}
+    try { archiveSquadronData(); } catch (e) {
+      logError('scheduleDailyArchive.archiveSquadronData', e);
+    }
     // Re-schedule for the next midnight
     scheduleDailyArchive();
   }, delay);
@@ -309,14 +332,20 @@ function getSquadronDataDateKeyOrNull() {
         const d = new Date(obj.ts);
         if (!isNaN(d.getTime())) return dateKeyUTC(d);
       }
-    } catch (_) {}
+    } catch (e) {
+      logError('getSquadronDataDateKeyOrNull.parse', e);
+    }
     // Fallback: file mtime
     try {
       const st = fs.statSync(file);
       const d = st && st.mtime ? new Date(st.mtime) : null;
       if (d && !isNaN(d.getTime())) return dateKeyUTC(d);
-    } catch (_) {}
-  } catch (_) {}
+    } catch (e) {
+      logError('getSquadronDataDateKeyOrNull.stat', e);
+    }
+  } catch (e) {
+    logError('getSquadronDataDateKeyOrNull', e);
+  }
   return null;
 }
 
@@ -328,7 +357,9 @@ function archiveIfStale() {
     if (fileKey && fileKey < curKey) {
       archiveSquadronData(fileKey);
     }
-  } catch (_) {}
+  } catch (e) {
+    logError('archiveIfStale', e);
+  }
 }
 
 // Helper: get UTC date key YYYY-MM-DD
@@ -342,7 +373,10 @@ function readEventsFile() {
     const file = ensureEventsFile();
     const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
     return Array.isArray(obj.events) ? obj.events : [];
-  } catch (_) { return []; }
+  } catch (e) {
+    logError('readEventsFile', e);
+    return [];
+  }
 }
 
 // Rebuild today's session from events (idempotent). Uses explicit session events when present,
@@ -394,7 +428,9 @@ function rebuildSessionFromEvents() {
       __session.losses = losses;
       __session.windowKey = window.key;
     }
-  } catch (_) { /* ignore */ }
+  } catch (e) {
+    logError('rebuildSessionFromEvents', e);
+  }
 }
 
 function getDiscordSend() {
@@ -403,7 +439,10 @@ function getDiscordSend() {
     try {
       const mod = require('./discordBot');
       __discordSendFn = typeof mod.sendMessage === 'function' ? mod.sendMessage : null;
-    } catch (_) { __discordSendFn = null; }
+    } catch (e) {
+      logError('getDiscordSend', e);
+      __discordSendFn = null;
+    }
   }
   return __discordSendFn;
 }
@@ -418,11 +457,18 @@ function getDiscordWinLossSend() {
       try {
         const s = loadSettings();
         if (s && typeof s.discordWinLossChannell === 'string' && s.discordWinLossChannell.trim()) {
-          try { if (typeof mod.setWinLossChannel === 'function') mod.setWinLossChannel(s.discordWinLossChannell); } catch (_) {}
+          try { if (typeof mod.setWinLossChannel === 'function') mod.setWinLossChannel(s.discordWinLossChannell); } catch (e) {
+            logError('getDiscordWinLossSend.setWinLossChannel', e);
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        logError('getDiscordWinLossSend.loadSettings', e);
+      }
       __discordWinLossFn = (typeof mod.sendWinLossMessage === 'function') ? mod.sendWinLossMessage : null;
-    } catch (_) { __discordWinLossFn = null; }
+    } catch (e) {
+      logError('getDiscordWinLossSend', e);
+      __discordWinLossFn = null;
+    }
   }
   return __discordWinLossFn;
 }
@@ -435,7 +481,11 @@ function getDiscordWinLossUpdater() {
       const mod = require('./discordBot');
       __discordWLUpdateFn = (typeof mod.postOrEditWinLossByKey === 'function') ? mod.postOrEditWinLossByKey : null;
       __discordWLClearFn = (typeof mod.clearWinLossByKey === 'function') ? mod.clearWinLossByKey : null;
-    } catch (_) { __discordWLUpdateFn = null; __discordWLClearFn = null; }
+    } catch (e) {
+      logError('getDiscordWinLossUpdater', e);
+      __discordWLUpdateFn = null;
+      __discordWLClearFn = null;
+    }
   }
   return { updateByKey: __discordWLUpdateFn, clearByKey: __discordWLClearFn };
 }
@@ -451,7 +501,9 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
         try {
           const send = getDiscordSend();
           if (typeof send === 'function') send(`fetchJson: non-200 (${res.statusCode}) for ${url}`);
-        } catch (_) {}
+        } catch (e) {
+          logError('fetchJson.sendNotification', e);
+        }
         res.resume();
         return resolve(null);
       }
@@ -488,7 +540,9 @@ function fetchJson(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
     });
     req.setTimeout(timeoutMs, () => {
       console.warn(`⚠️ fetchJson: request timed out after ${timeoutMs}ms for ${url}`);
-      try { req.destroy(); } catch (_) {}
+      try { req.destroy(); } catch (e) {
+        logError('fetchJson.destroy', e);
+      }
       resolve(null);
     });
   });
@@ -511,7 +565,9 @@ function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
         try {
           const send = getDiscordSend();
           if (typeof send === 'function') send(`fetchText: non-200 (${res.statusCode}) for ${url}`);
-        } catch (_) {}
+        } catch (e) {
+          logError('fetchText.sendNotification', e);
+        }
         res.resume();
         return resolve(null);
       }
@@ -524,7 +580,9 @@ function fetchText(url, timeoutMs = DEFAULT_TIMEOUT_MS) {
       });
     });
     req.on('error', (e) => { console.warn(`⚠️ fetchText error for ${url}:`, e && e.message ? e.message : e); resolve(null); });
-    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve(null); });
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (e) {
+      logError('fetchText.destroy', e);
+    } resolve(null); });
   });
 }
 
@@ -611,8 +669,8 @@ function parseSquadronWithCheerio(html) {
     }
     console.log(`ℹ️ Cheerio: parsed member rows=${rows.length}`);
     return { headers: ['num.', 'Player', 'Points', 'Activity', 'Role', 'Date of entry'], rows };
-  } catch (_) {
-    console.warn('⚠️ Cheerio: parse error');
+  } catch (e) {
+    logError('parseSquadronWithCheerio', e);
     return { headers: [], rows: [] };
   }
 }
@@ -671,22 +729,14 @@ async function initSeasonSchedule() {
     // Extract schedule-like snippets from the description; support EN/RU markers and a (dd.mm — dd.mm) date range
     const lines = [];
     const pushMatch = (m) => { const s = (m && m[0] ? m[0] : '').trim(); if (s) lines.push(s); };
-    // Patterns that include a date range in parens and either 'week' (optionally prefixed by an ordinal like '1st') or 'Until the end of season' (EN/RU)
+    // Patterns that include a date range in parens and either 'week' (optionally prefixed by an ordinal like '1st') or 'Until the end of season'
     // Preserve leading ordinals such as "1", "1st", "2nd", "3rd", "4th" before the word 'week'
     const reWeek = /((?:\b\d+\s*(?:st|nd|rd|th)?\s*)?\bweek\b[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     const reUntil = /(Until the end of season[^()]*\(\d{2}\.\d{2}\s*[—-]\s*\d{2}\.\d{2}\))/gi;
     let m;
-    // Apply EN patterns to cleaned text to avoid interference from Cyrillic
+    // Apply patterns to cleaned text to avoid interference from Cyrillic
     while ((m = reWeek.exec(metaDescEnStripped))) pushMatch(m);
-    // Apply RU patterns to original text (if present)
-    // Note: RU patterns may have been removed; keep EN parsing robust regardless
-    if (typeof reWeekRu !== 'undefined') {
-      while ((m = reWeekRu.exec(metaDescStripped))) pushMatch(m);
-    }
     while ((m = reUntil.exec(metaDescEnStripped))) pushMatch(m);
-    if (typeof reUntilRu !== 'undefined') {
-      while ((m = reUntilRu.exec(metaDescStripped))) pushMatch(m);
-    }
     // Deduplicate while preserving order
     const seen = new Set();
     const scheduleLines = lines.filter(l => { if (seen.has(l)) return false; seen.add(l); return true; });
@@ -731,7 +781,9 @@ async function initSeasonSchedule() {
           if (parseInt(m2, 10) < parseInt(m1, 10)) {
             console.warn(`[SEASON] Date range spans year boundary? '${text}' -> start ${startDate}, end ${endDate}`);
           }
-        } catch (_) {}
+        } catch (e) {
+          logError('initSeasonSchedule.yearWrapCheck', e);
+        }
       }
       return { br, startDate, endDate };
     };
@@ -745,7 +797,10 @@ async function initSeasonSchedule() {
       } else {
         settingsObj = { players: {}, squadrons: {} };
       }
-    } catch (_) { settingsObj = { players: {}, squadrons: {} }; }
+    } catch (e) {
+      logError('initSeasonSchedule.readSettings', e);
+      settingsObj = { players: {}, squadrons: {} };
+    }
 
     const seasonSchedule = {};
     let idx = 1;
