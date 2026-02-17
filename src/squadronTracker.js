@@ -1012,7 +1012,9 @@ async function resetPlayerPointsStart() {
 function ensureEventsFile() {
   const file = path.join(process.cwd(), 'squadron_events.json');
   if (!fs.existsSync(file)) {
-    try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+    try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (e) {
+      logError('ensureEventsFile.write', e);
+    }
   } else {
     try {
       const raw = fs.readFileSync(file, 'utf8');
@@ -1020,8 +1022,11 @@ function ensureEventsFile() {
       if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.events)) {
         fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8');
       }
-    } catch (_) {
-      try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (_) {}
+    } catch (e) {
+      logError('ensureEventsFile.parse', e);
+      try { fs.writeFileSync(file, JSON.stringify({ events: [] }, null, 2), 'utf8'); } catch (e2) {
+        logError('ensureEventsFile.writeFallback', e2);
+      }
     }
   }
   return file;
@@ -1040,7 +1045,9 @@ function appendEvent(messageOrEvent, meta = {}) {
     }
     obj.events.push(entry);
     fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
-  } catch (_) {}
+  } catch (e) {
+    logError('appendEvent', e);
+  }
 }
 
 // Remove noisy columns from rows and headers
@@ -1073,7 +1080,9 @@ function snapshotHasSignal(snap) {
     if (rows.length > 0) return true;
     if (headers.length > 0 && rows.length > 0) return true; // redundant but explicit
     if (Number.isFinite(total)) return true;
-  } catch (_) {}
+  } catch (e) {
+    logError('snapshotHasSignal', e);
+  }
   return false;
 }
 
@@ -1089,7 +1098,8 @@ function ensureParsedDataFile() {
       if (!parsed || typeof parsed !== 'object') {
         fs.writeFileSync(file, JSON.stringify({}, null, 2), 'utf8');
       }
-    } catch (_) {
+    } catch (e) {
+      logError('ensureParsedDataFile', e);
       fs.writeFileSync(file, JSON.stringify({}, null, 2), 'utf8');
     }
   }
@@ -1107,7 +1117,10 @@ function readLastSnapshot(file) {
     }
     // New single snapshot
     return obj && typeof obj === 'object' && Object.keys(obj).length ? obj : null;
-  } catch (_) { return null; }
+  } catch (e) {
+    logError('readLastSnapshot', e);
+    return null;
+  }
 }
 
 function appendSnapshot(file, snapshot) {
@@ -1120,8 +1133,11 @@ function appendSnapshot(file, snapshot) {
       return;
     }
     fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
-    try { autoIssueAfterSnapshot(); } catch (_) {}
-  } catch (_) {
+    try { autoIssueAfterSnapshot(); } catch (e) {
+      logError('appendSnapshot.autoIssueAfterSnapshot', e);
+    }
+  } catch (e) {
+    logError('appendSnapshot', e);
     try {
       const pruned = pruneSnapshot(snapshot);
       if (!snapshotHasSignal(pruned)) {
@@ -1129,8 +1145,12 @@ function appendSnapshot(file, snapshot) {
         return;
       }
       fs.writeFileSync(file, JSON.stringify(pruned, null, 2), 'utf8');
-      try { autoIssueAfterSnapshot(); } catch (_) {}
-    } catch (_) {}
+      try { autoIssueAfterSnapshot(); } catch (e2) {
+        logError('appendSnapshot.retry.autoIssueAfterSnapshot', e2);
+      }
+    } catch (e2) {
+      logError('appendSnapshot.retry', e2);
+    }
   }
 }
 
@@ -1165,7 +1185,9 @@ async function extractTotalPoints(page) {
       return maxNum;
     });
     if (typeof fromLabel === 'number' && isFinite(fromLabel)) return fromLabel;
-  } catch (_) {}
+  } catch (e) {
+    logError('extractTotalPoints', e);
+  }
   return null;
 }
 
@@ -1246,11 +1268,17 @@ function simplifyForComparison(snapshot) {
 async function startSquadronTracker() {
   const { squadronPageUrl } = loadSettings();
   // Initialize season schedule on startup (best-effort)
-  try { await initSeasonSchedule(); } catch (_) {}
+  try { await initSeasonSchedule(); } catch (e) {
+    logError('startSquadronTracker.initSeasonSchedule', e);
+  }
   // If the data file belongs to a previous UTC date, archive it immediately
-  try { archiveIfStale(); } catch (_) {}
+  try { archiveIfStale(); } catch (e) {
+    logError('startSquadronTracker.archiveIfStale', e);
+  }
   // Then schedule daily archive of squadron_data.json at UTC midnight
-  try { scheduleDailyArchive(); } catch (_) {}
+  try { scheduleDailyArchive(); } catch (e) {
+    logError('startSquadronTracker.scheduleDailyArchive', e);
+  }
   if (!squadronPageUrl) {
     console.log('ℹ️ Squadron tracker disabled: no SQUADRON_PAGE_URL configured.');
     return { enabled: false };
@@ -1258,7 +1286,9 @@ async function startSquadronTracker() {
 
   const dataFile = ensureParsedDataFile();
   // Rebuild in-memory session from existing events (if any)
-  try { rebuildSessionFromEvents(); } catch (_) {}
+  try { rebuildSessionFromEvents(); } catch (e) {
+    logError('startSquadronTracker.rebuildSessionFromEvents', e);
+  }
   let lastKey = null;
   let lastSnapshot = null;
   let didInitialMembersFetch = false;
@@ -1297,7 +1327,9 @@ function mergePointsStart(newRows, prevRows) {
       const settings = loadSettings();
       const keys = Object.keys(settings.squadrons || {});
       primaryTag = keys.length ? keys[0] : '';
-    } catch (_) {}
+    } catch (e) {
+      logError('captureOnce.loadSettings', e);
+    }
 
     // Initialize leaderboard context (API only for context; HTML is primary for totals)
     let squadronPlace = null;
@@ -1321,17 +1353,22 @@ function mergePointsStart(newRows, prevRows) {
     let apiLeaderboard = null;
     let apiSquadronData = null;
     try {
-      const htmlPromise = (async () => { try { return await fetchText(squadronPageUrl); } catch (_) { return null; } })();
+      const htmlPromise = (async () => { try { return await fetchText(squadronPageUrl); } catch (e) {
+        logError('captureOnce.fetchText', e);
+        return null;
+      } })();
       const apiPromise = fetchLeaderboardAndFindSquadron(primaryTag, 20);
       
       const [htmlRes, apiRes] = await Promise.all([htmlPromise, apiPromise]);
-      
+
       rawHtml = htmlRes;
       if (apiRes) {
         apiLeaderboard = apiRes.leaderboard;
         apiSquadronData = apiRes.squadronData;
       }
-    } catch (_) {}
+    } catch (e) {
+      logError('captureOnce.fetchAll', e);
+    }
 
     if (!rawHtml && !apiLeaderboard && !apiSquadronData) {
       console.warn('⚠️ Squadron tracker: failed to fetch data from both web and API. Skipping update and using cached data.');
@@ -1361,12 +1398,16 @@ function mergePointsStart(newRows, prevRows) {
           const { totalPoints, place } = parseTotalPointsFromHtml(rawHtml);
           if (Number.isFinite(totalPoints)) webTotal = totalPoints;
           if (Number.isFinite(place)) snapshot.squadronPlace = place;
-        } catch (_) {}
+        } catch (e) {
+          logError('captureOnce.parseTotalPointsFromHtml', e);
+        }
       } else if (htmlLooksLikeError) {
         console.warn('⚠️ HTML content looks like an error page, skipping member parse.');
         snapshot.membersCaptured = false; // Explicitly mark as not captured
       }
-    } catch (_) {}
+    } catch (e) {
+      logError('captureOnce.parseHtml', e);
+    }
 
     // Extract API totals/context
     let apiTotal = null;
@@ -1374,7 +1415,7 @@ function mergePointsStart(newRows, prevRows) {
       if (apiLeaderboard) {
         snapshot.data.leaderboard = apiLeaderboard;
       }
-      
+
       if (apiSquadronData && apiSquadronData.found) {
         apiTotal = apiSquadronData.found.points;
         snapshot.squadronPlace = apiSquadronData.squadronPlace;
@@ -1385,7 +1426,9 @@ function mergePointsStart(newRows, prevRows) {
         snapshot.totalPointsAbove = null;
         snapshot.totalPointsBelow = null;
       }
-    } catch (_) {}
+    } catch (e) {
+      logError('captureOnce.extractApiTotals', e);
+    }
 
     // Decide which source to trust for totalPoints
     const now = Date.now();
@@ -1429,7 +1472,9 @@ function mergePointsStart(newRows, prevRows) {
             squadron_rating: __lastWebData.points,
             chosen: chosenSource,
           });
-        } catch (_) {}
+        } catch (e) {
+          logError('captureOnce.appendEvent.source_diff', e);
+        }
       }
     } else {
       // No change, or invalid data. Use the last known good value for the snapshot.
@@ -1478,11 +1523,15 @@ function mergePointsStart(newRows, prevRows) {
                 didInitialMembersFetch = true;
                 console.log(`ℹ️ Startup parsed member rows=${parsed0.rows.length}`);
                 if (!parsed0.rows.length) {
-                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw0, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html (startup)'); } catch (_) {}
+                  try { fs.writeFileSync(path.join(process.cwd(), 'debug_squadron_raw.html'), raw0, 'utf8'); console.log('🧪 Saved debug_squadron_raw.html (startup)'); } catch (e) {
+                    logError('captureOnce.debugSave', e);
+                  }
                 }
               }
             }
-          } catch (_) {}
+          } catch (e) {
+            logError('captureOnce.initialMembersFetch', e);
+          }
         }
         const prevTotal = prev && typeof prev.totalPoints === 'number' ? prev.totalPoints : null;
         const newTotal = typeof snapshot.totalPoints === 'number' ? snapshot.totalPoints : null;
@@ -1499,7 +1548,9 @@ function mergePointsStart(newRows, prevRows) {
                 snapshot.membersCaptured = true;
               }
             }
-          } catch (_) {}
+          } catch (e) {
+            logError('captureOnce.retryMembersFetch', e);
+          }
         }
 
         const msgLines = [];
@@ -1569,7 +1620,9 @@ function mergePointsStart(newRows, prevRows) {
             // Expose in outer scope for later event logging
             captureOnce.__lastIncreasedMembers = increasedMembers;
             captureOnce.__lastDecreasedMembers = decreasedMembers;
-          } catch (_) {}
+          } catch (e) {
+            logError('captureOnce.computeMemberChanges', e);
+          }
 
           // Win/loss derivation depends on source of total points
           // API: derive purely by squadron points delta sign
@@ -1604,8 +1657,12 @@ function mergePointsStart(newRows, prevRows) {
             try {
               const { clearByKey } = getDiscordWinLossUpdater();
               if (typeof clearByKey === 'function') clearByKey(__session.windowKey);
-            } catch (_) {}
-            try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: __session.windowKey, dateKey: __session.dateKey }); } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.clearByKey', e);
+            }
+            try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: __session.windowKey, dateKey: __session.dateKey }); } catch (e) {
+              logError('captureOnce.appendEvent.session_reset', e);
+            }
             __session.startedAt = null;
             __session.dateKey = todayKey;
             __session.startingPoints = null;
@@ -1629,27 +1686,39 @@ function mergePointsStart(newRows, prevRows) {
                 resetLeaderboardPointsStart();
                 resetPlayerPointsStart();
               }
-            } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.session_start', e);
+            }
             try {
               const { updateByKey } = getDiscordWinLossUpdater();
               let posted = null;
               if (typeof updateByKey === 'function') {
-                try { posted = await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow)); } catch (_) { posted = null; }
+                try { posted = await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow)); } catch (e) {
+                  logError('captureOnce.updateByKey', e);
+                  posted = null;
+                }
               }
               if (!posted) {
                 const content = buildWindowSummaryContent(activeWindow);
                 const sendWL = getDiscordWinLossSend();
                 if (typeof sendWL === 'function') {
-                  try { await sendWL(content); posted = true; } catch (_) { posted = null; }
+                  try { await sendWL(content); posted = true; } catch (e) {
+                    logError('captureOnce.sendWL', e);
+                    posted = null;
+                  }
                 }
                 if (!posted) {
                   const send = getDiscordSend();
                   if (typeof send === 'function') {
-                    try { await send(content); } catch (_) {}
+                    try { await send(content); } catch (e) {
+                      logError('captureOnce.send', e);
+                    }
                   }
                 }
               }
-            } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.postWindowSummary', e);
+            }
           }
           // If in a window but session fields missing, ensure they are initialized
           if (activeWindow && (__session.startingPoints == null || __session.startedAt == null)) {
@@ -1698,9 +1767,13 @@ function mergePointsStart(newRows, prevRows) {
                   const { updateByKey } = getDiscordWinLossUpdater();
                   if (typeof updateByKey === 'function') await updateByKey(activeWindow.key, buildWindowSummaryContent(activeWindow));
                 }
-              } catch (_) {}
+              } catch (e) {
+                logError('captureOnce.liveUpdateSessionSummary', e);
+              }
             }
-          } catch (_) {}
+          } catch (e) {
+            logError('captureOnce.emitPointsChange', e);
+          }
           
 
 
@@ -1835,7 +1908,9 @@ function mergePointsStart(newRows, prevRows) {
             pointsDelta: (typeof pointsDelta === 'number') ? pointsDelta : null,
           },
         };
-      } catch (_) {}
+      } catch (e) {
+        logError('captureOnce.persistSessionState', e);
+      }
       appendSnapshot(dataFile, snapshot);
       lastKey = key;
       lastSnapshot = pruneSnapshot(snapshot);
@@ -1862,7 +1937,9 @@ function mergePointsStart(newRows, prevRows) {
                 snapshot.membersCaptured = true;
                 console.log('ℹ️ Daily cutoff: reused last known member rows for snapshot.');
               }
-            } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.dailyCutoff.reuseRows', e);
+            }
             // Attach session at cutoff as well
             try {
               snapshot.session = {
@@ -1873,7 +1950,9 @@ function mergePointsStart(newRows, prevRows) {
                 wins: __session.wins,
                 losses: __session.losses,
               };
-            } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.dailyCutoff.attachSession', e);
+            }
             appendSnapshot(dataFile, snapshot);
             lastKey = simplifyForComparison(snapshot);
             lastSnapshot = pruneSnapshot(snapshot);
@@ -1887,17 +1966,23 @@ function mergePointsStart(newRows, prevRows) {
               const newStarting = (typeof snapshot.totalPoints === 'number') ? snapshot.totalPoints : (__session.startingPoints ?? null);
               const newStartingPos = (typeof snapshot.squadronPlace === 'number') ? snapshot.squadronPlace : (__session.startingPos ?? null);
               // Persist a session_reset event with new starting points
-              try { if (newStarting != null) appendEvent({ type: 'session_reset', startingPoints: newStarting, startingPos: newStartingPos, dateKey: `${yy}-${mm2}-${dd2}` }); } catch (_) {}
+              try { if (newStarting != null) appendEvent({ type: 'session_reset', startingPoints: newStarting, startingPos: newStartingPos, dateKey: `${yy}-${mm2}-${dd2}` }); } catch (e) {
+                logError('captureOnce.dailyCutoff.appendEvent', e);
+              }
               __session.startedAt = resetNow;
               __session.dateKey = `${yy}-${mm2}-${dd2}`;
               __session.startingPoints = newStarting;
               __session.startingPos = newStartingPos;
               __session.wins = 0;
               __session.losses = 0;
-            } catch (_) {}
+            } catch (e) {
+              logError('captureOnce.dailyCutoff.resetSession', e);
+            }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        logError('captureOnce.dailyCutoff', e);
+      }
       console.log('ℹ️ Squadron tracker: no change.');
     }
   }
@@ -1909,7 +1994,10 @@ function mergePointsStart(newRows, prevRows) {
       const v = Number(process.env.SQUADRON_POLL_JITTER_PCT ?? (s && s.squadronPollJitterPct));
       if (!Number.isFinite(v)) return 0.15; // default ±15%
       return Math.max(0, Math.min(0.9, v));
-    } catch (_) { return 0.15; }
+    } catch (e) {
+      logError('jitterPct', e);
+      return 0.15;
+    }
   })();
   function nextDelayMs() {
     const base = POLL_INTERVAL_MS;
@@ -1921,23 +2009,33 @@ function mergePointsStart(newRows, prevRows) {
   let __pollStopped = false;
   async function pollLoop() {
     if (__pollStopped) return;
-    try { await captureOnce(); } catch (_) {}
+    try { await captureOnce(); } catch (e) {
+      logError('pollLoop.captureOnce', e);
+    }
     if (__pollStopped) return;
     const delay = nextDelayMs();
-    try { __pollTimer = setTimeout(pollLoop, delay); } catch (_) {}
+    try { __pollTimer = setTimeout(pollLoop, delay); } catch (e) {
+      logError('pollLoop.setTimeout', e);
+    }
   }
   // Initial run and schedule next with jitter
   console.log('ℹ️ Performing forced leaderboard fetch at startup...');
-  try { await captureOnce(true); } catch (_) {}
+  try { await captureOnce(true); } catch (e) {
+    logError('startup.captureOnce', e);
+  }
   const firstDelay = nextDelayMs();
-  try { __pollTimer = setTimeout(pollLoop, firstDelay); } catch (_) {}
+  try { __pollTimer = setTimeout(pollLoop, firstDelay); } catch (e) {
+    logError('startup.setTimeout', e);
+  }
 
   // Expose a stop handle
   return {
     enabled: true,
     stop: async () => {
       __pollStopped = true;
-      try { clearTimeout(__pollTimer); } catch (_) {}
+      try { clearTimeout(__pollTimer); } catch (e) {
+        logError('stop.clearTimeout', e);
+      }
     }
   };
 }
