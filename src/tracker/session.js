@@ -176,12 +176,16 @@ function cancelPendingSessionEnd() {
 function processDelayedSessionEnd(windowLabel, dateKey, endingPoints, endingPos, archiveEventsFile, getDiscordWinLossSend) {
   try {
     // Save final session stats to last completed session
+    // Use fallback values if starting points/pos are null
+    const startingPoints = __session.startingPoints ?? endingPoints ?? 0;
+    const startingPos = __session.startingPos ?? endingPos ?? 0;
+    
     __lastCompletedSession.startedAt = __session.startedAt;
     __lastCompletedSession.endedAt = new Date();
     __lastCompletedSession.dateKey = dateKey;
-    __lastCompletedSession.startingPoints = __session.startingPoints;
+    __lastCompletedSession.startingPoints = startingPoints;
     __lastCompletedSession.endingPoints = endingPoints;
-    __lastCompletedSession.startingPos = __session.startingPos;
+    __lastCompletedSession.startingPos = startingPos;
     __lastCompletedSession.endingPos = endingPos;
     __lastCompletedSession.wins = __session.wins;
     __lastCompletedSession.losses = __session.losses;
@@ -189,10 +193,10 @@ function processDelayedSessionEnd(windowLabel, dateKey, endingPoints, endingPos,
     __lastCompletedSession.windowLabel = windowLabel;
 
     console.log(`📊 [Session] ${windowLabel} session finalized: ${__session.wins}W/${__session.losses}L, ` +
-      `${__session.startingPoints} → ${endingPoints}`);
+      `${startingPoints} → ${endingPoints}`);
 
     // Build and post session summary to Discord
-    postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, endingPos, getDiscordWinLossSend);
+    postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, endingPos, getDiscordWinLossSend, startingPoints, startingPos);
 
     // Clear current session
     __session.startedAt = null;
@@ -210,7 +214,7 @@ function processDelayedSessionEnd(windowLabel, dateKey, endingPoints, endingPos,
 }
 
 // Build and post session summary to Discord win/loss channel
-async function postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, endingPos, getDiscordWinLossSend) {
+async function postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, endingPos, getDiscordWinLossSend, startingPoints, startingPos) {
   try {
     const sendWL = getDiscordWinLossSend();
     if (typeof sendWL !== 'function') {
@@ -219,6 +223,10 @@ async function postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, e
     }
 
     const session = __lastCompletedSession;
+    
+    // Use passed starting values (more reliable than from session object)
+    const effectiveStartingPoints = startingPoints ?? session.startingPoints ?? endingPoints ?? 0;
+    const effectiveStartingPos = startingPos ?? session.startingPos ?? endingPos ?? 0;
     
     // Get player data from squadron_data.json
     let playerData = [];
@@ -259,7 +267,7 @@ async function postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, e
         }
       }
     } catch (e) {
-      console.warn(`⚠️ [postSessionSummaryToDiscreadPlayerData] ${e.message}`);
+      console.warn(`⚠️ [postSessionSummaryToDiscord.readPlayerData] ${e.message}`);
     }
     
     // Calculate width based on player data or default
@@ -273,9 +281,9 @@ async function postSessionSummaryToDiscord(windowLabel, dateKey, endingPoints, e
     // Use formatFullSessionSummary to include player table
     const summary = formatFullSessionSummary(
       session,
-      session.startingPoints,
+      effectiveStartingPoints,
       endingPoints,
-      session.startingPos,
+      effectiveStartingPos,
       endingPos,
       playerData,
       width,
@@ -319,12 +327,36 @@ function handleWindowEnd(archiveEventsFile, getCurrentPoints, getDiscordWinLossS
     console.warn(`⚠️ [handleWindowEnd.appendEvent] ${e.message}`);
   }
 
+  // Get current points immediately (before session is cleared)
+  let currentPoints = null;
+  let currentPos = null;
+  if (typeof getCurrentPoints === 'function') {
+    try {
+      const finalData = getCurrentPoints();
+      currentPoints = finalData?.points ?? null;
+      currentPos = finalData?.pos ?? null;
+    } catch (e) {
+      console.warn(`⚠️ [handleWindowEnd.getCurrentPoints] ${e.message}`);
+    }
+  }
+
+  // Ensure starting values are set (fallback to current values if not set)
+  if (__session.startingPoints == null && currentPoints != null) {
+    __session.startingPoints = currentPoints;
+    console.log(`[Session] Set startingPoints from current: ${currentPoints}`);
+  }
+  if (__session.startingPos == null && currentPos != null) {
+    __session.startingPos = currentPos;
+    console.log(`[Session] Set startingPos from current: ${currentPos}`);
+  }
+
   // Schedule delayed processing (1 hour after window end)
   // This allows time for late data updates to be captured
   const now = new Date();
   const delayUntil = new Date(now.getTime() + SESSION_END_DELAY_MS);
   console.log(`⏱️ [Session] ${windowLabel} session ended at ${now.toISOString()}, ` +
     `final processing scheduled for ${delayUntil.toISOString()} (${SESSION_END_DELAY_MS / 60000} min delay)`);
+  console.log(`[Session] Starting values: points=${__session.startingPoints}, pos=${__session.startingPos}`);
 
   __sessionEndTimer = setTimeout(() => {
     console.log(`⏰ [Session] Processing delayed end for ${windowLabel} session`);
