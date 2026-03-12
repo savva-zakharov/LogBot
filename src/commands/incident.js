@@ -78,7 +78,7 @@ module.exports = {
                 const formattedTable = formatRowTable(rowData, '🛡️ Incident Tracker', tableWidth, true);
 
                 const embed = new EmbedBuilder()
-                    .setTitle('🛡️ Incident Tracker')
+                    .setTitle('Incident Tracker')
                     .setDescription('```ansi\n' + formattedTable + '\n```')
                     .setColor(embedColor)
                     .setTimestamp(new Date());
@@ -133,7 +133,9 @@ module.exports = {
                 const embed = new EmbedBuilder()
                     .setTitle('Incident Tracker')
                     .setDescription('```ansi\n' + formattedTable + '\n```')
-                    .setColor(diffDays === 0 ? 0xffcc00 : diffDays < 7 ? 0x3ba55d : 0x2ecc71)
+                    .setColor(diffDays === 0 ? 0xff0000 
+                        : diffDays < 7 ? 0xffff00 
+                        : 0x00ff00)
                     .setTimestamp(new Date());
 
                 if (latestMessage.author) {
