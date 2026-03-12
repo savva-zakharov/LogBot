@@ -78,7 +78,7 @@ module.exports = {
                 const formattedTable = formatRowTable(rowData, '🛡️ Incident Tracker', tableWidth, true);
 
                 const embed = new EmbedBuilder()
-                    .setTitle('Incident Tracker')
+                    .setTitle('Disciplinary Incident Tracker')
                     .setDescription('```ansi\n' + formattedTable + '\n```')
                     .setColor(embedColor)
                     .setTimestamp(new Date());
@@ -119,7 +119,7 @@ module.exports = {
             const rowData = {
                 "Days Since": [`${ansiColour(diffDays.toString(), statusColor, diffDays > 0)}`],
                 "Last Incident": [`${lastIncidentDate.toLocaleString()}`],
-                "Time Ellapsed": [timeAgoText],
+                "Time Elapsed": [timeAgoText],
                 "Status": [statusText]
             };
 
