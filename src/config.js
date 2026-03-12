@@ -69,10 +69,11 @@ function loadSettings() {
     wsPort: 3001, 
     squadronPageUrl: '', 
     waitingVoiceChannel: '', 
-    discordLogsChannel: '', 
-    discordDataChannel: '', 
-    discordWinLossChannell: '', 
-    disablePerGameSummaries: false, 
+    discordLogsChannel: '',
+    discordDataChannel: '',
+    discordWinLossChannell: '',
+    incidentChannel: '',
+    disablePerGameSummaries: false,
     summaryWebhookUrl: '', 
     dataWebhookUrl: '',
     metalistManager: {},
@@ -148,7 +149,7 @@ function loadSettings() {
     // Persist merged defaults back to settings.json if we read from it, or if it exists in cwd
     try {
       const currentOnDisk = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8') || '{}') : {};
-      const toPersist = { ...currentOnDisk, ...{ players: settings.players, squadrons: settings.squadrons, telemetryUrl: settings.telemetryUrl, discordBotToken: settings.discordBotToken, discordChannel: settings.discordChannel, clientId: settings.clientId, guildId: settings.guildId, port: settings.port, wsPort: settings.wsPort, squadronPageUrl: settings.squadronPageUrl, waitingVoiceChannel: settings.waitingVoiceChannel, discordLogsChannel: settings.discordLogsChannel, discordDataChannel: settings.discordDataChannel, discordWinLossChannell: settings.discordWinLossChannell, disablePerGameSummaries: settings.disablePerGameSummaries, summaryWebhookUrl: settings.summaryWebhookUrl, dataWebhookUrl: settings.dataWebhookUrl, metalistManager: settings.metalistManager, outputOrder: settings.outputOrder, categoryToOutput: settings.categoryToOutput, tableStyle: settings.tableStyle } };
+      const toPersist = { ...currentOnDisk, ...{ players: settings.players, squadrons: settings.squadrons, telemetryUrl: settings.telemetryUrl, discordBotToken: settings.discordBotToken, discordChannel: settings.discordChannel, clientId: settings.clientId, guildId: settings.guildId, port: settings.port, wsPort: settings.wsPort, squadronPageUrl: settings.squadronPageUrl, waitingVoiceChannel: settings.waitingVoiceChannel, discordLogsChannel: settings.discordLogsChannel, discordDataChannel: settings.discordDataChannel, discordWinLossChannell: settings.discordWinLossChannell, incidentChannel: settings.incidentChannel, disablePerGameSummaries: settings.disablePerGameSummaries, summaryWebhookUrl: settings.summaryWebhookUrl, dataWebhookUrl: settings.dataWebhookUrl, metalistManager: settings.metalistManager, outputOrder: settings.outputOrder, categoryToOutput: settings.categoryToOutput, tableStyle: settings.tableStyle } };
       // Only write if something changed compared to current file (ignoring env overrides)
       const before = JSON.stringify(currentOnDisk);
       const after = JSON.stringify(toPersist);

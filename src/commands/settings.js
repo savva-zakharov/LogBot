@@ -41,6 +41,7 @@ async function buildPanel() {
       { name: 'squadronPageUrl', value: String(cfg.squadronPageUrl || ''), inline: false },
       { name: 'discordLogsChannel (player logs)', value: String(cfg.discordLogsChannel || ''), inline: false },
       { name: 'discordWinLossChannell (win/loss logs)', value: String(cfg.discordWinLossChannell || ''), inline: false },
+      { name: 'incidentChannel (incident tracker)', value: String(cfg.incidentChannel || ''), inline: false },
       { name: 'metalistManager (allowed roles)', value: String(cfg.metalistManager?.roles?.join(', ') || '@everyone'), inline: false },
       { name: 'BOT_OWNER_ID', value: String(cfg.BOT_OWNER_ID || ''), inline: false },
       { name: 'tableStyle', value: String(cfg.tableStyle || 'heavy'), inline: false },
@@ -59,6 +60,7 @@ async function buildPanel() {
   );
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_mr').setLabel('Set Metalist Roles').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('cfg_set_incident').setLabel('Set incidentChannel').setStyle(ButtonStyle.Secondary),
   );
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_owner').setLabel('Set Bot Owner ID').setStyle(ButtonStyle.Primary),
@@ -194,6 +196,26 @@ module.exports = {
         await setWinLossChannel(val);
         const payload = await buildPanel();
         await interaction.reply({ ...payload, content: 'discordWinLossChannell updated and applied.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'cfg_set_incident') {
+        const modal = new ModalBuilder().setCustomId('cfg_modal_incident').setTitle('Set incidentChannel');
+        const input = new TextInputBuilder()
+          .setCustomId('cfg_incident_value')
+          .setLabel('Channel ID or mention (e.g., #incidents)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false); // Allow empty to clear
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'cfg_modal_incident') {
+        const raw = (interaction.fields.getTextInputValue('cfg_incident_value') || '').trim();
+        const val = cleanChannelInput(raw);
+        writeJsonSettings({ incidentChannel: val });
+        const payload = await buildPanel();
+        await interaction.reply({ ...payload, content: val ? 'incidentChannel updated.' : 'incidentChannel cleared.', flags: MessageFlags.Ephemeral });
         return true;
       }
       if (interaction.isModalSubmit() && id === 'cfg_modal_url') {
