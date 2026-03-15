@@ -95,7 +95,7 @@ module.exports = {
 
     const tableData = out.map((x, i) => {
       const contribution = x.isTop ? x.rating : Math.round(x.rating / 20);
-      const flags = `${x.isTop ? ' ⭐' : ''}${x.isLow ? ' ⚠️' : ''}`;
+      // const flags = `${x.isTop ? ' ⭐' : ''}${x.isLow ? ' ⚠️' : ''}`;
 
       const obj = {
         pos: i + 1,
@@ -105,10 +105,14 @@ module.exports = {
         contribution: contribution
       };
 
+      if (obj.name.length > 20) {
+        obj.name = obj.name.slice(0, 18) + '..';
+      }
+
       if (x.isTop) {
         const colour = 'cyan';
         obj.pos = String(obj.pos);
-        obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
+        obj.name = ansiColour(obj.name, colour);
         obj.time = obj.time;
         obj.rating = String(obj.rating);
         obj.contribution = String(obj.contribution);
@@ -117,7 +121,7 @@ module.exports = {
       if (x.isLow) {
         const colour = 'yellow';
         obj.pos = String(obj.pos);
-        obj.name = ansiColour(obj.name.replace(` ⭐`, '').replace(` ⚠️`, ''), colour);
+        obj.name = ansiColour(obj.name, colour);
         obj.time = obj.time;
         obj.rating = String(obj.rating);
         obj.contribution = String(obj.contribution);

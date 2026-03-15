@@ -187,8 +187,9 @@ function buildWindowSummaryLines(events, window) {
     const ptsStr = (delta >= 0 ? `+ ${delta} points` : `- ${Math.abs(delta)} points`).padEnd(13, ' ');
     const wlStr = `${cumWins}/${cumLosses}`.padEnd(6, ' ');
     const timeStr = hhmm.padEnd(7, ' ');
-    let sessStr = String(sessionDelta).padStart(9, ' ');
+    let sessStr = String(sessionDelta);
     if (sessionDelta > 0) sessStr = `+${sessionDelta}`;
+    sessStr = sessStr.padStart(9, ' ');
     let matchText = 'no matches';
     const won = Number(ev.matchesWon || 0);
     const lost = Number(ev.matchesLost || 0);
