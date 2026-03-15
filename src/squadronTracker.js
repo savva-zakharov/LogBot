@@ -45,10 +45,15 @@ function getSession() {
   return session;
 }
 
+// Player session tracking - stores individual player points at session start
 const __playerSession = {
   windowKey: null,
   dateKey: null,
   startingPointsByPlayer: new Map(),
+  // Track when players joined the session to avoid resetting points for players who were already in the session
+  playerJoinTimestamps: new Map(),
+  // Track whether we've already reset points for this window to avoid multiple resets
+  windowResetDone: false,
 };
 
 // --- Session window helpers (US: 02:00–10:00 UTC, EU: 14:00–22:00 UTC) ---
@@ -928,21 +933,67 @@ async function resetLeaderboardPointsStart() {
 }
 
 async function resetPlayerPointsStart() {
-  const dataFile = path.join(process.cwd(), 'squadron_data.json');
   try {
-    if (fs.existsSync(dataFile)) {
-      const content = fs.readFileSync(dataFile, 'utf8');
-      if (!content) return;
-      const obj = JSON.parse(content);
-      if (obj && obj.data && Array.isArray(obj.data.rows)) {
-        obj.data.rows.forEach(row => {
-          // Sync PointsStart with current Points
-          const currentPoints = row['Points'] || row['points'] || '0';
+    const dataFile = ensureParsedDataFile();
+    const snapshot = readLastSnapshot(dataFile);
+    if (!snapshot || !snapshot.data || !Array.isArray(snapshot.data.rows)) {
+      console.warn('[WARN] No valid snapshot data to reset player PointsStart');
+      return;
+    }
+
+    const rows = snapshot.data.rows;
+    const now = new Date();
+    const timestamp = now.getTime();
+
+    // Only reset if we haven't already reset for this window
+    if (__playerSession.windowResetDone) {
+      console.log('[INFO] Player PointsStart already reset for this window, skipping');
+      return;
+    }
+
+    // If we have a valid window and the window key matches, track player join timestamps
+    if (__playerSession.windowKey && __playerSession.windowKey === __session.windowKey) {
+      // Store the current time for each player to track when they joined the session
+      rows.forEach(row => {
+        const playerName = String(row['Player'] || row['player'] || '').trim();
+        if (playerName) {
+          // Only track players who joined this session for the first time
+          if (!__playerSession.playerJoinTimestamps.has(playerName)) {
+            __playerSession.playerJoinTimestamps.set(playerName, timestamp);
+          }
+        }
+      });
+    }
+
+    // Update the PointsStart values for each player
+    let updated = false;
+    rows.forEach(row => {
+      const playerName = String(row['Player'] || row['player'] || '').trim();
+      if (playerName) {
+        const currentPoints = toNum(row['Points'] || row['points'] || '0');
+        // Only update PointsStart if it's not already set or if we're in a new window
+        if (row['PointsStart'] === undefined || row['PointsStart'] === null || row['PointsStart'] === '0') {
           row['PointsStart'] = currentPoints;
-        });
-        fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
-        console.log('[INFO] Player PointsStart has been reset in squadron_data.json.');
+          updated = true;
+        }
       }
+    });
+
+    if (updated) {
+      console.log('[INFO] Player PointsStart has been updated in squadron_data.json.');
+      // Save the updated snapshot back to file
+      try {
+        appendSnapshot(dataFile, snapshot);
+      } catch (e) {
+        console.warn(`[WARN] Failed to save updated snapshot: ${e.message}`);
+      }
+    } else {
+      console.log('[INFO] No player PointsStart updates needed.');
+    }
+    
+    // Mark that we've completed the window reset
+    if (__playerSession.windowKey === __session.windowKey) {
+      __playerSession.windowResetDone = true;
     }
   } catch (e) {
     console.warn(`[WARN] Failed to reset player PointsStart: ${e.message}`);
@@ -1227,7 +1278,19 @@ function mergePointsStart(newRows, prevRows) {
         r['PointsStart'] = pointsStartMap.get(name);
       } else {
         // New player, default PointsStart to current Points
-        r['PointsStart'] = r['Points'] || r['points'] || '0';
+        // But if we're in a new session window, we should preserve the session starting points
+        if (__playerSession.windowKey && __playerSession.windowKey === __session.windowKey) {
+          // Check if this player has a session starting point already
+          if (__playerSession.startingPointsByPlayer.has(name)) {
+            r['PointsStart'] = __playerSession.startingPointsByPlayer.get(name);
+          } else {
+            // For new players in this session, use current points
+            r['PointsStart'] = r['Points'] || r['points'] || '0';
+          }
+        } else {
+          // Default behavior for new players
+          r['PointsStart'] = r['Points'] || r['points'] || '0';
+        }
       }
     }
   });
@@ -1555,6 +1618,12 @@ function mergePointsStart(newRows, prevRows) {
             __session.wins = 0;
             __session.losses = 0;
             __session.windowKey = null;
+            // Reset player session tracking when window ends
+            __playerSession.windowKey = null;
+            __playerSession.dateKey = null;
+            __playerSession.startingPointsByPlayer.clear();
+            __playerSession.playerJoinTimestamps.clear();
+            __playerSession.windowResetDone = false;
           }
           // Handle new window start or first init inside a window
           if (activeWindow && __session.windowKey !== activeWindow.key) {
@@ -1565,6 +1634,12 @@ function mergePointsStart(newRows, prevRows) {
             __session.wins = 0;
             __session.losses = 0;
             __session.windowKey = activeWindow.key;
+            // Reset player session tracking for new window
+            __playerSession.windowKey = activeWindow.key;
+            __playerSession.dateKey = todayKey;
+            __playerSession.startingPointsByPlayer.clear();
+            __playerSession.playerJoinTimestamps.clear();
+            __playerSession.windowResetDone = false;
             // Persist and post initial summary for this window
             try {
               if (__session.startingPoints != null) {
