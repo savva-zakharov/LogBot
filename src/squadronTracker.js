@@ -26,7 +26,9 @@ const {
   getPlayerSession,
   resetSessionAtCutoff,
   restorePlayerSessionFromDisk,
+  restoreSquadronSessionFromDisk,
   savePlayerSessionToDisk,
+  saveSquadronSessionToDisk,
   getLastWrittenTimestamp,
   isPlayerSessionCurrent,
   
@@ -66,6 +68,8 @@ const { autoIssueAfterSnapshot } = require('./lowPointsIssuer');
 
 // Constants
 const POLL_INTERVAL_MS = 60_000;
+const MAX_STORED_MEMBERS = 100; // Limit stored member changes to prevent memory leak
+const MAX_EVENTS_AGE_DAYS = 30; // Prune events older than 30 days
 
 // Squadron page URL (from settings or default)
 function getSquadronPageUrl() {
@@ -113,11 +117,16 @@ async function startSquadronTracker() {
   // Schedule daily archives
   scheduleDailyArchive();
 
-  // Restore player session from disk (if exists) and check currency
+  // Restore sessions from disk (if exist) and check currency
   try {
-    const restoreResult = restorePlayerSessionFromDisk();
-    if (!restoreResult.restored) {
-      console.log(`[INFO] Starting fresh session (reason: ${restoreResult.reason})`);
+    // Restore squadron session first (W/L, starting points)
+    const squadronRestoreResult = await restoreSquadronSessionFromDisk();
+    
+    // Restore player session
+    const playerRestoreResult = await restorePlayerSessionFromDisk();
+    
+    if (!squadronRestoreResult.restored && !playerRestoreResult.restored) {
+      console.log('[INFO] Starting fresh session (no persisted data found)');
     }
     
     // Log session currency status
@@ -128,7 +137,7 @@ async function startSquadronTracker() {
       console.log(`[INFO] Player session data is NOT current: ${currencyCheck.reason}`);
     }
   } catch (e) {
-    console.warn('[WARN] Failed to restore player session:', e.message);
+    console.warn('[WARN] Failed to restore sessions:', e.message);
   }
 
   const squadronPageUrl = getSquadronPageUrl();
@@ -394,8 +403,9 @@ async function startSquadronTracker() {
                 }
               }
             });
-            captureOnce.__lastIncreasedMembers = increasedMembers;
-            captureOnce.__lastDecreasedMembers = decreasedMembers;
+            // Store with bounds to prevent memory leak
+            captureOnce.__lastIncreasedMembers = increasedMembers.slice(0, MAX_STORED_MEMBERS);
+            captureOnce.__lastDecreasedMembers = decreasedMembers.slice(0, MAX_STORED_MEMBERS);
           } catch (_) {}
           
           // Win/loss derivation
@@ -417,29 +427,31 @@ async function startSquadronTracker() {
               if (typeof clearByKey === 'function') clearByKey(getSession().windowKey);
             } catch (_) {}
             try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: getSession().windowKey, dateKey: getSession().dateKey }); } catch (_) {}
-            clearSessionAtWindowEnd();
+            await clearSessionAtWindowEnd();
           }
-          
+
           // Handle new window start
           if (activeWindow && getSession().windowKey !== activeWindow.key) {
-            resetSquadronSession(activeWindow, 
+            await resetSquadronSession(activeWindow,
               (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null)),
               (prev?.squadronPlace != null ? prev.squadronPlace : (snapshot.squadronPlace != null ? snapshot.squadronPlace : null))
             );
             
             try {
               if (getSession().startingPoints != null) {
-                appendEvent({ 
-                  type: 'session_start', 
-                  startingPoints: getSession().startingPoints, 
-                  startingPos: getSession().startingPos, 
-                  dateKey: getSession().dateKey, 
-                  windowKey: getSession().windowKey 
+                appendEvent({
+                  type: 'session_start',
+                  startingPoints: getSession().startingPoints,
+                  startingPos: getSession().startingPos,
+                  dateKey: getSession().dateKey,
+                  windowKey: getSession().windowKey
                 });
                 resetLeaderboardPointsStart();
                 await resetPlayerPointsStartFn(isPlayerPointsResetDone(), getPlayerSession(), getSession());
               }
-            } catch (_) {}
+            } catch (e) {
+              console.error('[ERROR] Failed to initialize session:', e.message);
+            }
             
             try {
               await postOrEditSessionSummary(activeWindow.key, buildWindowSummaryContent(activeWindow), activeWindow);
@@ -487,6 +499,12 @@ async function startSquadronTracker() {
                 }
               } catch (_) {}
             }
+            
+            // Cleanup member arrays after use to free memory
+            setTimeout(() => {
+              captureOnce.__lastIncreasedMembers = null;
+              captureOnce.__lastDecreasedMembers = null;
+            }, 5000);
           } catch (_) {}
           
           // Build member change lines
@@ -601,7 +619,7 @@ async function startSquadronTracker() {
           console.log('🕧 Squadron tracker: daily cutoff snapshot saved.');
 
           // Reset session at cutoff
-          resetSessionAtCutoff(snapshot);
+          await resetSessionAtCutoff(snapshot);
           
           // Persist session_reset event
           try {
