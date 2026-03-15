@@ -27,6 +27,8 @@ const {
   resetSessionAtCutoff,
   restorePlayerSessionFromDisk,
   savePlayerSessionToDisk,
+  getLastWrittenTimestamp,
+  isPlayerSessionCurrent,
   
   // Data fetching
   fetchText,
@@ -111,9 +113,20 @@ async function startSquadronTracker() {
   // Schedule daily archives
   scheduleDailyArchive();
 
-  // Restore player session from disk (if exists)
+  // Restore player session from disk (if exists) and check currency
   try {
-    restorePlayerSessionFromDisk();
+    const restoreResult = restorePlayerSessionFromDisk();
+    if (!restoreResult.restored) {
+      console.log(`[INFO] Starting fresh session (reason: ${restoreResult.reason})`);
+    }
+    
+    // Log session currency status
+    const currencyCheck = isPlayerSessionCurrent();
+    if (currencyCheck.isCurrent) {
+      console.log(`[INFO] Player session data is current (age: ${Math.round(currencyCheck.dataAge/1000/60)}min)`);
+    } else {
+      console.log(`[INFO] Player session data is NOT current: ${currencyCheck.reason}`);
+    }
   } catch (e) {
     console.warn('[WARN] Failed to restore player session:', e.message);
   }
@@ -338,6 +351,10 @@ async function startSquadronTracker() {
         if (snapshot.membersCaptured && prev) {
           const prevRows = (prev && prev.data && Array.isArray(prev.data.rows)) ? prev.data.rows : [];
           const currRows = (snapshot.data && Array.isArray(snapshot.data.rows)) ? snapshot.data.rows : [];
+          
+          // Debug logging for member comparison
+          console.log(`[DEBUG] Member comparison: prevRows=${prevRows.length}, currRows=${currRows.length}`);
+          
           const keyName = (r) => String(r['Player'] || r['player'] || '').trim();
           const mkIndex = (rows) => {
             const m = new Map();
@@ -348,6 +365,14 @@ async function startSquadronTracker() {
           const currMap = mkIndex(currRows);
           prevMap.forEach((r, k) => { if (!currMap.has(k)) removed.push(r); });
           currMap.forEach((r, k) => { if (!prevMap.has(k)) added.push(r); });
+          
+          // Debug logging for added/removed
+          if (added.length > 0 || removed.length > 0) {
+            console.log(`[DEBUG] Added=${added.length}, Removed=${removed.length}`);
+            if (added.length > 0 && prevRows.length === 0) {
+              console.log('[WARN] All members detected as "new" - previous snapshot had no rows!');
+            }
+          }
           
           // Compute gained/lost counts
           try {
@@ -536,8 +561,10 @@ async function startSquadronTracker() {
           appendSnapshot(dataFile, snapshot);
         }
         lastKey = simplifyForComparison(snapshot);
-        lastSnapshot = pruneSnapshot(snapshot);
-        
+        // Keep full snapshot (with rows) for member comparison on next iteration
+        // Don't use pruneSnapshot here as it removes the rows data
+        lastSnapshot = snapshot;
+
         // Auto-issue low points after snapshot
         try {
           autoIssueAfterSnapshot(snapshot);
@@ -569,7 +596,8 @@ async function startSquadronTracker() {
 
           appendSnapshot(dataFile, snapshot, getPlayerSession());
           lastKey = simplifyForComparison(snapshot);
-          lastSnapshot = pruneSnapshot(snapshot);
+          // Keep full snapshot (with rows) for member comparison on next iteration
+          lastSnapshot = snapshot;
           console.log('🕧 Squadron tracker: daily cutoff snapshot saved.');
 
           // Reset session at cutoff

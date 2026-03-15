@@ -265,20 +265,21 @@ function getSessionForSnapshot() {
 
 /**
  * Restore player session from persistent storage on startup
- * @returns {boolean} True if restored successfully
+ * @returns {Object} Result object with restored flag and reason
  */
 function restorePlayerSessionFromDisk() {
   try {
     const { restorePlayerSession: restoreFn } = require('./playerSessionStore');
-    const restored = restoreFn(__playerSession);
-    if (restored) {
+    const result = restoreFn(__playerSession);
+    if (result.restored) {
       console.log(`[INFO] Restored player session: windowKey=${__playerSession.windowKey}, players=${__playerSession.startingPointsByPlayer.size}`);
-      return true;
+    } else {
+      console.log(`[INFO] Player session not restored: ${result.reason}`);
     }
-    return false;
+    return result;
   } catch (e) {
     console.warn('[WARN] Failed to restore player session from disk:', e.message);
-    return false;
+    return { restored: false, reason: 'error', error: e.message };
   }
 }
 
@@ -293,6 +294,21 @@ function savePlayerSessionToDisk() {
   } catch (e) {
     console.warn('[WARN] Failed to save player session to disk:', e.message);
     return false;
+  }
+}
+
+/**
+ * Get the lastWritten timestamp from persisted session
+ * @returns {number|null} Timestamp or null if not available
+ */
+function getLastWrittenTimestamp() {
+  try {
+    const { loadPlayerSession } = require('./playerSessionStore');
+    const session = loadPlayerSession();
+    return session?.lastWritten || null;
+  } catch (e) {
+    console.warn('[WARN] Failed to get lastWritten timestamp:', e.message);
+    return null;
   }
 }
 
@@ -314,4 +330,5 @@ module.exports = {
   getSessionForSnapshot,
   restorePlayerSessionFromDisk,
   savePlayerSessionToDisk,
+  getLastWrittenTimestamp,
 };

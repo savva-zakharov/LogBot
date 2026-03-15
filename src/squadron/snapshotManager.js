@@ -48,6 +48,7 @@ function readLastSnapshot(dataFile) {
           startingPointsByPlayer: new Map(Object.entries(obj.playerSession.startingPointsByPlayer || {})),
           playerJoinTimestamps: new Map(Object.entries(obj.playerSession.playerJoinTimestamps || {})),
           windowResetDone: obj.playerSession.windowResetDone || false,
+          lastWritten: obj.playerSession.lastWritten || null,
         };
       }
       return obj;
@@ -88,6 +89,8 @@ function appendSnapshot(dataFile, snapshot, playerSession = null) {
         startingPointsByPlayer: Object.fromEntries(playerSession.startingPointsByPlayer),
         playerJoinTimestamps: Object.fromEntries(playerSession.playerJoinTimestamps),
         windowResetDone: playerSession.windowResetDone,
+        // Add timestamp for when this data was written
+        lastWritten: Date.now(),
       };
     }
     fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');

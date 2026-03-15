@@ -4,6 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const { ensureParsedDataFile, readLastSnapshot, appendSnapshot } = require('./snapshotManager');
+const { getCurrentWindow } = require('./windowManager');
+
+// Maximum age for player session data (2 hours)
+const MAX_SESSION_AGE_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Load player session from persistent storage
@@ -20,12 +24,59 @@ function loadPlayerSession() {
         startingPointsByPlayer: snapshot.playerSession.startingPointsByPlayer,
         playerJoinTimestamps: snapshot.playerSession.playerJoinTimestamps,
         windowResetDone: snapshot.playerSession.windowResetDone || false,
+        lastWritten: snapshot.playerSession.lastWritten || null,
       };
     }
   } catch (e) {
     console.warn('[WARN] Failed to load player session:', e.message);
   }
   return null;
+}
+
+/**
+ * Check if player session data is current (from current session window)
+ * @returns {Object} Result with isCurrent flag and reason
+ */
+function isPlayerSessionCurrent() {
+  const session = loadPlayerSession();
+  
+  if (!session) {
+    return { isCurrent: false, reason: 'no_session', session: null };
+  }
+  
+  const now = Date.now();
+  
+  // Check 1: Has lastWritten timestamp?
+  if (!session.lastWritten) {
+    return { isCurrent: false, reason: 'no_timestamp', session };
+  }
+  
+  // Check 2: Is data too old? (older than MAX_SESSION_AGE_MS)
+  const dataAge = now - session.lastWritten;
+  if (dataAge > MAX_SESSION_AGE_MS) {
+    console.log(`[INFO] Player session data is ${Math.round(dataAge/1000/60)}min old (max: ${MAX_SESSION_AGE_MS/1000/60}min)`);
+    return { isCurrent: false, reason: 'too_old', session, dataAge };
+  }
+  
+  // Check 3: Does window key match current window?
+  const currentWindow = getCurrentWindow();
+  if (currentWindow) {
+    if (session.windowKey !== currentWindow.key) {
+      console.log(`[INFO] Player session window (${session.windowKey}) doesn't match current (${currentWindow.key})`);
+      return { isCurrent: false, reason: 'wrong_window', session, currentWindow };
+    }
+  } else {
+    // Not in any window currently - check if session is from a recent window
+    const sessionDate = new Date(session.dateKey);
+    const sessionAge = now - sessionDate.getTime();
+    if (sessionAge > MAX_SESSION_AGE_MS) {
+      console.log(`[INFO] Player session date (${session.dateKey}) is too old`);
+      return { isCurrent: false, reason: 'session_date_old', session, sessionAge };
+    }
+  }
+  
+  // All checks passed
+  return { isCurrent: true, reason: 'ok', session, dataAge };
 }
 
 /**
@@ -151,13 +202,31 @@ function clearPlayerSession(windowKey = null) {
 /**
  * Restore player session to in-memory state
  * @param {Object} playerSessionObj - In-memory player session object to restore
- * @returns {boolean} True if restored successfully
+ * @returns {Object} Result with restored flag and reason
  */
 function restorePlayerSession(playerSessionObj) {
   try {
-    const persisted = loadPlayerSession();
+    // First check if session data is current
+    const currencyCheck = isPlayerSessionCurrent();
+    
+    if (!currencyCheck.isCurrent) {
+      console.log(`[INFO] Player session not restored: ${currencyCheck.reason}`);
+      
+      // If data is from previous session, clear it and reset starting points
+      if (currencyCheck.reason === 'too_old' || 
+          currencyCheck.reason === 'wrong_window' || 
+          currencyCheck.reason === 'session_date_old' ||
+          currencyCheck.reason === 'no_timestamp') {
+        console.log('[INFO] Clearing stale player session data from previous session');
+        clearPlayerSession();
+      }
+      
+      return { restored: false, reason: currencyCheck.reason };
+    }
+    
+    const persisted = currencyCheck.session;
     if (!persisted) {
-      return false;
+      return { restored: false, reason: 'no_session' };
     }
 
     // Copy persisted data to in-memory object
@@ -167,11 +236,11 @@ function restorePlayerSession(playerSessionObj) {
     playerSessionObj.playerJoinTimestamps = new Map(persisted.playerJoinTimestamps);
     playerSessionObj.windowResetDone = persisted.windowResetDone;
 
-    console.log(`[INFO] Restored player session for window ${persisted.windowKey} with ${persisted.startingPointsByPlayer.size} players`);
-    return true;
+    console.log(`[INFO] Restored player session for window ${persisted.windowKey} with ${persisted.startingPointsByPlayer.size} players (data age: ${Math.round(currencyCheck.dataAge/1000/60)}min)`);
+    return { restored: true, reason: 'ok', dataAge: currencyCheck.dataAge };
   } catch (e) {
     console.error('[ERROR] Failed to restore player session:', e.message);
-    return false;
+    return { restored: false, reason: 'error', error: e.message };
   }
 }
 
@@ -263,4 +332,6 @@ module.exports = {
   restorePlayerSession,
   getSessionStats,
   validatePlayerSession,
+  isPlayerSessionCurrent,
+  MAX_SESSION_AGE_MS,
 };
