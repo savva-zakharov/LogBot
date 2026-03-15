@@ -7,6 +7,7 @@ const dataFetcher = require('./dataFetcher');
 const eventLogger = require('./eventLogger');
 const snapshotManager = require('./snapshotManager');
 const discordIntegration = require('./discordIntegration');
+const playerSessionStore = require('./playerSessionStore');
 
 module.exports = {
   // Window management
@@ -27,6 +28,9 @@ module.exports = {
   // Discord integration
   ...discordIntegration,
   
+  // Player session store
+  ...playerSessionStore,
+  
   // Module exports for direct access
   windowManager,
   sessionManager,
@@ -34,4 +38,5 @@ module.exports = {
   eventLogger,
   snapshotManager,
   discordIntegration,
+  playerSessionStore,
 };

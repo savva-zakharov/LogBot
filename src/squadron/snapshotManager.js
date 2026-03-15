@@ -39,7 +39,19 @@ function readLastSnapshot(dataFile) {
     if (!content) return null;
     const obj = JSON.parse(content);
     // Handle both new format and legacy array format
-    if (obj && obj.data) return obj;
+    if (obj && obj.data) {
+      // Include playerSession if present
+      if (obj.playerSession) {
+        obj.playerSession = {
+          windowKey: obj.playerSession.windowKey,
+          dateKey: obj.playerSession.dateKey,
+          startingPointsByPlayer: new Map(Object.entries(obj.playerSession.startingPointsByPlayer || {})),
+          playerJoinTimestamps: new Map(Object.entries(obj.playerSession.playerJoinTimestamps || {})),
+          windowResetDone: obj.playerSession.windowResetDone || false,
+        };
+      }
+      return obj;
+    }
     if (obj && Array.isArray(obj.squadronSnapshots) && obj.squadronSnapshots.length) {
       return obj.squadronSnapshots[obj.squadronSnapshots.length - 1];
     }
@@ -51,8 +63,9 @@ function readLastSnapshot(dataFile) {
  * Append snapshot to file
  * @param {string} dataFile - Path to data file
  * @param {Object} snapshot - Snapshot to append
+ * @param {Object|null} playerSession - Optional player session data to persist
  */
-function appendSnapshot(dataFile, snapshot) {
+function appendSnapshot(dataFile, snapshot, playerSession = null) {
   try {
     // New format: single snapshot with data
     const obj = {
@@ -66,6 +79,16 @@ function appendSnapshot(dataFile, snapshot) {
     };
     if (snapshot.session) {
       obj.session = snapshot.session;
+    }
+    // Persist player session data alongside snapshot
+    if (playerSession) {
+      obj.playerSession = {
+        windowKey: playerSession.windowKey,
+        dateKey: playerSession.dateKey,
+        startingPointsByPlayer: Object.fromEntries(playerSession.startingPointsByPlayer),
+        playerJoinTimestamps: Object.fromEntries(playerSession.playerJoinTimestamps),
+        windowResetDone: playerSession.windowResetDone,
+      };
     }
     fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
   } catch (e) {
@@ -301,9 +324,20 @@ async function resetPlayerPointsStart(windowResetDone, playerSession, session) {
 
     if (updated) {
       console.log('[INFO] Player PointsStart has been updated in squadron_data.json.');
-      appendSnapshot(dataFile, snapshot);
+      // Save snapshot with updated player session data
+      appendSnapshot(dataFile, snapshot, playerSession);
+      console.log('[INFO] Player session persisted to disk');
     } else {
       console.log('[INFO] No player PointsStart updates needed.');
+      // Still persist player session even if no updates (for windowResetDone flag)
+      appendSnapshot(dataFile, snapshot, playerSession);
+    }
+    
+    // Mark that we've completed the window reset
+    if (playerSession.windowKey === session.windowKey) {
+      playerSession.windowResetDone = true;
+      // Save again to persist the windowResetDone flag
+      appendSnapshot(dataFile, snapshot, playerSession);
     }
   } catch (e) {
     console.warn(`[WARN] Failed to reset player PointsStart: ${e.message}`);

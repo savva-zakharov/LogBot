@@ -25,6 +25,8 @@ const {
   isPlayerPointsResetDone,
   getPlayerSession,
   resetSessionAtCutoff,
+  restorePlayerSessionFromDisk,
+  savePlayerSessionToDisk,
   
   // Data fetching
   fetchText,
@@ -102,13 +104,20 @@ function padLeft(s, n) {
  */
 async function startSquadronTracker() {
   console.log('🚀 Starting Squadron Tracker (modular version)...');
-  
+
   // Archive stale data on startup
   archiveIfStale();
-  
+
   // Schedule daily archives
   scheduleDailyArchive();
-  
+
+  // Restore player session from disk (if exists)
+  try {
+    restorePlayerSessionFromDisk();
+  } catch (e) {
+    console.warn('[WARN] Failed to restore player session:', e.message);
+  }
+
   const squadronPageUrl = getSquadronPageUrl();
   const dataFile = ensureParsedDataFile();
   
@@ -515,12 +524,17 @@ async function startSquadronTracker() {
           console.log(composed);
           await sendDiscordMessage(composed);
         }
-        
-        // Save snapshot
+
+        // Save snapshot with player session data
         try {
           snapshot.session = getSessionForSnapshot();
         } catch (_) {}
-        appendSnapshot(dataFile, snapshot);
+        try {
+          appendSnapshot(dataFile, snapshot, getPlayerSession());
+        } catch (e) {
+          console.warn('[WARN] Failed to save player session with snapshot:', e.message);
+          appendSnapshot(dataFile, snapshot);
+        }
         lastKey = simplifyForComparison(snapshot);
         lastSnapshot = pruneSnapshot(snapshot);
         
@@ -552,12 +566,12 @@ async function startSquadronTracker() {
             snapshot.membersCaptured = true;
             console.log('ℹ️ Daily cutoff: reused last known member rows for snapshot.');
           }
-          
-          appendSnapshot(dataFile, snapshot);
+
+          appendSnapshot(dataFile, snapshot, getPlayerSession());
           lastKey = simplifyForComparison(snapshot);
           lastSnapshot = pruneSnapshot(snapshot);
           console.log('🕧 Squadron tracker: daily cutoff snapshot saved.');
-          
+
           // Reset session at cutoff
           resetSessionAtCutoff(snapshot);
           

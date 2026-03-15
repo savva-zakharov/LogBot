@@ -2,6 +2,7 @@
 // Manages session state for squadron and individual player tracking
 
 const { getCurrentWindow, dateKeyUTC, isWithinWindow } = require('./windowManager');
+const { restorePlayerSession, savePlayerSession, clearPlayerSession } = require('./playerSessionStore');
 
 // Squadron session state (W/L and starting points)
 // Resets at daily cutoff. In-memory only.
@@ -74,7 +75,7 @@ function setPlayerStartingPoints(playerName, points) {
 function resetSquadronSession(window, startingPoints, startingPos) {
   const now = new Date();
   const todayKey = dateKeyUTC(now);
-  
+
   __session.startedAt = now;
   __session.dateKey = todayKey;
   __session.startingPoints = startingPoints;
@@ -82,13 +83,16 @@ function resetSquadronSession(window, startingPoints, startingPos) {
   __session.wins = 0;
   __session.losses = 0;
   __session.windowKey = window.key;
-  
+
   // Reset player session tracking for new window
   __playerSession.windowKey = window.key;
   __playerSession.dateKey = todayKey;
   __playerSession.startingPointsByPlayer.clear();
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
+  
+  // Clear persisted player session for old window
+  clearPlayerSession();
 }
 
 /**
@@ -101,13 +105,16 @@ function clearSessionAtWindowEnd() {
   __session.wins = 0;
   __session.losses = 0;
   __session.windowKey = null;
-  
+
   // Reset player session tracking when window ends
   __playerSession.windowKey = null;
   __playerSession.dateKey = null;
   __playerSession.startingPointsByPlayer.clear();
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
+  
+  // Clear persisted player session
+  clearPlayerSession();
 }
 
 /**
@@ -190,20 +197,23 @@ function resetSessionAtCutoff(snapshot) {
   const dd2 = String(resetNow.getUTCDate()).padStart(2, '0');
   const newStarting = (typeof snapshot.totalPoints === 'number') ? snapshot.totalPoints : (__session.startingPoints ?? null);
   const newStartingPos = (typeof snapshot.squadronPlace === 'number') ? snapshot.squadronPlace : (__session.startingPos ?? null);
-  
+
   __session.startedAt = resetNow;
   __session.dateKey = `${yy}-${mm2}-${dd2}`;
   __session.startingPoints = newStarting;
   __session.startingPos = newStartingPos;
   __session.wins = 0;
   __session.losses = 0;
-  
+
   // Also reset player session
   __playerSession.windowKey = null;
   __playerSession.dateKey = `${yy}-${mm2}-${dd2}`;
   __playerSession.startingPointsByPlayer.clear();
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
+  
+  // Clear persisted player session at cutoff
+  clearPlayerSession();
 }
 
 /**
@@ -253,6 +263,39 @@ function getSessionForSnapshot() {
   };
 }
 
+/**
+ * Restore player session from persistent storage on startup
+ * @returns {boolean} True if restored successfully
+ */
+function restorePlayerSessionFromDisk() {
+  try {
+    const { restorePlayerSession: restoreFn } = require('./playerSessionStore');
+    const restored = restoreFn(__playerSession);
+    if (restored) {
+      console.log(`[INFO] Restored player session: windowKey=${__playerSession.windowKey}, players=${__playerSession.startingPointsByPlayer.size}`);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn('[WARN] Failed to restore player session from disk:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Save current player session to persistent storage
+ * @returns {boolean} True if saved successfully
+ */
+function savePlayerSessionToDisk() {
+  try {
+    const { savePlayerSession: saveFn } = require('./playerSessionStore');
+    return saveFn(__playerSession);
+  } catch (e) {
+    console.warn('[WARN] Failed to save player session to disk:', e.message);
+    return false;
+  }
+}
+
 module.exports = {
   getSession,
   getPlayerSession,
@@ -269,4 +312,6 @@ module.exports = {
   resetSessionAtCutoff,
   getSessionSummary,
   getSessionForSnapshot,
+  restorePlayerSessionFromDisk,
+  savePlayerSessionToDisk,
 };
