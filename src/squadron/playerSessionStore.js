@@ -3,9 +3,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ensureParsedDataFile, readLastSnapshot } = require('./snapshotManager');
+const { ensureParsedDataFile, readLastSnapshot, appendSnapshot } = require('./snapshotManager');
 const { getCurrentWindow } = require('./windowManager');
-const { withFileLock } = require('./fileLock');
 
 // Maximum age for player session data (2 hours)
 const MAX_SESSION_AGE_MS = 2 * 60 * 60 * 1000;
@@ -83,9 +82,9 @@ function isPlayerSessionCurrent() {
 /**
  * Save player session to persistent storage
  * @param {Object} playerSession - Player session object to save
- * @returns {Promise<boolean>} True if saved successfully
+ * @returns {boolean} True if saved successfully
  */
-async function savePlayerSession(playerSession) {
+function savePlayerSession(playerSession) {
   try {
     if (!playerSession) {
       console.warn('[WARN] No player session to save');
@@ -94,15 +93,14 @@ async function savePlayerSession(playerSession) {
 
     const dataFile = ensureParsedDataFile();
     const snapshot = readLastSnapshot(dataFile);
-
+    
     if (!snapshot) {
       console.warn('[WARN] No snapshot found to attach player session');
       return false;
     }
 
-    // Append snapshot with player session data (uses file locking internally)
-    const { appendSnapshot } = require('./snapshotManager');
-    await appendSnapshot(dataFile, snapshot, playerSession);
+    // Append snapshot with player session data
+    appendSnapshot(dataFile, snapshot, playerSession);
     return true;
   } catch (e) {
     console.error('[ERROR] Failed to save player session:', e.message);
@@ -137,9 +135,9 @@ function getPlayerStartingPoints(windowKey, playerName) {
  * @param {string} playerName - Player name
  * @param {number} points - Starting points
  * @param {number} timestamp - Join timestamp
- * @returns {Promise<boolean>} True if saved successfully
+ * @returns {boolean} True if saved successfully
  */
-async function setPlayerStartingPoints(windowKey, playerName, points, timestamp) {
+function setPlayerStartingPoints(windowKey, playerName, points, timestamp) {
   try {
     const session = loadPlayerSession() || {
       windowKey,
@@ -160,7 +158,7 @@ async function setPlayerStartingPoints(windowKey, playerName, points, timestamp)
       session.playerJoinTimestamps.set(playerName, timestamp);
     }
 
-    return await savePlayerSession(session);
+    return savePlayerSession(session);
   } catch (e) {
     console.error('[ERROR] Failed to set player starting points:', e.message);
     return false;
@@ -170,13 +168,13 @@ async function setPlayerStartingPoints(windowKey, playerName, points, timestamp)
 /**
  * Clear player session from persistent storage
  * @param {string|null} windowKey - Optional window key to clear (clears all if null)
- * @returns {Promise<boolean>} True if cleared successfully
+ * @returns {boolean} True if cleared successfully
  */
-async function clearPlayerSession(windowKey = null) {
+function clearPlayerSession(windowKey = null) {
   try {
     const dataFile = ensureParsedDataFile();
     const snapshot = readLastSnapshot(dataFile);
-
+    
     if (!snapshot) {
       return true; // Nothing to clear
     }
@@ -192,9 +190,8 @@ async function clearPlayerSession(windowKey = null) {
       snapshot.playerSession = null;
     }
 
-    // Re-save without player session (uses file locking)
-    const { appendSnapshot } = require('./snapshotManager');
-    await appendSnapshot(dataFile, snapshot, null);
+    // Re-save without player session
+    appendSnapshot(dataFile, snapshot, null);
     return true;
   } catch (e) {
     console.error('[ERROR] Failed to clear player session:', e.message);

@@ -4,7 +4,6 @@
 const fs = require('fs');
 const path = require('path');
 const { dateKeyUTC, msUntilNextUtcMidnight } = require('./windowManager');
-const { withFileLock } = require('./fileLock');
 
 /**
  * Ensure logs directory exists
@@ -67,36 +66,34 @@ function readLastSnapshot(dataFile) {
  * @param {Object} snapshot - Snapshot to append
  * @param {Object|null} playerSession - Optional player session data to persist
  */
-async function appendSnapshot(dataFile, snapshot, playerSession = null) {
+function appendSnapshot(dataFile, snapshot, playerSession = null) {
   try {
-    await withFileLock(dataFile, async () => {
-      // New format: single snapshot with data
-      const obj = {
-        ts: snapshot.ts || Date.now(),
-        data: snapshot.data || { headers: [], rows: [] },
-        totalPoints: snapshot.totalPoints,
-        squadronPlace: snapshot.squadronPlace,
-        totalPointsAbove: snapshot.totalPointsAbove,
-        totalPointsBelow: snapshot.totalPointsBelow,
-        membersCaptured: snapshot.membersCaptured,
+    // New format: single snapshot with data
+    const obj = {
+      ts: snapshot.ts || Date.now(),
+      data: snapshot.data || { headers: [], rows: [] },
+      totalPoints: snapshot.totalPoints,
+      squadronPlace: snapshot.squadronPlace,
+      totalPointsAbove: snapshot.totalPointsAbove,
+      totalPointsBelow: snapshot.totalPointsBelow,
+      membersCaptured: snapshot.membersCaptured,
+    };
+    if (snapshot.session) {
+      obj.session = snapshot.session;
+    }
+    // Persist player session data alongside snapshot
+    if (playerSession) {
+      obj.playerSession = {
+        windowKey: playerSession.windowKey,
+        dateKey: playerSession.dateKey,
+        startingPointsByPlayer: Object.fromEntries(playerSession.startingPointsByPlayer),
+        playerJoinTimestamps: Object.fromEntries(playerSession.playerJoinTimestamps),
+        windowResetDone: playerSession.windowResetDone,
+        // Add timestamp for when this data was written
+        lastWritten: Date.now(),
       };
-      if (snapshot.session) {
-        obj.session = snapshot.session;
-      }
-      // Persist player session data alongside snapshot
-      if (playerSession) {
-        obj.playerSession = {
-          windowKey: playerSession.windowKey,
-          dateKey: playerSession.dateKey,
-          startingPointsByPlayer: Object.fromEntries(playerSession.startingPointsByPlayer),
-          playerJoinTimestamps: Object.fromEntries(playerSession.playerJoinTimestamps),
-          windowResetDone: playerSession.windowResetDone,
-          // Add timestamp for when this data was written
-          lastWritten: Date.now(),
-        };
-      }
-      fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
-    });
+    }
+    fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
   } catch (e) {
     console.warn(`[WARN] Failed to append snapshot: ${e.message}`);
   }

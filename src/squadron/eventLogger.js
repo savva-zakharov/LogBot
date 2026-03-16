@@ -3,7 +3,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { withFileLock } = require('./fileLock');
 
 /**
  * Ensure events file exists
@@ -32,29 +31,20 @@ function ensureEventsFile() {
  * @param {Object|string} messageOrEvent - Event object or message string
  * @param {Object} meta - Additional metadata
  */
-async function appendEvent(messageOrEvent, meta = {}) {
-  const file = ensureEventsFile();
+function appendEvent(messageOrEvent, meta = {}) {
   try {
-    await withFileLock(file, async () => {
-      const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!Array.isArray(obj.events)) obj.events = [];
-      let entry;
-      if (messageOrEvent && typeof messageOrEvent === 'object' && !Array.isArray(messageOrEvent)) {
-        entry = { ts: new Date().toISOString(), ...messageOrEvent };
-      } else {
-        entry = { ts: new Date().toISOString(), message: messageOrEvent, ...meta };
-      }
-      obj.events.push(entry);
-      
-      // Prune events older than 30 days to prevent unbounded growth
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      obj.events = obj.events.filter(ev => new Date(ev.ts) > thirtyDaysAgo);
-      
-      fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
-    });
-  } catch (e) {
-    console.error('[ERROR] Failed to append event:', e.message);
-  }
+    const file = ensureEventsFile();
+    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(obj.events)) obj.events = [];
+    let entry;
+    if (messageOrEvent && typeof messageOrEvent === 'object' && !Array.isArray(messageOrEvent)) {
+      entry = { ts: new Date().toISOString(), ...messageOrEvent };
+    } else {
+      entry = { ts: new Date().toISOString(), message: messageOrEvent, ...meta };
+    }
+    obj.events.push(entry);
+    fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (_) {}
 }
 
 /**

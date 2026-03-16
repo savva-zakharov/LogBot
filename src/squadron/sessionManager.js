@@ -3,7 +3,6 @@
 
 const { getCurrentWindow, dateKeyUTC, isWithinWindow } = require('./windowManager');
 const { restorePlayerSession, savePlayerSession, clearPlayerSession } = require('./playerSessionStore');
-const { saveSquadronSession, clearSquadronSession, restoreSquadronSession } = require('./squadronSessionStore');
 
 // Squadron session state (W/L and starting points)
 // Resets at daily cutoff. In-memory only.
@@ -73,7 +72,7 @@ function setPlayerStartingPoints(playerName, points) {
  * @param {number|null} startingPoints - Starting squadron points
  * @param {number|null} startingPos - Starting squadron position
  */
-async function resetSquadronSession(window, startingPoints, startingPos) {
+function resetSquadronSession(window, startingPoints, startingPos) {
   const now = new Date();
   const todayKey = dateKeyUTC(now);
 
@@ -92,15 +91,14 @@ async function resetSquadronSession(window, startingPoints, startingPos) {
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
   
-  // Clear persisted sessions for old window
-  await clearPlayerSession();
-  await clearSquadronSession();
+  // Clear persisted player session for old window
+  clearPlayerSession();
 }
 
 /**
  * Clear session when window ends
  */
-async function clearSessionAtWindowEnd() {
+function clearSessionAtWindowEnd() {
   __session.startedAt = null;
   __session.dateKey = dateKeyUTC();
   __session.startingPoints = null;
@@ -115,9 +113,8 @@ async function clearSessionAtWindowEnd() {
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
   
-  // Clear persisted sessions
-  await clearPlayerSession();
-  await clearSquadronSession();
+  // Clear persisted player session
+  clearPlayerSession();
 }
 
 /**
@@ -193,7 +190,7 @@ function getPlayerJoinTimestamp(playerName) {
  * Reset session at daily cutoff
  * @param {Object} snapshot - Current snapshot
  */
-async function resetSessionAtCutoff(snapshot) {
+function resetSessionAtCutoff(snapshot) {
   const resetNow = new Date();
   const yy = resetNow.getUTCFullYear();
   const mm2 = String(resetNow.getUTCMonth() + 1).padStart(2, '0');
@@ -215,9 +212,8 @@ async function resetSessionAtCutoff(snapshot) {
   __playerSession.playerJoinTimestamps.clear();
   __playerSession.windowResetDone = false;
   
-  // Clear persisted sessions at cutoff
-  await clearPlayerSession();
-  await clearSquadronSession();
+  // Clear persisted player session at cutoff
+  clearPlayerSession();
 }
 
 /**
@@ -269,9 +265,9 @@ function getSessionForSnapshot() {
 
 /**
  * Restore player session from persistent storage on startup
- * @returns {Promise<Object>} Result object with restored flag and reason
+ * @returns {Object} Result object with restored flag and reason
  */
-async function restorePlayerSessionFromDisk() {
+function restorePlayerSessionFromDisk() {
   try {
     const { restorePlayerSession: restoreFn } = require('./playerSessionStore');
     const result = restoreFn(__playerSession);
@@ -288,47 +284,15 @@ async function restorePlayerSessionFromDisk() {
 }
 
 /**
- * Restore squadron session from persistent storage on startup
- * @returns {Promise<Object>} Result object with restored flag and reason
- */
-async function restoreSquadronSessionFromDisk() {
-  try {
-    const result = restoreSquadronSession(__session);
-    if (result.restored) {
-      console.log(`[INFO] Restored squadron session: ${__session.wins}W/${__session.losses}L`);
-    } else {
-      console.log(`[INFO] Squadron session not restored: ${result.reason}`);
-    }
-    return result;
-  } catch (e) {
-    console.warn('[WARN] Failed to restore squadron session from disk:', e.message);
-    return { restored: false, reason: 'error', error: e.message };
-  }
-}
-
-/**
  * Save current player session to persistent storage
- * @returns {Promise<boolean>} True if saved successfully
+ * @returns {boolean} True if saved successfully
  */
-async function savePlayerSessionToDisk() {
+function savePlayerSessionToDisk() {
   try {
     const { savePlayerSession: saveFn } = require('./playerSessionStore');
-    return await saveFn(__playerSession);
+    return saveFn(__playerSession);
   } catch (e) {
     console.warn('[WARN] Failed to save player session to disk:', e.message);
-    return false;
-  }
-}
-
-/**
- * Save current squadron session to persistent storage
- * @returns {Promise<boolean>} True if saved successfully
- */
-async function saveSquadronSessionToDisk() {
-  try {
-    return await saveSquadronSession(__session);
-  } catch (e) {
-    console.warn('[WARN] Failed to save squadron session to disk:', e.message);
     return false;
   }
 }
@@ -365,8 +329,6 @@ module.exports = {
   getSessionSummary,
   getSessionForSnapshot,
   restorePlayerSessionFromDisk,
-  restoreSquadronSessionFromDisk,
   savePlayerSessionToDisk,
-  saveSquadronSessionToDisk,
   getLastWrittenTimestamp,
 };

@@ -8,37 +8,29 @@ const eventLogger = require('./eventLogger');
 const snapshotManager = require('./snapshotManager');
 const discordIntegration = require('./discordIntegration');
 const playerSessionStore = require('./playerSessionStore');
-const squadronSessionStore = require('./squadronSessionStore');
-const fileLock = require('./fileLock');
 
 module.exports = {
   // Window management
   ...windowManager,
-
+  
   // Session management
   ...sessionManager,
-
+  
   // Data fetching
   ...dataFetcher,
-
+  
   // Event logging
   ...eventLogger,
-
+  
   // Snapshot management
   ...snapshotManager,
-
+  
   // Discord integration
   ...discordIntegration,
-
+  
   // Player session store
   ...playerSessionStore,
-
-  // Squadron session store
-  ...squadronSessionStore,
-
-  // File locking
-  ...fileLock,
-
+  
   // Module exports for direct access
   windowManager,
   sessionManager,
@@ -47,6 +39,4 @@ module.exports = {
   snapshotManager,
   discordIntegration,
   playerSessionStore,
-  squadronSessionStore,
-  fileLock,
 };
