@@ -111,6 +111,7 @@ async function reconfigureWaitingVoiceChannel(raw) {
 
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
+const cron = require('node-cron');
 const webhookManager = require('./webhookManager');
 const { postToWebhook } = require('./postWebhook');
 const state = require('./state');
@@ -447,6 +448,8 @@ async function init(settings) {
     // Start JSON attachment watcher for configured win/loss channel
     try { collectWatcher.init(client); } catch (_) {}
     try { await client.guilds.fetch(); } catch (_) {}
+    // Setup scheduled tasks (daily updatebot at midnight UTC)
+    try { setupScheduledTasks(); } catch (e) { console.warn('⚠️ Scheduled tasks setup failed:', e && e.message ? e.message : e); }
     // Start waiting tracker if configured
     try {
       const settings = loadSettings();
@@ -848,4 +851,87 @@ async function sendWinLossMessage(content) {
 
 function getClient() { return client; }
 
-module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey };
+// Execute the updatebot script and post results to Discord
+async function runScheduledUpdate() {
+  console.log('[Scheduled Update] Starting daily update check at', new Date().toISOString());
+  
+  const isWindows = process.platform === 'win32';
+  const scriptName = isWindows ? 'update-bot.bat' : 'update-bot.sh';
+  const scriptPath = path.join(process.cwd(), scriptName);
+  
+  // Check if script exists
+  if (!fs.existsSync(scriptPath)) {
+    console.log('[Scheduled Update] Script not found:', scriptPath);
+    return;
+  }
+  
+  let child;
+  if (isWindows) {
+    child = spawn('cmd.exe', ['/c', scriptPath], {
+      cwd: process.cwd(),
+      windowsHide: true,
+      env: { ...process.env },
+    });
+  } else {
+    child = spawn('sh', [scriptPath], {
+      cwd: process.cwd(),
+      env: { ...process.env },
+    });
+  }
+  
+  let output = '';
+  child.stdout.on('data', (data) => {
+    output += data.toString();
+  });
+  
+  child.stderr.on('data', (data) => {
+    output += data.toString();
+  });
+  
+  child.on('close', (code) => {
+    console.log('[Scheduled Update] Child process closed with code ' + code);
+    
+    // Post output to Discord channel
+    const content = '```\n' + output + '```';
+    sendMessage(content).catch(err => {
+      console.error('[Scheduled Update] Failed to post to Discord:', err);
+    });
+    
+    if (code === 0) {
+      if (!output.includes("Your branch is up to date")) {
+        console.log('[Scheduled Update] Update successful, scheduling restart...');
+        setTimeout(() => {
+          const flagPath = path.join(process.cwd(), 'restart.flag');
+          console.log('[Scheduled Update] Creating restart flag at ' + flagPath);
+          try {
+            fs.writeFileSync(flagPath, new Date().toISOString());
+          } catch (e) {
+            console.error('[Scheduled Update] Failed to create restart flag:', e);
+          }
+        }, 5000);
+      } else {
+        console.log('[Scheduled Update] Bot is up to date.');
+      }
+    } else {
+      console.log('[Scheduled Update] Update process exited with code ' + code);
+    }
+  });
+}
+
+// Setup scheduled tasks
+function setupScheduledTasks() {
+  // Run updatebot every day at midnight UTC (00:00)
+  // Cron format: second minute hour day month weekday
+  // '0 0 0 * * *' = every day at 00:00:00 (midnight) UTC
+  const updateTask = cron.schedule('0 0 0 * * *', () => {
+    runScheduledUpdate();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  
+  console.log('✅ Scheduled tasks initialized: updatebot runs daily at midnight UTC');
+  return { updateTask };
+}
+
+module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey, setupScheduledTasks };
