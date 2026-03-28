@@ -6,6 +6,7 @@ const waitingTracker = require('../waitingTracker');
 const { fuseMatch, toNumber } = require('../nameMatch');
 const { getConfig: getLowPointsConfig } = require('../lowPointsIssuer');
 const { formatTable, formatTableLight, ansiColour } = require('../utils/formatHelper');
+const { stripBrackets } = require('../utils/nameSanitizer');
 
 function readLatestSquadronSnapshot() {
   try {
@@ -53,7 +54,7 @@ module.exports = {
     const snapshotPlayers = rows.map(r => ({
       r,
       rating: toNumber(r['Points'] ?? r.rating),
-      name: (r.Player || r.player || 'Unknown')
+      name: stripBrackets(r.Player || r.player || 'Unknown')
     }));
 
     // Build Top 20 set from snapshot
@@ -75,6 +76,8 @@ module.exports = {
           display = gm.displayName ?? gm.user?.globalName ?? gm.user?.username ?? display;
         }
       } catch (error) { console.error('Error fetching guild member for waiting list:', error); }
+
+      display = stripBrackets(display);
       let rating = 'N/A';
       let matchedName = '';
       if (snapshotPlayers.length && display) {
@@ -95,7 +98,6 @@ module.exports = {
 
     const tableData = out.map((x, i) => {
       const contribution = x.isTop ? x.rating : Math.round(x.rating / 20);
-      // const flags = `${x.isTop ? ' ⭐' : ''}${x.isLow ? ' ⚠️' : ''}`;
 
       const obj = {
         pos: i + 1,

@@ -1,0 +1,854 @@
+{
+    "status": "ok",
+    "data": [
+        {
+            "pos": 20,
+            "_id": 1023222,
+            "announcement": "",
+            "autoaccept": false,
+            "cdate": {
+                "$date": 1509711912570
+            },
+            "changed_by_uid": 45651956,
+            "changed_time": {
+                "$date": 1768661198203
+            },
+            "clanBestRewards": [
+                {
+                    "seasonName": "seasonId44_till50",
+                    "title": "top50@historical"
+                },
+                {
+                    "seasonName": "seasonId37_till50",
+                    "title": "top50@historical"
+                },
+                {
+                    "seasonName": "seasonId26_till20",
+                    "title": "top20@arcade"
+                },
+                {
+                    "seasonName": "seasonId24_till10",
+                    "title": "top10@arcade"
+                },
+                {
+                    "seasonName": "seasonId22_till20",
+                    "title": "top20@arcade"
+                },
+                {
+                    "seasonName": "seasonId54_till50",
+                    "title": "top50@historical"
+                }
+            ],
+            "clanRewardLog": {
+                "seasonId11_till50": {
+                    "t": {
+                        "$date": 1525132800000
+                    },
+                    "seasonId": 11,
+                    "seasonStartTimestamp": {
+                        "$date": 1519862400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1525132799000
+                    },
+                    "numInYear": 1,
+                    "titles": [
+                        "top50@arcade"
+                    ]
+                },
+                "seasonId12_till100": {
+                    "t": {
+                        "$date": 1530403200000
+                    },
+                    "seasonId": 12,
+                    "seasonStartTimestamp": {
+                        "$date": 1525132800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1530403199000
+                    },
+                    "numInYear": 2,
+                    "titles": [
+                        "top100@arcade"
+                    ]
+                },
+                "seasonId14_till100": {
+                    "t": {
+                        "$date": 1541030400000
+                    },
+                    "seasonId": 14,
+                    "seasonStartTimestamp": {
+                        "$date": 1535760000000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1541030399000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top100@arcade"
+                    ]
+                },
+                "seasonId15_till20": {
+                    "t": {
+                        "$date": 1546300800000
+                    },
+                    "seasonId": 15,
+                    "seasonStartTimestamp": {
+                        "$date": 1541030400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1546300799000
+                    },
+                    "numInYear": 5,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId18_till100": {
+                    "t": {
+                        "$date": 1561939200000
+                    },
+                    "seasonId": 18,
+                    "seasonStartTimestamp": {
+                        "$date": 1556668800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1561939199000
+                    },
+                    "numInYear": 2,
+                    "titles": [
+                        "top100@arcade"
+                    ]
+                },
+                "seasonId20_till20": {
+                    "t": {
+                        "$date": 1572566400000
+                    },
+                    "seasonId": 20,
+                    "seasonStartTimestamp": {
+                        "$date": 1567296000000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1572566399000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId21_till20": {
+                    "t": {
+                        "$date": 1577836800000
+                    },
+                    "seasonId": 21,
+                    "seasonStartTimestamp": {
+                        "$date": 1572566400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1577836799000
+                    },
+                    "numInYear": 5,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId22_till20": {
+                    "t": {
+                        "$date": 1583020800000
+                    },
+                    "seasonId": 22,
+                    "seasonStartTimestamp": {
+                        "$date": 1577836800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1583020799000
+                    },
+                    "numInYear": 0,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId23_till20": {
+                    "t": {
+                        "$date": 1588291200000
+                    },
+                    "seasonId": 23,
+                    "seasonStartTimestamp": {
+                        "$date": 1583020800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1588291199000
+                    },
+                    "numInYear": 1,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId24_till10": {
+                    "t": {
+                        "$date": 1593561600000
+                    },
+                    "seasonId": 24,
+                    "seasonStartTimestamp": {
+                        "$date": 1588291200000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1593561599000
+                    },
+                    "numInYear": 2,
+                    "titles": [
+                        "top10@arcade"
+                    ]
+                },
+                "seasonId26_till20": {
+                    "t": {
+                        "$date": 1604188800000
+                    },
+                    "seasonId": 26,
+                    "seasonStartTimestamp": {
+                        "$date": 1598918400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1604188799000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId27_till20": {
+                    "t": {
+                        "$date": 1609459200000
+                    },
+                    "seasonId": 27,
+                    "seasonStartTimestamp": {
+                        "$date": 1604188800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1609459199000
+                    },
+                    "numInYear": 5,
+                    "titles": [
+                        "top20@arcade"
+                    ]
+                },
+                "seasonId28_till100": {
+                    "t": {
+                        "$date": 1614556800000
+                    },
+                    "seasonId": 28,
+                    "seasonStartTimestamp": {
+                        "$date": 1609459200000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1614556799000
+                    },
+                    "numInYear": 0,
+                    "titles": [
+                        "top100@historical"
+                    ]
+                },
+                "seasonId37_till50": {
+                    "t": {
+                        "$date": 1661990400000
+                    },
+                    "seasonId": 37,
+                    "seasonStartTimestamp": {
+                        "$date": 1656633600000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1661990399000
+                    },
+                    "numInYear": 3,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId38_till100": {
+                    "t": {
+                        "$date": 1667260800000
+                    },
+                    "seasonId": 38,
+                    "seasonStartTimestamp": {
+                        "$date": 1661990400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1667260799000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top100@historical"
+                    ]
+                },
+                "seasonId44_till50": {
+                    "t": {
+                        "$date": 1698796800000
+                    },
+                    "seasonId": 44,
+                    "seasonStartTimestamp": {
+                        "$date": 1693526400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1698796799000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId52_till100": {
+                    "t": {
+                        "$date": 1740787200000
+                    },
+                    "seasonId": 52,
+                    "seasonStartTimestamp": {
+                        "$date": 1735689600000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1740787199000
+                    },
+                    "numInYear": 0,
+                    "titles": [
+                        "top100@historical"
+                    ]
+                },
+                "seasonId53_till100": {
+                    "t": {
+                        "$date": 1746057600000
+                    },
+                    "seasonId": 53,
+                    "seasonStartTimestamp": {
+                        "$date": 1740787200000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1746057599000
+                    },
+                    "numInYear": 1,
+                    "titles": [
+                        "top100@historical"
+                    ]
+                },
+                "seasonId54_till50": {
+                    "t": {
+                        "$date": 1751328000000
+                    },
+                    "seasonId": 54,
+                    "seasonStartTimestamp": {
+                        "$date": 1746057600000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1751327999000
+                    },
+                    "numInYear": 2,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId9_till50": {
+                    "t": {
+                        "$date": 1514764800000
+                    },
+                    "seasonId": 9,
+                    "seasonStartTimestamp": {
+                        "$date": 1509494400000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1514764799000
+                    },
+                    "numInYear": 5,
+                    "titles": [
+                        "top50@arcade"
+                    ]
+                },
+                "seasonId55_till50": {
+                    "t": {
+                        "$date": 1756684800000
+                    },
+                    "seasonId": 55,
+                    "seasonStartTimestamp": {
+                        "$date": 1751328000000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1756684799000
+                    },
+                    "numInYear": 3,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId56_till50": {
+                    "t": {
+                        "$date": 1761955200000
+                    },
+                    "seasonId": 56,
+                    "seasonStartTimestamp": {
+                        "$date": 1756684800000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1761955199000
+                    },
+                    "numInYear": 4,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId57_till50": {
+                    "t": {
+                        "$date": 1767225600000
+                    },
+                    "seasonId": 57,
+                    "seasonStartTimestamp": {
+                        "$date": 1761955200000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1767225599000
+                    },
+                    "numInYear": 5,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                },
+                "seasonId58_till50": {
+                    "t": {
+                        "$date": 1772323200000
+                    },
+                    "seasonId": 58,
+                    "seasonStartTimestamp": {
+                        "$date": 1767225600000
+                    },
+                    "seasonEndTimestamp": {
+                        "$date": 1772323199000
+                    },
+                    "numInYear": 0,
+                    "titles": [
+                        "top50@historical"
+                    ]
+                }
+            },
+            "clanSeasonRatingRewards": {
+                "t": {
+                    "$date": 1774310400000
+                },
+                "seasonId": 59,
+                "seasonStartTimestamp": {
+                    "$date": 1772323200000
+                },
+                "seasonEndTimestamp": {
+                    "$date": 1777593599000
+                },
+                "numInYear": 1,
+                "regaliaTags": [
+                    "common"
+                ]
+            },
+            "clanSeasonRewards": {
+                "regaliaTags": [
+                    "top50"
+                ],
+                "t": {
+                    "$date": 1772323200000
+                },
+                "seasonId": 58,
+                "seasonStartTimestamp": {
+                    "$date": 1767225600000
+                },
+                "seasonEndTimestamp": {
+                    "$date": 1772323199000
+                },
+                "numInYear": 0
+            },
+            "creator_uid": 7852011,
+            "currentTagRegalia": "top50",
+            "desc": "BOGUN — сила українського духу на землі та в повітрі ⚔️\nОдин полк — два фронти, одна мета — перемога!\nПоріг: ╠— 1.1 | ▓ — 0.9 \nDiscord: https://discord.gg/zDS3BnKZBy\n",
+            "interlockid": 27849,
+            "lastPaidTag": "=BOGUN=",
+            "members_cnt": 111,
+            "membership_req": {
+                "ranks": {
+                    "rank_Aircraft": {
+                        "type": "rank",
+                        "rank": 7,
+                        "count": 1,
+                        "unitType": "Aircraft"
+                    },
+                    "rank_Tank": {
+                        "type": "rank",
+                        "rank": 7,
+                        "count": 1,
+                        "unitType": "Tank"
+                    },
+                    "type": "and"
+                },
+                "battles_historical": {
+                    "type": "battles",
+                    "difficulty": "historical",
+                    "count": 1000
+                },
+                "type": "and"
+            },
+            "name": "____BOGUN-BROTHERS UKRAINE____",
+            "namel": "____bogun-brothers ukraine____",
+            "region": "▌UKRAINE▌",
+            "region_last_updated": {
+                "$date": 1695390813619
+            },
+            "regionl": "▌ukraine▌",
+            "slogan": "¤╝║⚡⚡⚡ Together to victory! ⚡⚡⚡▓ Разом до перемоги! ╠⚡⚡⚡║╝¤",
+            "status": "open",
+            "tag": "╖BOGUN╖",
+            "tagl": "bogun",
+            "transactions": [
+                5184410325420029466,
+                4220828330877315865,
+                8591916125552473622,
+                1353437740830256154,
+                1587062618571707419,
+                542662081851678747,
+                8209048083058513947,
+                3682707812156014876,
+                1326807529123146010,
+                124359928793445659,
+                8122389546353041182,
+                6767885930332048668,
+                5760410025216130587,
+                6520423970310127641,
+                1693999706469522460,
+                1369350170010406938,
+                5076931668022351643,
+                649436760275242521,
+                1757616844159999515,
+                5636646484761696026,
+                264641784996865048,
+                5172862857189563929,
+                3883662051013011737,
+                1022861972353647644,
+                4522360163171544856,
+                1710635083244673307,
+                1016797714175113241,
+                8930613300100469787,
+                1231663657443629081,
+                88168260115147030,
+                6123837662590771225,
+                2141284844567477529,
+                444385916878836506,
+                2758782311450978581,
+                6267782845897161498,
+                5296799978933890077,
+                2860588737827600154,
+                260028115298422557,
+                1179375039409133848,
+                7829956953072957977,
+                1163844369678618137,
+                5969255783454811930,
+                3610873529476629784,
+                2939039475413450010,
+                7370705456377480473,
+                7742119866470147098,
+                1695723128560913947,
+                2191342911265611547,
+                6275296313366109974,
+                8055000956015110941,
+                5751972741046735384,
+                1915701488575234331,
+                8085312431212654107,
+                7054009258774890266,
+                2700117425186333977,
+                7384206618753408797,
+                7004939061432874775,
+                4962472112224014871,
+                5408136286935917851,
+                7025866142516950043,
+                1572482063450074650,
+                7739659539515608344,
+                5239962011828915992,
+                2196588449230298138,
+                8769551731797070104,
+                4364041704602507037,
+                8343345250621271834,
+                3331274067511165722,
+                154405361067187479,
+                4678527887063713819,
+                4255426227169738266,
+                6185709993370748696,
+                1043218190457736471,
+                7686238080187446556,
+                1604449315228510490,
+                7652397270112138007,
+                1897849132588980507,
+                3177920231763157785,
+                6238294587567363099,
+                7535531419591985691,
+                794544913137441564,
+                7467337509879109909,
+                4432784110769307673,
+                762578490897561880,
+                4555421581611620886,
+                7445228057243598106,
+                1443817523561013529,
+                7515404800231518747,
+                3174649938712759830,
+                6320205728832944405,
+                1401413388190970904,
+                8119175505889677082,
+                1454451562377495319,
+                2848321131710717980,
+                5284678065588891416,
+                7380005119364826907,
+                4360115658769388311,
+                4786307238818507034,
+                3625135497971710234,
+                8294738458125554711
+            ],
+            "type": "normal",
+            "astat": {
+                "dr_era5_hist": 36248,
+                "deaths_hist": 10565,
+                "ftime_hist": 40313,
+                "battles_hist": 1863,
+                "wins_hist": 978,
+                "akills_hist": 4099,
+                "gkills_hist": 7527,
+                "dr_era0_arc": 0,
+                "dr_era0_hist": 0,
+                "dr_era0_sim": 0,
+                "dr_era1_arc": 0,
+                "dr_era1_hist": 0,
+                "dr_era1_sim": 0,
+                "dr_era2_arc": 0,
+                "dr_era2_hist": 0,
+                "dr_era2_sim": 0,
+                "dr_era3_arc": 0,
+                "dr_era3_hist": 0,
+                "dr_era3_sim": 0,
+                "dr_era4_arc": 0,
+                "dr_era4_hist": 0,
+                "dr_era4_sim": 0,
+                "dr_era5_arc": 0,
+                "dr_era5_sim": 0,
+                "dr_era6_arc": 0,
+                "dr_era6_hist": 0,
+                "dr_era6_sim": 0,
+                "dr_era7_arc": 0,
+                "dr_era7_hist": 0,
+                "dr_era7_sim": 0,
+                "dr_era8_arc": 0,
+                "dr_era8_hist": 0,
+                "dr_era8_sim": 0,
+                "dr_era9_arc": 0,
+                "dr_era9_hist": 0,
+                "dr_era9_sim": 0,
+                "activity": 89256,
+                "clan_activity_by_periods": 273645
+            },
+            "clanRewardRatingPerUser_59": {
+                "d20514": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20515": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20516": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20517": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20518": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20519": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20520": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20521": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20522": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20523": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20524": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20525": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20526": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20527": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20528": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20529": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20530": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20531": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20532": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20533": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20534": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20535": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                },
+                "d20536": {
+                    "historical": {
+                        "5": {
+                            "commonTags": {
+                                "rating": 1000
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}

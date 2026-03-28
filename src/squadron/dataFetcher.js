@@ -307,26 +307,39 @@ function ensureTmpDir() {
 /**
  * Fetch leaderboard and find squadron
  * @param {string} primaryTag - Squadron tag to find
- * @param {number} pageSize - Page size for API
  * @returns {Promise<Object>} Leaderboard and squadron data
  */
-async function fetchLeaderboardAndFindSquadron(primaryTag, pageSize = 20) {
-  // This is a placeholder - implementation depends on your API structure
-  // You'll need to adapt this based on your actual API endpoints
-  const baseUrl = 'https://wtstats.ru/api/v1/squadronBattles/leaderboard';
-  const url = `${baseUrl}?pageSize=${pageSize}`;
-  
-  const data = await fetchJson(url);
-  if (!data) return { leaderboard: null, squadronData: null };
-  
-  const leaderboard = data.leaderboard || [];
-  let squadronData = null;
-  
-  if (primaryTag) {
-    squadronData = leaderboard.find(s => s.tag === primaryTag) || null;
+async function fetchLeaderboardAndFindSquadron(primaryTag) {
+  let page = 1;
+
+  for (page = 1; page <= 10; page++) {
+    const baseUrl = 'https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/';
+    const url = baseUrl + page + `/sort/dr_era5`;
+    console.log(`ℹ️ [dataFetcher] Fetching leaderboard from page ${page}: ${url}, looking for ${primaryTag}`);
+    const data = await fetchJson(url);
+    if (!data) return { leaderboard: null, squadronData: null };
+
+    if (data.status !== 'ok') {
+      console.warn(`⚠️ fetchLeaderboardAndFindSquadron: API returned status "${data.status}" for ${url}`);
+      return { leaderboard: null, squadronData: null };
+    }
+
+    const leaderboard = data.data || [];
+    let squadronData = null;
+
+    console.log(`ℹ️ [dataFetcher] Leaderboard length: ${leaderboard.length}`);
+
+    if (primaryTag) {
+      const normalizedTag = primaryTag.toLowerCase();
+      squadronData = leaderboard.find(s => s.tagl === normalizedTag || s.tag?.toLowerCase() === normalizedTag) || null;
+    }
+
+    if (squadronData) {
+      return { leaderboard, squadronData };
+    }
   }
-  
-  return { leaderboard, squadronData };
+
+  return { leaderboard: null, squadronData: null };
 }
 
 module.exports = {

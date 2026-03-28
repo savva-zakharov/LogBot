@@ -5,4 +5,9 @@ function sanitizeName(name) {
   return name.replace(/[^\p{Script=Latin}\p{Script=Cyrillic}\p{N}_\-\.\s]/gu, '');
 }
 
-module.exports = { sanitizeName };
+function stripBrackets(name) {
+  if (typeof name !== 'string') return name;
+  return name.replace(/\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\}/g, '').replace(/\s+/g, ' ').trim();
+}
+
+module.exports = { sanitizeName, stripBrackets };
