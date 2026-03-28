@@ -1,6 +1,7 @@
 // --- Events logging (mirror all Discord posts) ---
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 function ensureEventsFile() {
   const file = path.join(process.cwd(), 'squadron_events.json');
   if (!fs.existsSync(file)) {
