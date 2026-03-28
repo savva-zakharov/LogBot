@@ -5,7 +5,7 @@ module.exports = {
     args: "--server",
     watch: true,
     // This ignores all .json files and the node_modules folder
-    watch: ["restart.flag"],
+    watch: ["restart.flag", "index.js", "src"],
     ignore_watch: ["node_modules", "*.json", "package-lock.json"],
     env: {
       NODE_ENV: "development",
