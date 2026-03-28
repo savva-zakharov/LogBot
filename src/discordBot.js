@@ -854,17 +854,21 @@ function getClient() { return client; }
 // Execute the updatebot script and post results to Discord
 async function runScheduledUpdate() {
   console.log('[Scheduled Update] Starting daily update check at', new Date().toISOString());
-  
+
+  const settings = loadSettings();
+  const scheduledTasksConfig = settings.scheduledTasks || {};
+  const updatebotConfig = scheduledTasksConfig.updatebot || {};
+
   const isWindows = process.platform === 'win32';
   const scriptName = isWindows ? 'update-bot.bat' : 'update-bot.sh';
   const scriptPath = path.join(process.cwd(), scriptName);
-  
+
   // Check if script exists
   if (!fs.existsSync(scriptPath)) {
     console.log('[Scheduled Update] Script not found:', scriptPath);
     return;
   }
-  
+
   let child;
   if (isWindows) {
     child = spawn('cmd.exe', ['/c', scriptPath], {
@@ -878,25 +882,32 @@ async function runScheduledUpdate() {
       env: { ...process.env },
     });
   }
-  
+
   let output = '';
   child.stdout.on('data', (data) => {
     output += data.toString();
   });
-  
+
   child.stderr.on('data', (data) => {
     output += data.toString();
   });
-  
-  child.on('close', (code) => {
+
+  child.on('close', async (code) => {
     console.log('[Scheduled Update] Child process closed with code ' + code);
-    
-    // Post output to Discord channel
+
+    // Post output to Discord channel (always use discordChannel from settings)
     const content = '```\n' + output + '```';
-    sendMessage(content).catch(err => {
-      console.error('[Scheduled Update] Failed to post to Discord:', err);
-    });
     
+    const targetCh = await ensureTargetChannel();
+    
+    if (targetCh) {
+      targetCh.send({ content }).catch(err => {
+        console.error('[Scheduled Update] Failed to post to Discord:', err);
+      });
+    } else {
+      console.error('[Scheduled Update] No Discord channel available to post output');
+    }
+
     if (code === 0) {
       if (!output.includes("Your branch is up to date")) {
         console.log('[Scheduled Update] Update successful, scheduling restart...');
@@ -920,17 +931,29 @@ async function runScheduledUpdate() {
 
 // Setup scheduled tasks
 function setupScheduledTasks() {
-  // Run updatebot every day at midnight UTC (00:00)
-  // Cron format: second minute hour day month weekday
-  // '0 0 0 * * *' = every day at 00:00:00 (midnight) UTC
-  const updateTask = cron.schedule('0 0 0 * * *', () => {
+  const settings = loadSettings();
+  const scheduledTasksConfig = settings.scheduledTasks || {};
+  const updatebotConfig = scheduledTasksConfig.updatebot || {};
+  
+  // Default configuration
+  const enabled = updatebotConfig.enabled !== false; // default true
+  const cronExpression = updatebotConfig.cron || '0 0 0 * * *';
+  const timezone = updatebotConfig.timezone || 'UTC';
+  
+  if (!enabled) {
+    console.log('ℹ️ Scheduled updatebot task is disabled in settings');
+    return { updateTask: null };
+  }
+  
+  // Run updatebot based on cron schedule
+  const updateTask = cron.schedule(cronExpression, () => {
     runScheduledUpdate();
   }, {
     scheduled: true,
-    timezone: 'UTC'
+    timezone: timezone
   });
-  
-  console.log('✅ Scheduled tasks initialized: updatebot runs daily at midnight UTC');
+
+  console.log(`✅ Scheduled tasks initialized: updatebot runs at "${cronExpression}" (${timezone})`);
   return { updateTask };
 }
 
