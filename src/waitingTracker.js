@@ -154,41 +154,55 @@ function init(client, masks, opts = {}) {
 }
 
 function recordTime(member, seconds, trackName) {
-  if (seconds <= 0) return;
+  if (seconds <= 0 || !member) return;
   try {
-    const memberName = getVoiceStateMemberName(member);
-    if (memberName) {
-      const result = addWaitTimeToStorage(memberName, seconds, trackName);
-      if (result && options.debug) {
-        console.log(`[WaitingTracker] recorded ${seconds}s for '${memberName}' in track '${trackName}'`);
+    const userId = member.id;
+    const discordName = getVoiceStateMemberName(member);
+    
+    // Find game name from squadron snapshots
+    let gameName = '';
+    const data = loadSquadronData();
+    const rows = getSnapshotRows(data);
+    if (Array.isArray(rows)) {
+      const candidates = rows.map((row) => ({
+        row,
+        name: stripBrackets(String(row.Player || row.player || '')).trim(),
+      })).filter(x => x.name);
+
+      const found = fuseMatch(candidates, discordName, ['name']);
+      if (found && found.item) {
+        gameName = found.item.name;
       }
+    }
+
+    const result = addWaitTimeToStorage(userId, discordName, gameName, seconds, trackName);
+    if (result && options.debug) {
+      console.log(`[WaitingTracker] recorded ${seconds}s for '${discordName}' (${userId}) in track '${trackName}' (gameName: ${gameName || 'N/A'})`);
     }
   } catch (e) {
     console.warn(`[WaitingTracker] failed to update waiting_times.json for track ${trackName}:`, e.message);
   }
 }
 
-function setTargetChannelId(channelId) {
-  // Provided for backward compatibility; updates targetMasks to single ID
-  targetMasks = channelId ? [String(channelId)] : [];
-}
-
-function getWaiting() {
-  const now = Date.now();
-  const arr = [];
-  for (const [userId, rec] of waiting.entries()) {
-    const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
-    arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
+function loadSquadronData() {
+  const file = path.join(process.cwd(), 'squadron_data.json');
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
   }
-  // sort by longest waiting first
-  arr.sort((a, b) => b.seconds - a.seconds);
-  return arr;
 }
 
-function getVoiceStateMemberName(member) {
-  if (!member) return '';
-  const name = member.displayName || member.nickname || member.user?.globalName || member.user?.username || '';
-  return stripBrackets(String(name)).trim();
+function getSnapshotRows(data) {
+  if (!data) return null;
+  if (Array.isArray(data.squadronSnapshots)) {
+    const snapshots = data.squadronSnapshots;
+    if (!snapshots.length) return null;
+    return snapshots[snapshots.length - 1]?.data?.rows || null;
+  }
+  return data?.data?.rows || null;
 }
 
 function loadWaitingTimes() {
@@ -213,53 +227,51 @@ function saveWaitingTimes(data) {
   }
 }
 
-function addWaitTimeToStorage(name, seconds, trackName) {
+function addWaitTimeToStorage(userId, discordName, gameName, seconds, trackName) {
   const data = loadWaitingTimes();
   if (!data.players) data.players = {};
   
-  // Use a normalized name for keying
-  const normalized = name.toLowerCase();
-  
-  // Find entry by fuzzy match or direct name
-  let targetName = name;
-  const playerNames = Object.keys(data.players);
-  if (playerNames.length > 0) {
-    const candidates = playerNames.map(n => ({ name: n }));
-    const found = fuseMatch(candidates, name, ['name']);
-    if (found && found.item) {
-      targetName = found.item.name;
-    }
-  }
-
-  if (!data.players[targetName]) {
-    data.players[targetName] = {
-      realName: targetName,
-      time: {},
-      times: [],
-      waitingSeconds: 0
+  if (!data.players[userId]) {
+    data.players[userId] = {
+      discordName: discordName,
+      gameName: gameName || '',
+      time: {}
     };
+  } else {
+    // Update names if they've changed or if we found a game name
+    data.players[userId].discordName = discordName;
+    if (gameName) data.players[userId].gameName = gameName;
   }
 
-  const p = data.players[targetName];
+  const p = data.players[userId];
   
-  // 1. time object
+  // Update time object
   p.time[trackName] = (p.time[trackName] || 0) + seconds;
-  
-  // 2. times array
-  if (!Array.isArray(p.times)) p.times = [];
-  let entry = p.times.find(t => t.type === trackName);
-  if (!entry) {
-    entry = { type: trackName, totalSeconds: 0 };
-    p.times.push(entry);
-  }
-  entry.totalSeconds = (entry.totalSeconds || 0) + seconds;
-
-  // 3. total waiting seconds (backward compatibility)
-  if (trackName.toLowerCase().includes('waiting')) {
-    p.waitingSeconds = (p.waitingSeconds || 0) + seconds;
-  }
 
   return saveWaitingTimes(data);
+}
+
+function setTargetChannelId(channelId) {
+  // Provided for backward compatibility; updates targetMasks to single ID
+  targetMasks = channelId ? [String(channelId)] : [];
+}
+
+function getWaiting() {
+  const now = Date.now();
+  const arr = [];
+  for (const [userId, rec] of waiting.entries()) {
+    const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
+    arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
+  }
+  // sort by longest waiting first
+  arr.sort((a, b) => b.seconds - a.seconds);
+  return arr;
+}
+
+function getVoiceStateMemberName(member) {
+  if (!member) return '';
+  const name = member.displayName || member.nickname || member.user?.globalName || member.user?.username || '';
+  return stripBrackets(String(name)).trim();
 }
 
 module.exports = { init, setTargetChannelId, getWaiting };

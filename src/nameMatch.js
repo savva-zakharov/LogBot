@@ -113,9 +113,58 @@ function bestMatchPlayer(rows, query) {
 }
 
 function fuseMatch(items, query, keys = ['name']) {
-  const fuseOptions = { keys };
-  const sanitizedQuery = sanitizeName(query.replace(/\([^)]*\)/g, ''));
-  return new Fuse(items, fuseOptions).search(sanitizedQuery)[0] || null;
+  if (!items || !items.length || !query) return null;
+
+  // 1. Sanitize the full query
+  const fullQuery = stripBracketed(query);
+  if (!fullQuery) return null;
+
+  const fuseOptions = { 
+    keys,
+    includeScore: true,
+    threshold: 0.4 // Adjust sensitivity
+  };
+  const fuse = new Fuse(items, fuseOptions);
+
+  // Helper to get first word
+  const getFirstWord = (s) => s.split(/\s+/)[0].trim();
+
+  // Try matching with different variations of the query
+  const variations = [
+    { q: fullQuery, weight: 1.0 }, // Full sanitized query
+    { q: getFirstWord(fullQuery), weight: 0.8 } // First word only
+  ].filter(v => v.q.length > 1); // Ignore single-character variations
+
+  let bestResult = null;
+  let bestGlobalScore = Infinity;
+
+  for (const variant of variations) {
+    const results = fuse.search(variant.q);
+    if (results.length > 0) {
+      const result = results[0];
+      // Penalize scores based on variation weight (lower weight = higher/worse score)
+      const adjustedScore = result.score / variant.weight;
+
+      // Further validate quality against the FULL query
+      const matchName = keys.map(k => result.item[k]).join(' ');
+      const crossDist = levenshtein(matchName, fullQuery);
+      const maxLen = Math.max(matchName.length, fullQuery.length) || 1;
+      const distQuality = crossDist / maxLen;
+
+      // Final heuristic: combine Fuse score and Levenshtein quality
+      const globalScore = adjustedScore + (distQuality * 0.5);
+
+      if (globalScore < bestGlobalScore) {
+        bestGlobalScore = globalScore;
+        bestResult = result;
+      }
+    }
+  }
+
+  // Final sanity check: if the best match is too far off, return null
+  if (bestGlobalScore > 0.8) return null;
+
+  return bestResult;
 }
 
 module.exports = {

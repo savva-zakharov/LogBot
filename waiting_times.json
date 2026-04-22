@@ -1,22 +1,12 @@
 {
   "players": {
-    "Mindbird": {
-      "realName": "Mindbird",
+    "223113224470528000": {
+      "discordName": "Mindbird Lord Of Bots",
+      "gameName": "Mindbird",
       "time": {
-        "SQB*": 5,
+        "SQB*": 13,
         "waiting": 3
-      },
-      "times": [
-        {
-          "type": "SQB*",
-          "totalSeconds": 5
-        },
-        {
-          "type": "waiting",
-          "totalSeconds": 3
-        }
-      ],
-      "waitingSeconds": 3
+      }
     }
   }
 }
