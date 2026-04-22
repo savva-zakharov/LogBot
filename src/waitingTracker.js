@@ -1,14 +1,13 @@
 // src/waitingTracker.js
-// Tracks how long members have been in a specified voice channel.
+// Tracks how long members have been in specified voice channels or groups of channels.
 const fs = require('fs');
 const path = require('path');
-const { fuseMatch, toNumber } = require('./nameMatch');
+const { fuseMatch } = require('./nameMatch');
 const { stripBrackets } = require('./utils/nameSanitizer');
-const { sendMessage } = require('./discordBot');
 
 let clientRef = null;
-let targetChannelId = null;
-const waiting = new Map(); // userId -> { joinedAt: number (ms), channelId: string }
+let targetMasks = []; // Array of strings (IDs, names, or wildcards like "SQB*")
+const waiting = new Map(); // userId -> { joinedAt: number (ms), trackName: string, channelId: string }
 let options = {
   // Whether to track bot accounts
   trackBots: false,
@@ -20,13 +19,49 @@ let options = {
   debug: true,
 };
 
-function init(client, channelId, opts = {}) {
+function matchesMask(channel, mask) {
+  if (!channel || !mask) return false;
+  const maskStr = String(mask).trim();
+  const chId = String(channel.id);
+  const chName = String(channel.name);
+
+  // Check ID
+  if (chId === maskStr) return true;
+  // Check exact name (case-insensitive)
+  if (chName.toLowerCase() === maskStr.toLowerCase()) return true;
+
+  // Check wildcard (e.g., "SQB*")
+  if (maskStr.includes('*')) {
+    try {
+      // Escape regex special chars except *
+      const pattern = maskStr
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*');
+      const regex = new RegExp(`^${pattern}$`, 'i');
+      return regex.test(chName);
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function getTrackForChannel(channel) {
+  if (!channel) return null;
+  for (const mask of targetMasks) {
+    if (matchesMask(channel, mask)) return mask;
+  }
+  return null;
+}
+
+function init(client, masks, opts = {}) {
   clientRef = client;
-  targetChannelId = channelId || null;
+  targetMasks = Array.isArray(masks) ? masks : (masks ? [String(masks)] : []);
   options = { ...options, ...(opts || {}) };
+
   if (!clientRef) throw new Error('waitingTracker.init requires a Discord client');
-  if (!targetChannelId) {
-    console.log('ℹ️ WaitingTracker: no target voice channel configured; tracker disabled.');
+  if (targetMasks.length === 0) {
+    console.log('ℹ️ WaitingTracker: no target voice channels configured; tracker disabled.');
     return { enabled: false };
   }
 
@@ -34,92 +69,108 @@ function init(client, channelId, opts = {}) {
     try {
       const userId = newState?.id || oldState?.id;
       if (!userId) return;
-      const before = oldState?.channelId || null;
-      const after = newState?.channelId || null;
-      const member = newState?.member || oldState?.member || null;
-      const joinedChannelIsTarget = after === targetChannelId;
-      const leftChannelIsTarget = before === targetChannelId;
 
-      // Exempt checks
-      if (member) {
-        if (!options.trackBots && member.user?.bot) return;
-        try { if (typeof options.exemptMembers === 'function' && options.exemptMembers(member)) return; } catch (_) { }
-      }
-      // Exempt target channel entirely if configured
-      if (joinedChannelIsTarget || leftChannelIsTarget) {
-        try {
-          const ch = joinedChannelIsTarget ? newState?.channel : oldState?.channel;
-          if (ch && typeof options.exemptChannels === 'function' && options.exemptChannels(ch)) {
-            // If channel exempt, ensure user is not tracked
-            if (waiting.has(userId)) waiting.delete(userId);
-            return;
-          }
-        } catch (_) { }
+      const oldCh = oldState?.channel;
+      const newCh = newState?.channel;
+
+      const oldTrack = getTrackForChannel(oldCh);
+      const newTrack = getTrackForChannel(newCh);
+
+      // If user moved within the same track (or stayed outside), do nothing
+      if (oldTrack === newTrack) {
+        // Update channelId in record if still in same track
+        if (newTrack && waiting.has(userId)) {
+          const rec = waiting.get(userId);
+          rec.channelId = newCh?.id || rec.channelId;
+        }
+        return;
       }
 
       const now = Date.now();
-      // Joined target channel
-      if (joinedChannelIsTarget && before !== targetChannelId) {
-        if (options.debug) console.log(`[WaitingTracker] join target: ${userId} at ${now}`);
-        waiting.set(userId, { joinedAt: now, channelId: after });
+      const member = newState?.member || oldState?.member || null;
 
-      }
-      // Left target channel
-      if (leftChannelIsTarget && after !== targetChannelId) {
-        if (options.debug) console.log(`[WaitingTracker] leave target: ${userId} at ${now}`);
+      // Finalize old track
+      if (oldTrack) {
         const rec = waiting.get(userId);
-        if (rec) {
+        if (rec && rec.trackName === oldTrack) {
           const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
-          console.log(`[WaitingTracker] member ${userId} left after ${seconds} seconds`);
-          try {
-            const memberName = getVoiceStateMemberName(member);
-            if (memberName) {
-              const result = addWaitTimeToSquadronData(memberName, seconds);
-              if (result) {
-                console.log(`[WaitingTracker] recorded ${seconds}s for squadron entry matching '${memberName}'`);
-              } else {
-                console.log(`[WaitingTracker] could not find squadron entry for '${memberName}'`);
-              }
-            }
-          } catch (e) {
-            console.warn('[WaitingTracker] failed to update squadron_data.json:', e && e.message ? e.message : e);
-          }
-          waiting.delete(userId);
-        } else {
-          console.log(`[WaitingTracker] member ${userId} left but was not tracked`);
+          if (options.debug) console.log(`[WaitingTracker] leave ${oldTrack}: ${userId} after ${seconds}s`);
+          recordTime(member, seconds, oldTrack);
           waiting.delete(userId);
         }
       }
-      // Moved within same target channel -> ignore
-    } catch (_) { }
+
+      // Start new track
+      if (newTrack) {
+        // Exempt checks
+        if (member) {
+          if (!options.trackBots && member.user?.bot) return;
+          try { if (typeof options.exemptMembers === 'function' && options.exemptMembers(member)) return; } catch (_) { }
+        }
+        if (newCh) {
+          try { if (typeof options.exemptChannels === 'function' && options.exemptChannels(newCh)) return; } catch (_) { }
+        }
+
+        if (options.debug) console.log(`[WaitingTracker] join ${newTrack}: ${userId} at ${now}`);
+        waiting.set(userId, { joinedAt: now, trackName: newTrack, channelId: newCh.id });
+      }
+    } catch (e) {
+      if (options.debug) console.error('[WaitingTracker] Error in voiceStateUpdate:', e);
+    }
   });
 
-  console.log(`✅ WaitingTracker: tracking voice channel ${targetChannelId}`);
-  // Seed existing members currently in the target voice channel (best-effort, async)
+  console.log(`✅ WaitingTracker: tracking voice masks [${targetMasks.join(', ')}]`);
+
+  // Seed existing members currently in tracked channels
   ; (async () => {
     try {
-      const ch = await clientRef.channels.fetch(targetChannelId).catch(() => null);
-      if (!ch || !ch.members) return;
-      try { if (ch.guild && ch.guild.members) await ch.guild.members.fetch(); } catch (_) { }
       let added = 0;
-      for (const [, gm] of ch.members) {
+      const guilds = clientRef.guilds.cache;
+      for (const [, guild] of guilds) {
         try {
-          if (!options.trackBots && gm.user?.bot) continue;
-          if (typeof options.exemptMembers === 'function' && options.exemptMembers(gm)) continue;
-          if (!waiting.has(gm.id)) {
-            waiting.set(gm.id, { joinedAt: Date.now(), channelId: targetChannelId });
-            added++;
+          const channels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 13)); // GuildVoice or GuildStageVoice
+          for (const [, ch] of channels) {
+            const trackName = getTrackForChannel(ch);
+            if (!trackName) continue;
+
+            for (const [, gm] of ch.members) {
+              try {
+                if (!options.trackBots && gm.user?.bot) continue;
+                if (typeof options.exemptMembers === 'function' && options.exemptMembers(gm)) continue;
+                if (!waiting.has(gm.id)) {
+                  waiting.set(gm.id, { joinedAt: Date.now(), trackName: trackName, channelId: ch.id });
+                  added++;
+                }
+              } catch (_) { }
+            }
           }
         } catch (_) { }
       }
-      if (options.debug || added) console.log(`ℹ️ WaitingTracker: seeded ${added} member(s) currently in channel.`);
+      if (options.debug || added) console.log(`ℹ️ WaitingTracker: seeded ${added} member(s) currently in tracked channels.`);
     } catch (_) { }
   })();
+
   return { enabled: true };
 }
 
+function recordTime(member, seconds, trackName) {
+  if (seconds <= 0) return;
+  try {
+    const memberName = getVoiceStateMemberName(member);
+    if (memberName) {
+      const result = addWaitTimeToStorage(memberName, seconds, trackName);
+      if (result && options.debug) {
+        console.log(`[WaitingTracker] recorded ${seconds}s for '${memberName}' in track '${trackName}'`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[WaitingTracker] failed to update waiting_times.json for track ${trackName}:`, e.message);
+  }
+}
+
 function setTargetChannelId(channelId) {
-  targetChannelId = channelId || null;
+  // Provided for backward compatibility; updates targetMasks to single ID
+  targetMasks = channelId ? [String(channelId)] : [];
 }
 
 function getWaiting() {
@@ -127,7 +178,7 @@ function getWaiting() {
   const arr = [];
   for (const [userId, rec] of waiting.entries()) {
     const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
-    arr.push({ userId, seconds, channelId: rec.channelId });
+    arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
   }
   // sort by longest waiting first
   arr.sort((a, b) => b.seconds - a.seconds);
@@ -140,64 +191,75 @@ function getVoiceStateMemberName(member) {
   return stripBrackets(String(name)).trim();
 }
 
-function loadSquadronData() {
-  const file = path.join(process.cwd(), 'squadron_data.json');
-  if (!fs.existsSync(file)) return null;
+function loadWaitingTimes() {
+  const file = path.join(process.cwd(), 'waiting_times.json');
+  if (!fs.existsSync(file)) return {};
   try {
     const raw = fs.readFileSync(file, 'utf8');
-    return raw ? JSON.parse(raw) : null;
+    return raw ? JSON.parse(raw) : {};
   } catch (_) {
-    return null;
+    return {};
   }
 }
 
-function saveSquadronData(data) {
-  const file = path.join(process.cwd(), 'squadron_data.json');
+function saveWaitingTimes(data) {
+  const file = path.join(process.cwd(), 'waiting_times.json');
   try {
     fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (e) {
-    console.warn('[WaitingTracker] failed to save squadron_data.json:', e && e.message ? e.message : e);
+    console.warn('[WaitingTracker] failed to save waiting_times.json:', e && e.message ? e.message : e);
     return false;
   }
 }
 
-function getSnapshotRows(data) {
-  if (!data) return null;
-  if (Array.isArray(data.squadronSnapshots)) {
-    const snapshots = data.squadronSnapshots;
-    if (!snapshots.length) return null;
-    return snapshots[snapshots.length - 1]?.data?.rows || null;
+function addWaitTimeToStorage(name, seconds, trackName) {
+  const data = loadWaitingTimes();
+  if (!data.players) data.players = {};
+  
+  // Use a normalized name for keying
+  const normalized = name.toLowerCase();
+  
+  // Find entry by fuzzy match or direct name
+  let targetName = name;
+  const playerNames = Object.keys(data.players);
+  if (playerNames.length > 0) {
+    const candidates = playerNames.map(n => ({ name: n }));
+    const found = fuseMatch(candidates, name, ['name']);
+    if (found && found.item) {
+      targetName = found.item.name;
+    }
   }
-  return data?.data?.rows || null;
-}
 
-function addWaitTimeToSquadronData(name, seconds) {
-  const data = loadSquadronData();
-  if (!data) return false;
-  const rows = getSnapshotRows(data);
-  if (!Array.isArray(rows)) return false;
+  if (!data.players[targetName]) {
+    data.players[targetName] = {
+      realName: targetName,
+      time: {},
+      times: [],
+      waitingSeconds: 0
+    };
+  }
 
-  const candidates = rows.map((row) => ({
-    row,
-    name: stripBrackets(String(row.Player || row.player || '')).trim(),
-  })).filter(x => x.name);
+  const p = data.players[targetName];
+  
+  // 1. time object
+  p.time[trackName] = (p.time[trackName] || 0) + seconds;
+  
+  // 2. times array
+  if (!Array.isArray(p.times)) p.times = [];
+  let entry = p.times.find(t => t.type === trackName);
+  if (!entry) {
+    entry = { type: trackName, totalSeconds: 0 };
+    p.times.push(entry);
+  }
+  entry.totalSeconds = (entry.totalSeconds || 0) + seconds;
 
-  const found = fuseMatch(candidates, name, ['name']);
-  if (!found || !found.item || !found.item.row) return false;
+  // 3. total waiting seconds (backward compatibility)
+  if (trackName.toLowerCase().includes('waiting')) {
+    p.waitingSeconds = (p.waitingSeconds || 0) + seconds;
+  }
 
-  const targetRow = found.item.row;
-  const existing = toNumber(targetRow.waitingSeconds ?? targetRow.WaitingSeconds ?? targetRow.waitingTimeSeconds ?? targetRow.WaitingTimeSeconds ?? targetRow.waitingTime ?? targetRow.WaitingTime ?? 0);
-  const waitingField = targetRow.WaitingSeconds !== undefined ? 'WaitingSeconds'
-    : targetRow.waitingSeconds !== undefined ? 'waitingSeconds'
-    : targetRow.WaitingTimeSeconds !== undefined ? 'WaitingTimeSeconds'
-    : targetRow.waitingTimeSeconds !== undefined ? 'waitingTimeSeconds'
-    : targetRow.WaitingTime !== undefined ? 'WaitingTime'
-    : targetRow.waitingTime !== undefined ? 'waitingTime'
-    : 'waitingSeconds';
-  targetRow[waitingField] = existing + seconds;
-
-  return saveSquadronData(data);
+  return saveWaitingTimes(data);
 }
 
 module.exports = { init, setTargetChannelId, getWaiting };

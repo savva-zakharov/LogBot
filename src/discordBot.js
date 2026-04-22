@@ -454,16 +454,22 @@ async function init(settings) {
     // Start waiting tracker if configured
     try {
       const settings = loadSettings();
-      const waitChanRaw = settings.waitingVoiceChannel || settings.waitingVoiceChannelId || process.env.WAITING_VOICE_CHANNEL || null;
+      const waitChanRaw = settings.waitingVoiceChannels || settings.waitingVoiceChannel || settings.waitingVoiceChannelId || process.env.WAITING_VOICE_CHANNEL || null;
       if (waitChanRaw) {
-        const resolvedId = await resolveVoiceChannelId(waitChanRaw);
-        if (resolvedId) {
-          let chName = resolvedId;
-          try { const chObj = await client.channels.fetch(resolvedId); if (chObj) chName = `${chObj.name} (${chObj.id})`; } catch (_) {}
-          console.log(`ℹ️ WaitingTracker: initializing for voice channel ${chName}`);
-          waitingTracker.init(client, resolvedId, { debug: true });
+        if (Array.isArray(waitChanRaw)) {
+          console.log(`ℹ️ WaitingTracker: initializing for multiple masks: [${waitChanRaw.join(', ')}]`);
+          waitingTracker.init(client, waitChanRaw, { debug: true });
         } else {
-          console.log(`ℹ️ Discord: waitingVoiceChannel '${waitChanRaw}' could not be resolved to a voice channel ID; /waiting will show empty list.`);
+          const resolvedId = await resolveVoiceChannelId(waitChanRaw);
+          if (resolvedId) {
+            let chName = resolvedId;
+            try { const chObj = await client.channels.fetch(resolvedId); if (chObj) chName = `${chObj.name} (${chObj.id})`; } catch (_) {}
+            console.log(`ℹ️ WaitingTracker: initializing for voice channel ${chName}`);
+            waitingTracker.init(client, resolvedId, { debug: true });
+          } else {
+            console.log(`ℹ️ WaitingTracker: resolving '${waitChanRaw}' as literal mask/name.`);
+            waitingTracker.init(client, waitChanRaw, { debug: true });
+          }
         }
       } else {
         console.log('ℹ️ Discord: waitingVoiceChannel not configured; /waiting will show empty list.');

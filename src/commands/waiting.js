@@ -90,7 +90,7 @@ module.exports = {
       const numRating = toNumber(rating);
       const isLow = Number.isFinite(numRating) && numRating > 0 ? (numRating < threshold) : false;
       const isTop = matchedName ? top20Names.has(matchedName.toLowerCase()) : false;
-      out.push({ name: display, seconds: w.seconds, rating: numRating, isLow, isTop });
+      out.push({ name: display, seconds: w.seconds, track: w.trackName || 'unknown', rating: numRating, isLow, isTop });
     }
 
     // Sort by waiting longest first
@@ -101,7 +101,8 @@ module.exports = {
 
       const obj = {
         pos: i + 1,
-        name: x.name + flags,
+        name: x.name,
+        track: x.track,
         time: formatDuration(x.seconds),
         rating: x.rating,
         contribution: contribution
@@ -110,11 +111,15 @@ module.exports = {
       if (obj.name.length > 20) {
         obj.name = obj.name.slice(0, 18) + '..';
       }
+      if (obj.track.length > 10) {
+        obj.track = obj.track.slice(0, 8) + '..';
+      }
 
       if (x.isTop) {
         const colour = 'cyan';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name, colour);
+        obj.track = ansiColour(obj.track, colour);
         obj.time = obj.time;
         obj.rating = String(obj.rating);
         obj.contribution = String(obj.contribution);
@@ -124,6 +129,7 @@ module.exports = {
         const colour = 'yellow';
         obj.pos = String(obj.pos);
         obj.name = ansiColour(obj.name, colour);
+        obj.track = ansiColour(obj.track, colour);
         obj.time = obj.time;
         obj.rating = String(obj.rating);
         obj.contribution = String(obj.contribution);
@@ -132,8 +138,8 @@ module.exports = {
       return obj;
     });
 
-    const fieldHeaders = ["Pos", "Name", "Time", "Pts", "Cont"];
-    const fieldOrder = ["pos", "name", "time", "rating", "contribution"];
+    const fieldHeaders = ["Pos", "Name", "Track", "Time", "Pts", "Cont"];
+    const fieldOrder = ["pos", "name", "track", "time", "rating", "contribution"];
     const text = formatTableLight(tableData, null, fieldHeaders, fieldOrder);
 
     const embed = new EmbedBuilder()

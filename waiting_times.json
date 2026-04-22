@@ -1,0 +1,22 @@
+{
+  "players": {
+    "Mindbird": {
+      "realName": "Mindbird",
+      "time": {
+        "SQB*": 5,
+        "waiting": 3
+      },
+      "times": [
+        {
+          "type": "SQB*",
+          "totalSeconds": 5
+        },
+        {
+          "type": "waiting",
+          "totalSeconds": 3
+        }
+      ],
+      "waitingSeconds": 3
+    }
+  }
+}

@@ -68,10 +68,12 @@ function readLastSnapshot(dataFile) {
  */
 function appendSnapshot(dataFile, snapshot, playerSession = null) {
   try {
+    const snapshotData = snapshot.data || { headers: [], rows: [] };
+    
     // New format: single snapshot with data
     const obj = {
       ts: snapshot.ts || Date.now(),
-      data: snapshot.data || { headers: [], rows: [] },
+      data: snapshotData,
       totalPoints: snapshot.totalPoints,
       squadronPlace: snapshot.squadronPlace,
       totalPointsAbove: snapshot.totalPointsAbove,
@@ -93,11 +95,14 @@ function appendSnapshot(dataFile, snapshot, playerSession = null) {
         lastWritten: Date.now(),
       };
     }
+    
     fs.writeFileSync(dataFile, JSON.stringify(obj, null, 2), 'utf8');
+    console.log(`[SNAPSHOT] Snapshot written to disk.`);
   } catch (e) {
     console.warn(`[WARN] Failed to append snapshot: ${e.message}`);
   }
 }
+
 
 /**
  * Prune snapshot for comparison (remove noisy fields)
