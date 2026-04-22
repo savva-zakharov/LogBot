@@ -4,8 +4,24 @@
       "discordName": "Mindbird Lord Of Bots",
       "gameName": "Mindbird",
       "time": {
-        "SQB*": 13,
-        "waiting": 3
+        "waiting": 109,
+        "SQB-*": 63
+      }
+    },
+    "1231231231232": {
+      "discordName": "Ranged Phoenix",
+      "gameName": "Ranged Phoenix",
+      "time": {
+        "waiting": 2313,
+        "SQB-*": 21312
+      }
+    },
+    "223113224470d52831232": {
+      "discordName": "Rando Ass Player",
+      "gameName": "Rando",
+      "time": {
+        "waiting": 12312,
+        "SQB-*": 12312
       }
     }
   }

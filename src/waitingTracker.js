@@ -274,4 +274,8 @@ function getVoiceStateMemberName(member) {
   return stripBrackets(String(name)).trim();
 }
 
-module.exports = { init, setTargetChannelId, getWaiting };
+function setTargetMasks(masks) {
+  targetMasks = Array.isArray(masks) ? masks : (masks ? [String(masks)] : []);
+}
+
+module.exports = { init, setTargetChannelId, setTargetMasks, getWaiting };

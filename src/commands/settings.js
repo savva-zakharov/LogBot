@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
 const { loadSettings } = require('../config');
-const { setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel } = require('../discordBot');
+const { setDiscordChannel, reconfigureWaitingVoiceChannel, reconfigureWaitingVoiceChannels, setLogsChannel, setWinLossChannel } = require('../discordBot');
 const { isAuthorized } = require('../utils/permissions');
 
 function readJsonSettings() {
@@ -38,6 +38,7 @@ async function buildPanel() {
     .addFields(
       { name: 'discordChannel (bot technical messages)', value: String(cfg.discordChannel || ''), inline: false },
       { name: 'waitingVoiceChannel', value: String(cfg.waitingVoiceChannel || ''), inline: false },
+      { name: 'waitingVoiceChannels (tracked channels)', value: Array.isArray(cfg.waitingVoiceChannels) ? cfg.waitingVoiceChannels.join(', ') : String(cfg.waitingVoiceChannels || ''), inline: false },
       { name: 'squadronPageUrl', value: String(cfg.squadronPageUrl || ''), inline: false },
       { name: 'discordLogsChannel (player logs)', value: String(cfg.discordLogsChannel || ''), inline: false },
       { name: 'discordWinLossChannell (win/loss logs)', value: String(cfg.discordWinLossChannell || ''), inline: false },
@@ -46,14 +47,15 @@ async function buildPanel() {
       { name: 'BOT_OWNER_ID', value: String(cfg.BOT_OWNER_ID || ''), inline: false },
       { name: 'tableStyle', value: String(cfg.tableStyle || 'heavy'), inline: false },
     );
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('cfg_set_dc').setLabel('Set discordChannel').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('cfg_set_wvc').setLabel('Set waitingVoiceChannel').setStyle(ButtonStyle.Primary),
-  );
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('cfg_set_url').setLabel('Set squadronPageUrl').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('cfg_refresh').setLabel('Refresh').setStyle(ButtonStyle.Secondary),
-  );
+      const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('cfg_set_dc').setLabel('Set discordChannel').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('cfg_set_wvc').setLabel('Set waitingVoiceChannel').setStyle(ButtonStyle.Primary),
+      );
+      const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('cfg_set_url').setLabel('Set squadronPageUrl').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('cfg_set_wvcs').setLabel('Set Tracked Channels').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('cfg_refresh').setLabel('Refresh').setStyle(ButtonStyle.Secondary),
+      );
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cfg_set_logs').setLabel('Set discordLogsChannel').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('cfg_set_wl').setLabel('Set discordWinLossChannell').setStyle(ButtonStyle.Secondary),
@@ -125,9 +127,11 @@ module.exports = {
       }
       if (interaction.isButton() && id === 'cfg_set_wvc') {
         const modal = new ModalBuilder().setCustomId('cfg_modal_wvc').setTitle('Set WAITING_VOICE_CHANNEL');
+        const cfg = loadSettings();
         const input = new TextInputBuilder()
           .setCustomId('cfg_wvc_value')
           .setLabel('Voice channel ID or mention')
+          .setValue(String(cfg.waitingVoiceChannel || ''))
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
         const row = new ActionRowBuilder().addComponents(input);
@@ -142,6 +146,30 @@ module.exports = {
         await reconfigureWaitingVoiceChannel(val);
         const payload = await buildPanel();
         await interaction.reply({ ...payload, content: 'WAITING_VOICE_CHANNEL updated and applied.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      if (interaction.isButton() && id === 'cfg_set_wvcs') {
+        const modal = new ModalBuilder().setCustomId('cfg_modal_wvcs').setTitle('Set Tracked Channels');
+        const cfg = loadSettings();
+        const currentVal = Array.isArray(cfg.waitingVoiceChannels) ? cfg.waitingVoiceChannels.join(', ') : String(cfg.waitingVoiceChannels || '');
+        const input = new TextInputBuilder()
+          .setCustomId('cfg_wvcs_value')
+          .setLabel('Comma-separated IDs or names')
+          .setValue(currentVal)
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false);
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (interaction.isModalSubmit() && id === 'cfg_modal_wvcs') {
+        const raw = (interaction.fields.getTextInputValue('cfg_wvcs_value') || '').trim();
+        const channels = raw.split(',').map(c => c.trim()).filter(Boolean);
+        writeJsonSettings({ waitingVoiceChannels: channels });
+        await reconfigureWaitingVoiceChannels(channels);
+        const payload = await buildPanel();
+        await interaction.reply({ ...payload, content: 'Tracked channels updated and applied.', flags: MessageFlags.Ephemeral });
         return true;
       }
       if (interaction.isButton() && id === 'cfg_set_url') {

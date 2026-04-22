@@ -110,6 +110,14 @@ async function reconfigureWaitingVoiceChannel(raw) {
   return null;
 }
 
+async function reconfigureWaitingVoiceChannels(masks) {
+  try {
+    waitingTracker.setTargetMasks(masks);
+    return true;
+  } catch (_) {}
+  return false;
+}
+
 // src/discordBot.js
 const { Client, GatewayIntentBits, Partials, ChannelType, MessageFlags } = require('discord.js');
 const cron = require('node-cron');
@@ -964,4 +972,4 @@ function setupScheduledTasks() {
   return { updateTask };
 }
 
-module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey, setupScheduledTasks };
+module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, reconfigureWaitingVoiceChannels, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey, setupScheduledTasks };
