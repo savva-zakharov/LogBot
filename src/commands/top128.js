@@ -68,6 +68,12 @@ module.exports = {
         name: 'embed',
         description: 'Send the list as an embed',
         required: false,
+      },
+      {
+        type: 1,
+        name: 'csv',
+        description: 'Send all squadron data as a CSV file',
+        required: false,
       }
     ],
   },
@@ -84,6 +90,39 @@ module.exports = {
       return;
     }
     
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (sub === 'csv') {
+      // Get all unique keys for headers
+      const headerSet = new Set();
+      rows.forEach(r => Object.keys(r).forEach(k => headerSet.add(k)));
+      const headers = Array.from(headerSet);
+
+      const csvRows = [headers.join(',')];
+      rows.forEach(r => {
+        const rowData = headers.map(h => {
+          let val = r[h] ?? '';
+          if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+            val = `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        });
+        csvRows.push(rowData.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      try {
+        await interaction.reply({
+          content: 'Attached is the full squadron data as a CSV file.',
+          files: [{ attachment: Buffer.from(csvContent, 'utf8'), name: `squadron-data-${ts}.csv` }],
+        });
+      } catch (e) {
+        console.error('Failed to send CSV:', e);
+        await interaction.reply({ content: 'Failed to send CSV file.', flags: MessageFlags.Ephemeral });
+      }
+      return;
+    }
+
     const cfg = getLowPointsConfig ? getLowPointsConfig() : { threshold: 1300 };
 
     // Sort rows by Personal clan rating desc

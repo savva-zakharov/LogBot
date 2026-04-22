@@ -61,6 +61,11 @@ module.exports = {
         type: 1,
         name: 'embed',
         description: 'Send the list as an embed',
+      },
+      {
+        type: 1,
+        name: 'csv',
+        description: 'Send the list as a CSV file',
       }
     ],
   },
@@ -89,10 +94,41 @@ module.exports = {
         timeBreakdown: p.time || {}
       };
     })
-    .sort((a, b) => b.totalSeconds - a.totalSeconds)
-    .slice(0, 128);
+    .sort((a, b) => b.totalSeconds - a.totalSeconds);
 
-    const tableData = list.map((x, i) => {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (sub === 'csv') {
+      const headers = ['Pos', 'Name', 'TotalSeconds', ...categories];
+      const csvRows = [headers.join(',')];
+      
+      list.forEach((x, i) => {
+        const rowData = [
+          i + 1,
+          `"${x.name.replace(/"/g, '""')}"`,
+          x.totalSeconds
+        ];
+        categories.forEach(cat => {
+          rowData.push(x.timeBreakdown[cat] || 0);
+        });
+        csvRows.push(rowData.join(','));
+      });
+      
+      const csvContent = csvRows.join('\n');
+      try {
+        await interaction.reply({
+          content: 'Attached is the Time Leaderboard as a CSV file.',
+          files: [{ attachment: Buffer.from(csvContent, 'utf8'), name: `timeleaderboard-${ts}.csv` }],
+        });
+      } catch (e) {
+        console.error('Failed to send CSV:', e);
+        await interaction.reply({ content: 'Failed to send CSV file.', flags: MessageFlags.Ephemeral });
+      }
+      return;
+    }
+
+    const limitedList = list.slice(0, 128);
+    const tableData = limitedList.map((x, i) => {
       const row = {
         pos: i + 1,
         name: sanitizeUsername(x.name).slice(0, 15),
@@ -110,7 +146,6 @@ module.exports = {
     const fieldOrder = ["pos", "name", "total", ...categories];
     const text = formatTable(tableData, "Time Leaderboard", fieldHeaders, fieldOrder, false);
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `timeleaderboard-${ts}.txt`;
 
     if (sub === 'file') {
