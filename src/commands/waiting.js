@@ -42,7 +42,7 @@ module.exports = {
     description: 'Show members waiting in the configured voice channel with time and squadron rating',
   },
   async execute(interaction) {
-    const waiters = waitingTracker.getWaiting('waiting');
+    const waiters = waitingTracker.getWaiting("waiting");
     if (!Array.isArray(waiters) || waiters.length === 0) {
       await interaction.reply({ content: 'No one is currently waiting.', flags: MessageFlags.Ephemeral });
       return;
