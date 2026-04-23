@@ -42,7 +42,7 @@ module.exports = {
     description: 'Show members waiting in the configured voice channel with time and squadron rating',
   },
   async execute(interaction) {
-    const waiters = waitingTracker.getWaiting();
+    const waiters = waitingTracker.getWaiting('waiting');
     if (!Array.isArray(waiters) || waiters.length === 0) {
       await interaction.reply({ content: 'No one is currently waiting.', flags: MessageFlags.Ephemeral });
       return;
@@ -139,8 +139,8 @@ module.exports = {
       return obj;
     });
 
-    const fieldHeaders = ["Pos", "Name", "Track", "Time", "Pts", "Cont"];
-    const fieldOrder = ["pos", "name", "track", "time", "rating", "contribution"];
+    const fieldHeaders = ["Pos", "Name", "Time", "Pts", "Cont"];
+    const fieldOrder = ["pos", "name", "time", "rating", "contribution"];
     const text = formatTableLight(tableData, null, fieldHeaders, fieldOrder);
 
     const embed = new EmbedBuilder()

@@ -63,6 +63,7 @@ const {
 // Import external dependencies
 const { loadSettings } = require('./config');
 const { autoIssueAfterSnapshot } = require('./lowPointsIssuer');
+const waitingTracker = require('./waitingTracker');
 
 // Constants
 const POLL_INTERVAL_MS = 60_000;
@@ -417,15 +418,25 @@ async function startSquadronTracker() {
               if (typeof clearByKey === 'function') clearByKey(getSession().windowKey);
             } catch (_) {}
             try { appendEvent({ type: 'session_reset', reason: 'window_end', windowKey: getSession().windowKey, dateKey: getSession().dateKey }); } catch (_) {}
+            
+            // Finalize waiting tracker times at session end
+            try { waitingTracker.finalizeAll(); } catch (_) {}
+            
             clearSessionAtWindowEnd();
           }
           
           // Handle new window start
           if (activeWindow && getSession().windowKey !== activeWindow.key) {
+            // Finalize any lingering tracks before starting new session
+            try { waitingTracker.finalizeAll(); } catch (_) {}
+
             resetSquadronSession(activeWindow, 
               (prevTotal != null ? prevTotal : (newTotal != null ? newTotal : null)),
               (prev?.squadronPlace != null ? prev.squadronPlace : (snapshot.squadronPlace != null ? snapshot.squadronPlace : null))
             );
+            
+            // Seed waiting tracker for the new session
+            try { waitingTracker.seed(); } catch (_) {}
             
             try {
               if (getSession().startingPoints != null) {

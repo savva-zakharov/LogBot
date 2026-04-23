@@ -54,6 +54,70 @@ function getTrackForChannel(channel) {
   return null;
 }
 
+function isSessionActive() {
+  const now = new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  // US window: 02:00–10:00 UTC (120 to 600 mins)
+  // EU window: 14:00–22:00 UTC (840 to 1320 mins)
+  return (mins >= 120 && mins < 600) || (mins >= 840 && mins < 1320);
+}
+
+function finalizeAll() {
+  const now = Date.now();
+  if (options.debug) console.log(`[WaitingTracker] Finalizing all ${waiting.size} active tracks.`);
+  for (const [userId, rec] of waiting.entries()) {
+    try {
+      const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
+      if (seconds > 0) {
+        // We need to resolve the member to record time
+        const guild = clientRef.guilds.cache.get(rec.guildId) || clientRef.guilds.cache.first();
+        if (guild) {
+          const member = guild.members.cache.get(userId);
+          if (member) {
+            recordTime(member, seconds, rec.trackName);
+          }
+        }
+      }
+    } catch (e) {
+      if (options.debug) console.error(`[WaitingTracker] Error finalizing for user ${userId}:`, e);
+    }
+  }
+  waiting.clear();
+}
+
+function seed() {
+  if (!clientRef) return;
+  try {
+    if (!isSessionActive()) {
+      if (options.debug) console.log('ℹ️ WaitingTracker: session not active; skipping seed.');
+      return;
+    }
+    let added = 0;
+    const guilds = clientRef.guilds.cache;
+    for (const [, guild] of guilds) {
+      try {
+        const channels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 13)); // GuildVoice or GuildStageVoice
+        for (const [, ch] of channels) {
+          const trackName = getTrackForChannel(ch);
+          if (!trackName) continue;
+
+          for (const [, gm] of ch.members) {
+            try {
+              if (!options.trackBots && gm.user?.bot) continue;
+              if (typeof options.exemptMembers === 'function' && options.exemptMembers(gm)) continue;
+              if (!waiting.has(gm.id)) {
+                waiting.set(gm.id, { joinedAt: Date.now(), trackName: trackName, channelId: ch.id, guildId: guild.id });
+                added++;
+              }
+            } catch (_) { }
+          }
+        }
+      } catch (_) { }
+    }
+    if (options.debug || added) console.log(`ℹ️ WaitingTracker: seeded ${added} member(s) currently in tracked channels.`);
+  } catch (_) { }
+}
+
 function init(client, masks, opts = {}) {
   clientRef = client;
   targetMasks = Array.isArray(masks) ? masks : (masks ? [String(masks)] : []);
@@ -100,8 +164,8 @@ function init(client, masks, opts = {}) {
         }
       }
 
-      // Start new track
-      if (newTrack) {
+      // Start new track - ONLY if session is active
+      if (newTrack && isSessionActive()) {
         // Exempt checks
         if (member) {
           if (!options.trackBots && member.user?.bot) return;
@@ -112,7 +176,7 @@ function init(client, masks, opts = {}) {
         }
 
         if (options.debug) console.log(`[WaitingTracker] join ${newTrack}: ${userId} at ${now}`);
-        waiting.set(userId, { joinedAt: now, trackName: newTrack, channelId: newCh.id });
+        waiting.set(userId, { joinedAt: now, trackName: newTrack, channelId: newCh.id, guildId: newState?.guild?.id });
       }
     } catch (e) {
       if (options.debug) console.error('[WaitingTracker] Error in voiceStateUpdate:', e);
@@ -121,37 +185,13 @@ function init(client, masks, opts = {}) {
 
   console.log(`✅ WaitingTracker: tracking voice masks [${targetMasks.join(', ')}]`);
 
-  // Seed existing members currently in tracked channels
-  ; (async () => {
-    try {
-      let added = 0;
-      const guilds = clientRef.guilds.cache;
-      for (const [, guild] of guilds) {
-        try {
-          const channels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 13)); // GuildVoice or GuildStageVoice
-          for (const [, ch] of channels) {
-            const trackName = getTrackForChannel(ch);
-            if (!trackName) continue;
-
-            for (const [, gm] of ch.members) {
-              try {
-                if (!options.trackBots && gm.user?.bot) continue;
-                if (typeof options.exemptMembers === 'function' && options.exemptMembers(gm)) continue;
-                if (!waiting.has(gm.id)) {
-                  waiting.set(gm.id, { joinedAt: Date.now(), trackName: trackName, channelId: ch.id });
-                  added++;
-                }
-              } catch (_) { }
-            }
-          }
-        } catch (_) { }
-      }
-      if (options.debug || added) console.log(`ℹ️ WaitingTracker: seeded ${added} member(s) currently in tracked channels.`);
-    } catch (_) { }
-  })();
+  // Seed existing members currently in tracked channels if session is active
+  seed();
 
   return { enabled: true };
 }
+
+
 
 function recordTime(member, seconds, trackName) {
   if (seconds <= 0 || !member) return;
@@ -256,12 +296,15 @@ function setTargetChannelId(channelId) {
   targetMasks = channelId ? [String(channelId)] : [];
 }
 
-function getWaiting() {
+function getWaiting(channelName) {
+  const trackName = String(channelName || '').trim();
   const now = Date.now();
   const arr = [];
   for (const [userId, rec] of waiting.entries()) {
     const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
-    arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
+    if (rec.trackName.toLowerCase().includes('trackName) && seconds > 0) {
+      arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
+    }
   }
   // sort by longest waiting first
   arr.sort((a, b) => b.seconds - a.seconds);
@@ -278,4 +321,4 @@ function setTargetMasks(masks) {
   targetMasks = Array.isArray(masks) ? masks : (masks ? [String(masks)] : []);
 }
 
-module.exports = { init, setTargetChannelId, setTargetMasks, getWaiting };
+module.exports = { init, setTargetChannelId, setTargetMasks, getWaiting, finalizeAll, seed };
