@@ -302,7 +302,7 @@ function getWaiting(channelName) {
   const arr = [];
   for (const [userId, rec] of waiting.entries()) {
     const seconds = Math.max(0, Math.floor((now - rec.joinedAt) / 1000));
-    if (rec.trackName.toLowerCase().includes('trackName) && seconds > 0) {
+    if (rec.trackName.toLowerCase().includes(trackName) && seconds > 0) {
       arr.push({ userId, seconds, trackName: rec.trackName, channelId: rec.channelId });
     }
   }
