@@ -9,9 +9,17 @@ const useEmbed = true;
 const useTable = true;
 const showContribution = false;
 const embedColor = 0xd0463c;
-function readLatestSquadronSnapshot() {
+function readLatestSquadronSnapshot(dateStr = null) {
   try {
-    const file = path.join(process.cwd(), 'squadron_data.json');
+    let file;
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      file = path.join(process.cwd(), 'logs', `squadron_data-${dateStr}.json`);
+    } else {
+      file = path.join(process.cwd(), 'squadron_data.json');
+    }
+
+    if (!fs.existsSync(file)) return null;
+
     const raw = fs.readFileSync(file, 'utf8');
     const obj = JSON.parse(raw);
     // Legacy array format
@@ -61,19 +69,40 @@ module.exports = {
         type: 1, // SUB_COMMAND
         name: 'file',
         description: 'Send the list as a file attachment',
-        required: false,
+        options: [
+          {
+            type: 3, // STRING
+            name: 'date',
+            description: 'Optional date in yyyy-mm-dd format',
+            required: false,
+          }
+        ]
       },
       {
         type: 1,
         name: 'embed',
         description: 'Send the list as an embed',
-        required: false,
+        options: [
+          {
+            type: 3, // STRING
+            name: 'date',
+            description: 'Optional date in yyyy-mm-dd format',
+            required: false,
+          }
+        ]
       },
       {
         type: 1,
         name: 'csv',
         description: 'Send all squadron data as a CSV file',
-        required: false,
+        options: [
+          {
+            type: 3, // STRING
+            name: 'date',
+            description: 'Optional date in yyyy-mm-dd format',
+            required: false,
+          }
+        ]
       }
     ],
   },
@@ -81,16 +110,20 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const snap = readLatestSquadronSnapshot();
+    const dateInput = interaction.options.getString('date');
+    const snap = readLatestSquadronSnapshot(dateInput);
     const rows = (snap && snap.data && Array.isArray(snap.data.rows) && snap.data.rows.length)
       ? snap.data.rows
       : (Array.isArray(snap?.rows) ? snap.rows : []); // legacy fallback
     if (!snap || rows.length === 0) {
-      await interaction.reply({ content: 'No squadron data available yet. Please try again later.', flags: MessageFlags.Ephemeral });
+      const msg = dateInput 
+        ? `No squadron data available for date: ${dateInput}. Please ensure the format is yyyy-mm-dd.` 
+        : 'No squadron data available yet. Please try again later.';
+      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
       return;
     }
     
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const ts = dateInput || new Date().toISOString().replace(/[:.]/g, '-');
 
     if (sub === 'csv') {
       // Get all unique keys for headers
@@ -113,7 +146,7 @@ module.exports = {
       const csvContent = csvRows.join('\n');
       try {
         await interaction.reply({
-          content: 'Attached is the full squadron data as a CSV file.',
+          content: `Attached is the full squadron data ${dateInput ? `for ${dateInput}` : 'from the latest snapshot'} as a CSV file.`,
           files: [{ attachment: Buffer.from(csvContent, 'utf8'), name: `squadron-data-${ts}.csv` }],
         });
       } catch (e) {
@@ -127,7 +160,7 @@ module.exports = {
 
     // Sort rows by Personal clan rating desc
     const list = [...rows]
-      .map(r => ({ r, rating: toNumber(r['Points'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
+      .map(r => ({ r, rating: toNumber(r['Points'] ?? r['Personal clan rating'] ?? r.rating), name: r.Player || r.player || 'Unknown' }))
       .sort((a, b) => b.rating - a.rating)
       .slice(0, 128);
 
@@ -210,10 +243,7 @@ module.exports = {
       text = lines.join('\n');
     }
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const name = `top128-${ts}.txt`;
-
-    const file = interaction.options.getBoolean('file');
 
     if (sub === 'file') {
       try {
@@ -226,24 +256,12 @@ module.exports = {
       }
     } else if (sub === 'embed') {
       try {
-        // Fallback: chunk into code blocks if file sending fails
-        let blocks;
-        if (text.length < 4000) {
-          const embed = new EmbedBuilder()
-            .setTitle('Top 128')
-            .setDescription('```ansi\n' + text + '\n```')
-            .setColor(embedColor)
-            .setTimestamp(new Date());
-
-          await interaction.reply({ embeds: [embed] });
-        } else {
-          blocks = chunkIntoCodeBlocks(text);
-        } 
+        const blocks = chunkIntoCodeBlocks(text);
 
         if (blocks.length === 1) {
           const embed = new EmbedBuilder()
             .setTitle('Top 128')
-            .setDescription('```ansi\n' + blocks[0] + '\n```')
+            .setDescription(blocks[0])
             .setColor(embedColor)
             .setTimestamp(new Date());
 
@@ -254,8 +272,7 @@ module.exports = {
             .setTitle('Top 128')
             .setColor(embedColor)
             .setTimestamp(new Date())
-            .addFields(fields)
-            ;
+            .addFields(fields);
           await interaction.reply({ embeds: [embed] });
         }
       } catch (_) {
