@@ -1,28 +1,84 @@
 const fs = require('fs');
 const path = require('path');
+const { loadSettings } = require('../config');
 const { MessageFlags, AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 const { fuseMatch, toNumber } = require('../nameMatch');
 
+function getSeasonRange(seasonInput = null) {
+  if (seasonInput && /^\d{4}-[1-6]$/.test(seasonInput)) {
+    const [year, s] = seasonInput.split('-').map(Number);
+    const startMonth = (s - 1) * 2;
+    const endMonth = s * 2 - 1;
+    
+    const start = new Date(year, startMonth, 2);
+    // End is the 1st day of the month AFTER the end month.
+    const end = new Date(year, endMonth + 1, 1, 23, 59, 59);
+    
+    return { start, end, label: `Season ${seasonInput}` };
+  }
+
+  const settings = loadSettings();
+  const schedule = settings.seasonSchedule;
+  if (schedule && typeof schedule === 'object') {
+    const entries = Object.values(schedule);
+    if (entries.length > 0) {
+      let start = null;
+      let end = null;
+      for (const entry of entries) {
+        if (entry.startDate) {
+          const s = new Date(entry.startDate);
+          if (!start || s < start) start = s;
+        }
+        if (entry.endDate) {
+          const e = new Date(entry.endDate);
+          if (!end || e > end) end = e;
+        }
+      }
+      if (start && end) return { start, end, label: 'Current Season' };
+    }
+  }
+
+  // Fallback to 2 months
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - 2);
+  return { start, end, label: 'Past 2 Months' };
+}
+
 module.exports = {
   data: {
     name: 'season',
-    description: 'Show graphs of squadron or player performance for the past 2 months',
+    description: 'Show graphs of squadron or player performance',
     options: [
       {
         type: 1, // SUB_COMMAND
         name: 'graph',
-        description: 'Generate a line graph of squadron points and rank for the past 2 months',
+        description: 'Generate a line graph of squadron points and rank',
+        options: [
+          {
+            type: 3, // STRING
+            name: 'season',
+            description: 'Optional season in YYYY-S format (e.g., 2026-1 for Jan-Feb)',
+            required: false,
+          }
+        ]
       },
       {
         type: 1, // SUB_COMMAND
         name: 'player',
-        description: 'Generate a line graph of a player\'s points for the past 2 months',
+        description: 'Generate a line graph of a player\'s points',
         options: [
           {
             type: 3, // STRING
             name: 'name',
             description: 'Player name to look up (optional, defaults to you)',
+            required: false,
+          },
+          {
+            type: 3, // STRING
+            name: 'season',
+            description: 'Optional season in YYYY-S format (e.g., 2026-1 for Jan-Feb)',
             required: false,
           }
         ]
@@ -32,6 +88,7 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
+    const seasonInput = interaction.options.getString('season');
     
     await interaction.deferReply();
 
@@ -43,8 +100,8 @@ module.exports = {
 
       const files = fs.readdirSync(logsDir).filter(f => f.startsWith('squadron_data-') && f.endsWith('.json'));
       
-      const twoMonthsAgo = new Date();
-      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      const range = getSeasonRange(seasonInput);
+      const timeframeStr = range.label;
 
       if (sub === 'graph') {
         const dataPoints = [];
@@ -54,7 +111,7 @@ module.exports = {
           if (!dateMatch) continue;
 
           const fileDate = new Date(dateMatch[1]);
-          if (fileDate < twoMonthsAgo) continue;
+          if (fileDate < range.start || fileDate > range.end) continue;
 
           try {
             const raw = fs.readFileSync(path.join(logsDir, file), 'utf8');
@@ -73,7 +130,7 @@ module.exports = {
         }
 
         if (dataPoints.length < 2) {
-          return interaction.editReply('Not enough data points found in the last 2 months to generate a graph.');
+          return interaction.editReply(`Not enough data points found for the ${timeframeStr} to generate a graph.`);
         }
 
         dataPoints.sort((a, b) => a.date.localeCompare(b.date));
@@ -149,7 +206,7 @@ module.exports = {
               },
               title: {
                 display: true,
-                text: 'Squadron Performance (Past 2 Months)',
+                text: `Squadron Performance (${timeframeStr})`,
                 color: '#ffffff',
                 font: { size: 18 }
               }
@@ -161,7 +218,7 @@ module.exports = {
         const attachment = new AttachmentBuilder(image, { name: 'season-graph.png' });
 
         await interaction.editReply({
-          content: `Season performance graph for the past 2 months (${dataPoints.length} data points).`,
+          content: `Season performance graph for the ${timeframeStr} (${dataPoints.length} data points).`,
           files: [attachment]
         });
 
@@ -177,7 +234,7 @@ module.exports = {
           if (!dateMatch) continue;
 
           const fileDate = new Date(dateMatch[1]);
-          if (fileDate < twoMonthsAgo) continue;
+          if (fileDate < range.start || fileDate > range.end) continue;
 
           try {
             const raw = fs.readFileSync(path.join(logsDir, file), 'utf8');
@@ -206,7 +263,7 @@ module.exports = {
         }
 
         if (dataPoints.length < 2) {
-          return interaction.editReply(`Not enough data points found for \`${targetName}\` in the last 2 months.`);
+          return interaction.editReply(`Not enough data points found for \`${targetName}\` in the ${timeframeStr}.`);
         }
 
         dataPoints.sort((a, b) => a.date.localeCompare(b.date));
@@ -258,7 +315,7 @@ module.exports = {
               },
               title: {
                 display: true,
-                text: `Player Performance: ${resolvedPlayerName || targetName} (Past 2 Months)`,
+                text: `Player Performance: ${resolvedPlayerName || targetName} (${timeframeStr})`,
                 color: '#ffffff',
                 font: { size: 18 }
               }
@@ -270,7 +327,7 @@ module.exports = {
         const attachment = new AttachmentBuilder(image, { name: `player-graph-${targetName}.png` });
 
         await interaction.editReply({
-          content: `Points graph for **${resolvedPlayerName || targetName}** over the past 2 months (${dataPoints.length} data points).`,
+          content: `Points graph for **${resolvedPlayerName || targetName}** over the ${timeframeStr} (${dataPoints.length} data points).`,
           files: [attachment]
         });
       }
