@@ -948,28 +948,43 @@ async function runScheduledUpdate() {
 function setupScheduledTasks() {
   const settings = loadSettings();
   const scheduledTasksConfig = settings.scheduledTasks || {};
-  const updatebotConfig = scheduledTasksConfig.updatebot || {};
   
-  // Default configuration
-  const enabled = updatebotConfig.enabled !== false; // default true
-  const cronExpression = updatebotConfig.cron || '0 0 0 * * *';
-  const timezone = updatebotConfig.timezone || 'UTC';
-  
-  if (!enabled) {
-    console.log('ℹ️ Scheduled updatebot task is disabled in settings');
-    return { updateTask: null };
-  }
-  
-  // Run updatebot based on cron schedule
-  const updateTask = cron.schedule(cronExpression, () => {
-    runScheduledUpdate();
-  }, {
-    scheduled: true,
-    timezone: timezone
-  });
+  const tasks = {};
 
-  console.log(`✅ Scheduled tasks initialized: updatebot runs at "${cronExpression}" (${timezone})`);
-  return { updateTask };
+  // updatebot task
+  const updatebotConfig = scheduledTasksConfig.updatebot || {};
+  const updatebotEnabled = updatebotConfig.enabled !== false; // default true
+  if (updatebotEnabled) {
+    const cronExpression = updatebotConfig.cron || '0 0 0 * * *';
+    const timezone = updatebotConfig.timezone || 'UTC';
+    tasks.updateTask = cron.schedule(cronExpression, () => {
+      runScheduledUpdate();
+    }, { scheduled: true, timezone });
+    console.log(`✅ Scheduled updatebot task initialized: "${cronExpression}" (${timezone})`);
+  } else {
+    console.log('ℹ️ Scheduled updatebot task is disabled in settings');
+  }
+
+  // fetchsqbbr task
+  const fetchsqbbrConfig = scheduledTasksConfig.fetchsqbbr || {};
+  const fetchsqbbrEnabled = fetchsqbbrConfig.enabled === true; // default false
+  if (fetchsqbbrEnabled) {
+    const { fetchSeasonSchedule } = require('./fetchsqbbr');
+    const cronExpression = fetchsqbbrConfig.cron || '0 30 0 * * *'; // Default 00:30 daily
+    const timezone = fetchsqbbrConfig.timezone || 'UTC';
+    tasks.fetchsqbbrTask = cron.schedule(cronExpression, async () => {
+      console.log('[Scheduled Fetch] Starting daily season schedule update...');
+      try {
+        await fetchSeasonSchedule();
+        console.log('[Scheduled Fetch] Season schedule updated successfully.');
+      } catch (e) {
+        console.error('[Scheduled Fetch] Failed to update season schedule:', e);
+      }
+    }, { scheduled: true, timezone });
+    console.log(`✅ Scheduled fetchsqbbr task initialized: "${cronExpression}" (${timezone})`);
+  }
+
+  return tasks;
 }
 
 module.exports = { init, postMergedSummary, postWinLossNotice, sendMessage, sendWinLossMessage, getClient, setDiscordChannel, reconfigureWaitingVoiceChannel, reconfigureWaitingVoiceChannels, setLogsChannel, setWinLossChannel, postOrEditWinLossByKey, clearWinLossByKey, setupScheduledTasks };

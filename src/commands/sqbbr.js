@@ -3,6 +3,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { getTodaysBr } = require('../utils/brHelper');
+const { fetchSeasonSchedule } = require('../fetchsqbbr');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,7 +15,17 @@ module.exports = {
       
       await interaction.deferReply({ ephemeral: false });
       // Resolve today's BR via helper shared across features
-      const todaysBr = getTodaysBr();
+      let todaysBr = getTodaysBr();
+
+      // If BR is unknown, try to update the season schedule from the forum
+      if (!todaysBr) {
+        try {
+          await fetchSeasonSchedule();
+          todaysBr = getTodaysBr();
+        } catch (fetchError) {
+          console.error('Failed to auto-update season schedule:', fetchError);
+        }
+      }
 
       // Prefer a plaintext file in project root for easy editing
       const txtPath = path.join(process.cwd(), 'sqbbr.txt');

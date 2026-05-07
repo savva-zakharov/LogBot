@@ -86,6 +86,11 @@ function loadSettings() {
         enabled: true,
         cron: '0 0 0 * * *',
         timezone: 'UTC'
+      },
+      fetchsqbbr: {
+        enabled: true,
+        cron: '0 30 0 * * *',
+        timezone: 'UTC'
       }
     }
   };
@@ -190,6 +195,11 @@ function ensureExternalSettings() {
           updatebot: {
             enabled: true,
             cron: '0 0 0 * * *',
+            timezone: 'UTC'
+          },
+          fetchsqbbr: {
+            enabled: true,
+            cron: '0 30 0 * * *',
             timezone: 'UTC'
           }
         }
