@@ -79,6 +79,15 @@ async function fetchSeasonSchedule() {
       throw new Error('Parsed zero schedule entries. The forum format might have changed.');
     }
     
+    // Save the raw forum text to sqbbr.txt for the /sqbbr command to use
+    try {
+      const sqbbrTxtPath = path.join(process.cwd(), 'sqbbr.txt');
+      await fs.writeFile(sqbbrTxtPath, textContent, 'utf8');
+      console.log('sqbbr.txt updated with full forum text');
+    } catch (txtErr) {
+      console.error('Failed to save sqbbr.txt:', txtErr);
+    }
+    
     // Read existing settings
     const settingsPath = path.join(process.cwd(), 'settings.json');
     let settings = {};
