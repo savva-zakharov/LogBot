@@ -11,8 +11,12 @@ A Discord bot for War Thunder that monitors player logs and calculates squadron 
 - Tracks incident-free days
 - Displays squadron leaderboards and rankings
 
-## Setup
+## Setup of the discord bot
 
+- Install node.js and git on your system
+- use **git clone** (url) to download the source code
+- use **npm install** inside the LogBot directory to install all the necessary JavaScript Dependancies
+- simplest way to run is using **npx nodemon index.js --server**. This will run a demon that will automatically restart teh application as necessary.
 - On first run, the app will take you through a setup wizard that will ask for your Discord bot details, War Thunder squadron details and player details.
 - The setup can be rerun at any time using the `--setup` argument.
 
